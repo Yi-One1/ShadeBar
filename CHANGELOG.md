@@ -4,6 +4,45 @@ All notable changes to 随影 ShadeBar are documented here. The version is a sin
 source of truth in `Cargo.toml` (`[workspace.package] version`), also used for the
 artifact filename, the About page and the exe VERSIONINFO (FR-16 / A-16).
 
+## [1.1.2]
+
+### Fixed
+
+- **常驻 CPU 超标**（NFR-03 要求 ≤ 0.1%，实测 1.10%）。三处改动：
+  - **分区采样改为一次 `BitBlt` + 内存取值**：原实现用 `GetPixel` 逐点读屏幕，
+    每拍约 864 次调用；`GetPixel` 在 DWM 合成画面上要读回 GPU 表面，单次开销极高。
+    改为从**屏幕 DC**一次抓到复用 DIB（注意不是窗口 DC——抓窗口拿到的不是
+    TranslucentTB 模糊后的合成结果，v1.0.0 在此踩过判定反转），像素口径与步长不变。
+  - **托盘图标只在判定色变化时刷新**：此前 1 Hz 无条件重建 HICON 并走
+    `Shell_NotifyIcon`（过 explorer IPC），颜色没变也照刷。
+  - **窗口隐藏时跳过视图重建**：`WM_SHADEBAR_DIAG` 每 1 Hz 重建整棵视图（文案/布局/诊断串），
+    窗口不可见时纯属浪费；重新显示时 `paint` 会自行 `sync_view`，不会显示过期内容。
+- **常驻内存严重超标**（NFR-02 要求工作集 ≤ 20 MB，实测 92.7 MB）。三项叠加改动：
+  - **渲染上下文按需创建**：此前在 `create_main_window` 里就建 `ID2D1HwndRenderTarget`，
+    而它一创建就会拉起整条 D3D11/DXGI 设备栈。改为首次 `WM_PAINT` 时才建，
+    用户从不打开设置页就永远不付这笔钱。
+  - **隐藏到托盘即释放**：`hide_to_tray` 现在把渲染上下文置空，从托盘恢复时重建。
+    实测反复开关 10 轮不累积（4.99 → 7.72 MB，后期趋平）。
+  - **设置页改用软件渲染**（`D2D1_RENDER_TARGET_TYPE_SOFTWARE`）：界面是静态页，
+    硬件光栅没有收益，却要多占约 20 MB。真机截图确认文字、控件、分组卡片渲染正常。
+- **退出还原会把选中态指示条写成正常态颜色**：
+  `g_restore.indSelected` 全文件从未被赋值（选中态在 `ApplyColors` 里直接跳过），
+  且 `RestoreAll` 用 `Width` 判定两态——而 `Width` 实测是字符串 `"Auto"`，判定必然失败。
+  表现为退出随影时若某图标正处于选中态，短条从系统强调色变成暗灰。
+  现在选中态也会缓存原色，两处判据统一为 `ActualWidth`。
+  真机日志：`[Restore] restored=24 (cache ... n=72000000 s=FF0078D4)`，修复前 `s` 恒为 `00000000`。
+
+### 实测对比（真机，同一台机器）
+
+| 状态 | 1.1.1 | 1.1.2 |
+|---|---|---|
+| 启动（窗口显示）工作集 / 私有 | 92.7 / 65.9 MB | 30.2 / 11.5 MB |
+| 收进托盘 60 s 工作集 / 私有 | 92.9 / 65.8 MB | 1.8 / 4.9 MB |
+| 常驻 CPU（托盘态） | 1.18% | **0.052%** |
+| 页错误 | 370 /s | 160 /s |
+
+> 版本判定：PATCH。只修用户可感知的资源占用与还原错误，不新增能力、不改配置格式。
+
 ## [1.1.1]
 
 ### Fixed

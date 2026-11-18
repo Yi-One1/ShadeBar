@@ -58,6 +58,12 @@ pub struct TrayIcon {
     added: bool,
     /// 当前图标（`NIM_MODIFY` 换图标时销毁旧的）。
     icon: Option<HICON>,
+    /// 上一次成功呈现的外观参数。
+    ///
+    /// 采样线程 1 Hz 触发一次刷新，但图标只在**判定色/色点/降级态**变化时才需要变。
+    /// 不做这个缓存的话，每秒都要重建一次 HICON 并走一次 `Shell_NotifyIcon`
+    /// （要过 explorer 的 IPC），实测常驻 CPU 因此被顶到 1% 以上（NFR-03 要求 ≤ 0.1%）。
+    last_look: Option<(Rgba, bool, bool, Lang)>,
 }
 
 impl TrayIcon {
@@ -70,7 +76,11 @@ impl TrayIcon {
         degraded: bool,
         lang: Lang,
     ) -> Self {
-        let mut tray = Self { added: false, icon: None };
+        let mut tray = Self {
+            added: false,
+            icon: None,
+            last_look: None,
+        };
         tray.refresh(hwnd, decision, show_dot, degraded, lang, true);
         tray
     }
@@ -86,6 +96,12 @@ impl TrayIcon {
         first: bool,
     ) {
         let color = decision.unwrap_or(Rgba::opaque(255, 255, 255));
+        // 外观没变就不碰系统：`Shell_NotifyIcon` 要过 explorer 的 IPC，
+        // 每秒一次足以把常驻 CPU 顶到 1% 以上。
+        let look = (color, show_dot, degraded, lang);
+        if !first && self.added && self.last_look == Some(look) {
+            return;
+        }
         let Some(new_icon) = make_icon(color, show_dot, degraded) else {
             return;
         };
@@ -103,6 +119,7 @@ impl TrayIcon {
         let ok = unsafe { Shell_NotifyIconW(if first { NIM_ADD } else { NIM_MODIFY }, &data) };
         if ok.as_bool() {
             self.added = true;
+            self.last_look = Some(look);
             if let Some(old) = self.icon.take() {
                 // SAFETY: old 由 CreateIconIndirect 创建，只在此处销毁一次。
                 unsafe { DestroyIcon(old) }.ok();
@@ -127,6 +144,8 @@ impl TrayIcon {
             // SAFETY: 同上。
             unsafe { DestroyIcon(icon) }.ok();
         }
+        // 移除后下次 refresh 必须真正重建，不能命中"外观未变"的短路。
+        self.last_look = None;
     }
 
     /// 首启气泡引导用户开启自启（S-02 默认关）。

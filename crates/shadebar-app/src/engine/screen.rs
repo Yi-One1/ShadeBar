@@ -254,6 +254,64 @@ impl GdiScreenSource {
         dst[..n].copy_from_slice(&src[..n]);
         Ok(())
     }
+
+    /// 抓**屏幕坐标**上的任意矩形（合成后的真实像素）。
+    ///
+    /// 与 [`Self::grab_window`] 的关键区别：这里从屏幕 DC 取像素，拿到的是
+    /// DWM 合成后的画面；抓窗口 DC 只能拿到该窗口 `WM_PAINT` 画出来的内容，
+    /// 任务栏被 TranslucentTB 模糊后两者并不相同（v1.0.0 因此踩过判定反转的坑）。
+    ///
+    /// 用途：任务栏分区采样。一次 `BitBlt` 取代逐像素 `GetPixel`——
+    /// 后者每次调用都要读回合成表面，每秒上千次足以把常驻 CPU 顶到 1% 以上。
+    ///
+    /// # Errors
+    ///
+    /// 尺寸为零、`GetDC` 或 `BitBlt` 失败时返回 [`SbError::BitBltFailed`]。
+    pub fn grab_screen_region(
+        &mut self,
+        x: i32,
+        y: i32,
+        w: u32,
+        h: u32,
+        buffer: &mut ScreenBuffer,
+    ) -> SbResult<()> {
+        if w == 0 || h == 0 {
+            return Err(SbError::BitBltFailed { code: 87 });
+        }
+        self.ensure(w, h)?;
+        buffer.ensure(w, h)?;
+        if self.fault_injection {
+            return Err(SbError::BitBltFailed { code: 87 });
+        }
+        self.blits = self.blits.saturating_add(1);
+
+        // SAFETY: screen_dc / mem_dc / dib 由 `ensure` 建立并保持有效。
+        let ret = unsafe {
+            BitBlt(
+                self.mem_dc,
+                0,
+                0,
+                w as i32,
+                h as i32,
+                self.screen_dc,
+                x,
+                y,
+                SRCCOPY,
+            )
+        };
+        ret.map_err(|_| SbError::BitBltFailed {
+            code: shadebar_core::win::last_error_code(),
+        })?;
+
+        // SAFETY: bits 指向 CreateDIBSection 分配的 w*h*4 字节。
+        let src = unsafe {
+            std::slice::from_raw_parts(self.bits, (w as usize).saturating_mul(h as usize) * 4)
+        };
+        let dst = buffer.as_bytes_mut();
+        let n = src.len().min(dst.len());
+        dst[..n].copy_from_slice(&src[..n]);
+        Ok(())
+    }
 }
 
 impl ScreenSource for GdiScreenSource {

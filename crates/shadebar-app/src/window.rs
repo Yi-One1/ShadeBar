@@ -27,12 +27,14 @@ use windows::Win32::Graphics::Dwm::{
     DwmGetWindowAttribute, DwmSetWindowAttribute, DWMWINDOWATTRIBUTE,
 };
 use windows::Win32::Graphics::Gdi::{BeginPaint, EndPaint, InvalidateRect, PAINTSTRUCT};
+use windows::Win32::System::Threading::{GetCurrentProcess, SetProcessWorkingSetSize};
 use windows::Win32::UI::HiDpi::GetDpiForWindow;
 use windows::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GetClientRect,
     GetMessageW, GetWindowLongPtrW, HMENU, IDC_ARROW, LoadCursorW, MINMAXINFO, MSG,
     PostQuitMessage, RegisterClassW, SetCursor, SetForegroundWindow, SetWindowLongPtrW,
-    SetWindowPos, ShowWindow, TranslateMessage, CS_HREDRAW, CS_VREDRAW, GWLP_USERDATA,
+    IsWindowVisible, SetWindowPos, ShowWindow, TranslateMessage, CS_HREDRAW, CS_VREDRAW,
+    GWLP_USERDATA,
     SW_HIDE, SW_SHOW, SWP_NOACTIVATE, SWP_NOZORDER, WM_CLOSE, WM_COMMAND, WM_DESTROY,
     WM_DPICHANGED, WM_ERASEBKGND, WM_GETMINMAXINFO, WM_PAINT, WM_SETTINGCHANGE, WM_SIZE,
     WNDCLASSW, WS_OVERLAPPEDWINDOW,
@@ -64,7 +66,13 @@ const ERROR_CLASS_ALREADY_EXISTS: u32 = 1410;
 
 /// 挂在 `GWLP_USERDATA` 上的窗口状态。
 struct WindowState {
-    ctx: RenderCtx,
+    /// 渲染上下文。**按需创建、隐藏即释放**（NFR-02）。
+    ///
+    /// `ID2D1HwndRenderTarget` 一创建就会隐式拉起 D3D11/DXGI 设备栈
+    /// （实测加载 `d3d11.dll` + `dxgi.dll`，私有内存约 50 MB）。
+    /// 设置页平时只是隐藏，若一直持有该上下文，一个"开了就忘"的托盘工具
+    /// 会白占 60 MB 以上。因此窗口隐藏时置 `None`，下次绘制再重建。
+    ctx: Option<RenderCtx>,
     mode: ThemeMode,
     view: View,
     app: Arc<App>,
@@ -135,10 +143,6 @@ pub fn create_main_window(app: Arc<App>) -> SbResult<HWND> {
         op: "GetClientRect",
         hr: e.code().0,
     })?;
-    let size_px = (
-        (client.right - client.left).max(1) as u32,
-        (client.bottom - client.top).max(1) as u32,
-    );
     let mode = ThemeMode::system();
     let cfg = app.config();
     let lang = app.language();
@@ -160,7 +164,9 @@ pub fn create_main_window(app: Arc<App>) -> SbResult<HWND> {
     );
 
     let state = Box::new(WindowState {
-        ctx: RenderCtx::new(hwnd, dpi, size_px)?,
+        // 不在这里建渲染上下文：D2D 的 HWND 目标会拉起 D3D11/DXGI 设备栈，
+        // 而首次 `WM_PAINT` 之前根本用不到它（且用户可能从不打开设置页）。
+        ctx: None,
         mode,
         view,
         app,
@@ -217,10 +223,23 @@ pub fn show_settings(hwnd: HWND) {
 }
 
 /// 最小化到托盘（A-09：进程仍在、托盘图标仍在）。
+///
+/// 同时丢弃渲染上下文。D2D 的 HWND 目标会拉起 D3D11/DXGI 设备栈，
+/// 窗口隐藏后这些资源毫无用处，却要白占约 50 MB 私有内存（NFR-02）。
+/// 下次显示时由 [`paint`] 按需重建。
 pub fn hide_to_tray(hwnd: HWND) {
-    // SAFETY: hwnd 有效。
+    // SAFETY: 与 wndproc 同一线程，指针由 GWLP_USERDATA 持有。
     unsafe {
+        if let Some(state) = state_mut(hwnd) {
+            state.ctx = None;
+        }
         let _ = ShowWindow(hwnd, SW_HIDE);
+        // 窗口隐藏后进程进入纯后台采样状态，把工作集里不再活跃的页交还系统。
+        // 传 (usize::MAX, usize::MAX) 是文档定义的「尽可能移除页面」语义。
+        // 注意：这是账面修剪，采样线程 1 s 后会按需把用到的页换回来；
+        // 真正省下来的资源来自上面的 `ctx = None`，这一步只是让托盘常驻时的
+        // 任务管理器读数不虚高。
+        let _ = SetProcessWorkingSetSize(GetCurrentProcess(), usize::MAX, usize::MAX);
     }
 }
 
@@ -395,7 +414,8 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRES
                     let mut client = RECT::default();
                     // SAFETY: hwnd 有效。
                     if GetClientRect(hwnd, &mut client).is_ok() {
-                        let dpi = state.ctx.dpi().max(96);
+                        // 渲染上下文可能尚未创建（惰性化），DPI 一律以窗口为准。
+                        let dpi = GetDpiForWindow(hwnd).max(96);
                         state.view.set_dpi(dpi);
                         state.view.set_client(
                             (client.right - client.left) as f32 * 96.0 / dpi as f32,
@@ -421,7 +441,9 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRES
                 let dpi = (wp.0 & 0xFFFF) as u32;
                 if let Some(state) = state_mut(hwnd) {
                     let old_dpi = state.view.dpi();
-                    let _ = state.ctx.set_dpi(dpi);
+                    if let Some(ctx) = state.ctx.as_mut() {
+                        let _ = ctx.set_dpi(dpi);
+                    }
                     state.view.set_dpi(dpi);
                     if old_dpi != dpi {
                         let _ = InvalidateRect(hwnd, None, false);
@@ -515,7 +537,13 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRES
             m if m == WM_SHADEBAR_DIAG => {
                 // 采样线程 1 Hz 通知：刷新诊断面板与 S-43 判定色点。
                 if let Some(state) = state_mut(hwnd) {
-                    state.app.sync_view(&mut state.view);
+                    // 窗口隐藏时没人看得见界面：跳过整棵视图的重建（文案/布局/诊断串）。
+                    // 重新显示时 `paint` 会自己 `sync_view`，不会显示过期内容。
+                    // SAFETY: hwnd 有效。
+                    let visible = IsWindowVisible(hwnd).as_bool();
+                    if visible {
+                        state.app.sync_view(&mut state.view);
+                    }
                     let cfg = state.app.config();
                     let lang = state.app.language();
                     // 托盘图标若首次 NIM_ADD 失败（例如 explorer 正在重启），
@@ -579,7 +607,7 @@ unsafe fn paint(hwnd: HWND) {
     if w_px <= 0 || h_px <= 0 {
         return;
     }
-    let dpi = state.ctx.dpi();
+    let dpi = unsafe { GetDpiForWindow(hwnd) }.max(96);
     let client_dip = (
         w_px as f32 * 96.0 / dpi as f32,
         h_px as f32 * 96.0 / dpi as f32,
@@ -589,12 +617,26 @@ unsafe fn paint(hwnd: HWND) {
     state.view.set_theme(state.mode);
     let mode = state.view.theme();
 
-    if state.ctx.begin_frame(w_px, h_px).is_err() {
+    // 惰性创建：`hide_to_tray` 每次都会释放上下文，从托盘恢复后在这里重建。
+    if state.ctx.is_none() {
+        match RenderCtx::new(hwnd, dpi, (w_px as u32, h_px as u32)) {
+            Ok(ctx) => state.ctx = Some(ctx),
+            // 建不起来就留白这一帧，下一次 WM_PAINT 再试，不要让窗口卡死。
+            Err(_) => return,
+        }
+    }
+    // 字段级分离借用：`view` 与 `ctx` 同属 `state`，必须拆开借。
+    let WindowState { ctx, view, .. } = state;
+    let Some(ctx) = ctx.as_mut() else {
+        return;
+    };
+
+    if ctx.begin_frame(w_px, h_px).is_err() {
         return;
     }
-    state.view.paint(&state.ctx, mode.palette(), mode);
+    view.paint(ctx, mode.palette(), mode);
     // 设备丢失（D2DERR_RECREATE_TARGET）时目标已重建，必须再画一帧。
-    if let Ok(true) = state.ctx.end_frame() {
+    if let Ok(true) = ctx.end_frame() {
         // SAFETY: hwnd 有效。
         let _ = unsafe { InvalidateRect(hwnd, None, false) };
     }

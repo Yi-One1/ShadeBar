@@ -7,9 +7,10 @@ Windows 11 任务栏**文字与图标自适应着色**工具。实时采样任�
 配合 TranslucentTB 使用：任务栏透明/模糊后，时钟、日期、托盘图标在浅色壁纸上
 容易糊成一片，在深色壁纸上又会发灰；随影按**当前这块背景**自动决定深浅。
 
-> **当前版本：v1.1.1**。相对 v1.0.0（只采样不落地）本版新增了真实的元素级着色能力：
+> **当前版本：v1.1.2**。相对 v1.0.0（只采样不落地）本版新增了真实的元素级着色能力：
 > 通过 TAP 注入 + XAML 诊断接口改写元素画刷，已在 Windows 11 26H2 Build 26300 真机验证。
 > 不修改系统主题、不改壁纸、不重启资源管理器。
+> v1.1.2 修掉了常驻内存超标：收进托盘后工作集约 **2 MB**（此前 92 MB）。
 
 ## 它能做什么
 
@@ -59,6 +60,8 @@ CoreDispatcher 编组到 XAML UI 线程 → IVisualTreeService::SetProperty 改�
 | 权限 | 普通用户（Medium IL），`asInvoker`，**全生命周期 UAC = 0** |
 | 网络 | 完全离线，无任何出站连接 |
 | 体积 | 单 exe **628 KB**（载荷 DLL 内嵌，运行时释放到 `%LOCALAPPDATA%\ShadeBar\`） |
+| 常驻内存 | 收进托盘约 **2 MB** 工作集 / 5 MB 私有；设置页打开时约 18 MB（NFR-02 要求 ≤ 20 MB） |
+| CPU | 托盘常驻 **0.05%**（NFR-03 要求 ≤ 0.1%） |
 
 ## 与其它工具共存
 
@@ -74,7 +77,7 @@ CoreDispatcher 编组到 XAML UI 线程 → IVisualTreeService::SetProperty 改�
 | 双击 / 无参数 | 单实例常驻托盘 + 采样线程 + 着色；连续双击进程数恒为 1 |
 | 右键托盘图标 | 打开设置 / 暂停自适应 / 开机自启动 / 导出诊断包 / 关于 / 退出 |
 | `--ui` | 直接打开设置窗口 |
-| `--version` | 打印 `随影 ShadeBar v1.1.1` |
+| `--version` | 打印 `随影 ShadeBar v1.1.2` |
 | `--help` | 打印用法 |
 
 设置页共 **28 项可见设置**（配置里保留 35 项编号，未落地的 7 项从 UI 收起但值不丢），
@@ -101,7 +104,7 @@ target/x86_64-pc-windows-msvc/release/shadebar-app.exe
 ```
 
 **顺序不能反**：`crates/shadebar-app/build.rs` 会读取 `payload/build/ShadeBarTap.dll`
-并计算内容指纹，指纹进入载荷文件名（`ShadeBarTap_v1.1.1_<hash>.dll`）。
+并计算内容指纹，指纹进入载荷文件名（`ShadeBarTap_v1.1.2_<hash>.dll`）。
 这样内容一变文件名就变，explorer 里不会因为「同名模块已加载」而静默跑旧代码。
 
 版本号只有 `Cargo.toml` 的 `[workspace.package] version` 一个来源，

@@ -27,6 +27,8 @@ use std::time::Duration;
 use shadebar_core::color::Rgba;
 
 use crate::config::{argb_to_rgba, Config, SettingKey};
+use crate::engine::screen::GdiScreenSource;
+use shadebar_core::engine::ScreenBuffer;
 
 // ---------------------------------------------------------------------------
 // 原始 FFI
@@ -79,14 +81,11 @@ mod raw {
     extern "system" {
         pub fn FindWindowW(class: *const u16, title: *const u16) -> Handle;
         pub fn GetWindowThreadProcessId(hwnd: Handle, pid: *mut u32) -> u32;
-        pub fn GetDC(hwnd: Handle) -> Handle;
-        pub fn ReleaseDC(hwnd: Handle, dc: Handle) -> i32;
         pub fn GetWindowRect(hwnd: Handle, rect: *mut [i32; 4]) -> i32;
     }
 
     #[link(name = "gdi32")]
     extern "system" {
-        pub fn GetPixel(dc: Handle, x: i32, y: i32) -> u32;
     }
 }
 
@@ -599,53 +598,6 @@ impl TaskbarRect {
         }
         Some(Self { left, top, right, bottom })
     }
-
-    /// 三段采样区（各自取宽度比例）。
-    #[must_use]
-    fn seg(&self, x0_pct: f32, x1_pct: f32) -> (i32, i32) {
-        let width = (self.right - self.left) as f32;
-        (
-            self.left + (width * x0_pct) as i32,
-            self.left + (width * x1_pct) as i32,
-        )
-    }
-
-    /// 单行采样带：任务栏顶边往下 3~7 px。
-    ///
-    /// 必须采**任务栏自身**的条带：TranslucentTB 透明/模糊后任务栏显示的颜色
-    /// 与它上方的壁纸并不相同（v1.1 实测过，采上方会判反）。
-    /// 顶边附近图标尚未开始绘制，干扰最小。
-    #[must_use]
-    fn band_y(&self, offset: i32) -> i32 {
-        self.top + offset
-    }
-}
-
-/// 采样一条带子的平均亮度（0..=1）。
-///
-/// 采样位置在任务栏**上方 4~8 px**：那里是纯壁纸，不含图标与文字，
-/// 且 TranslucentTB 透明化后任务栏显示的就是这块壁纸。
-fn mean_luma(dc: raw::Handle, x0: i32, x1: i32, y: i32) -> Option<f32> {
-    if x1 <= x0 {
-        return None;
-    }
-    let step = ((x1 - x0) / 96).max(1);
-    let mut sum = 0.0f64;
-    let mut n = 0u32;
-    let mut x = x0;
-    while x < x1 {
-        // SAFETY: dc 有效；坐标可能越界，GetPixel 返回 CLR_INVALID 时跳过。
-        let c = unsafe { raw::GetPixel(dc, x, y) };
-        if c != 0xFFFF_FFFF {
-            let b = (c & 0xFF) as f32;
-            let g = ((c >> 8) & 0xFF) as f32;
-            let r = ((c >> 16) & 0xFF) as f32;
-            sum += f64::from(0.2126 * r + 0.7152 * g + 0.0722 * b);
-            n += 1;
-        }
-        x += step;
-    }
-    (n > 0).then(|| (sum / f64::from(n) / 255.0) as f32)
 }
 
 /// 采样区微调（S-20 ~ S-22，仅作用于**图标区**那一段）。
@@ -700,46 +652,98 @@ pub struct RegionLuma {
     pub icons: Option<f32>,
 }
 
-/// 采集三段亮度。
+/// 常驻的分区采样器：**一次 BitBlt 抓条带，再从内存取点**。
 ///
-/// 每段取任务栏顶边下 3 行（+3/+5/+7，可整体下移），行内按步长抽样，
-/// 再取三行**中位数**：中位数比均值抗图标/文字边缘污染。
-#[must_use]
-pub fn sample_regions(region: &RegionCfg) -> RegionLuma {
-    let Some(rect) = TaskbarRect::bottom_taskbar() else {
-        return RegionLuma::default();
-    };
-    // SAFETY: GetDC(None) 取屏幕 DC；用完必须 ReleaseDC。
-    let dc = unsafe { raw::GetDC(std::ptr::null_mut()) };
-    if dc.is_null() {
-        return RegionLuma::default();
+/// 为什么不是直接 `GetPixel`：屏幕上的任务栏是 DWM 合成后的画面，
+/// `GetPixel` 每次调用都要读回合成表面，按本产品的密度（每拍约 864 点、
+/// 间隔 500 ms）常驻 CPU 会被顶到 1% 以上，而 NFR-03 要求 ≤0.1%。
+/// 改成「一次抓到复用 DIB + 内存取值」后，单拍只剩一次 BitBlt。
+///
+/// 与 [`sample_regions`] 的像素口径**完全一致**（同样的行、同样的步长、同样取中位数），
+/// 区别只在取值方式。保留旧实现供单测与回退对照。
+pub struct RegionSampler {
+    src: GdiScreenSource,
+    buf: ScreenBuffer,
+}
+
+impl Default for RegionSampler {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// 采样条带高度：够覆盖 3/5/7 三行加最大垂直偏移（S-22 上限 45 px）。
+const BAND_HEIGHT_PX: u32 = 60;
+
+impl RegionSampler {
+    /// 新建采样器（DC 与 DIB 延迟到首次采样按实际尺寸创建）。
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            src: GdiScreenSource::new(),
+            buf: ScreenBuffer::new(),
+        }
     }
 
-    let dy = i32::from(region.top_offset_px);
-    let rows = [rect.band_y(3 + dy), rect.band_y(5 + dy), rect.band_y(7 + dy)];
-    let measure = |x0: i32, x1: i32| -> Option<f32> {
-        let mut vals: Vec<f32> = rows.iter().filter_map(|&y| mean_luma(dc, x0, x1, y)).collect();
-        if vals.is_empty() {
-            return None;
+    /// 采集三段亮度。失败时返回全 `None`（调用方沿用上次判定）。
+    pub fn sample(&mut self, region: &RegionCfg) -> RegionLuma {
+        let Some(rect) = TaskbarRect::bottom_taskbar() else {
+            return RegionLuma::default();
+        };
+        let width = (rect.right - rect.left).max(1) as u32;
+        if self
+            .src
+            .grab_screen_region(rect.left, rect.top, width, BAND_HEIGHT_PX, &mut self.buf)
+            .is_err()
+        {
+            return RegionLuma::default();
         }
-        vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-        Some(vals[vals.len() / 2])
-    };
+        let bytes = self.buf.as_bytes();
+        let dy = u32::from(region.top_offset_px);
+        let rows = [3 + dy, 5 + dy, 7 + dy];
 
-    // 分组采样：时钟贴最右、托盘紧随其左，图标区范围可调（S-20/S-21）。
-    // 分区独立判定是产品卖点：遇到左浅右深的壁纸时每段各自选对颜色。
-    let (cx0, cx1) = rect.seg(0.93, 0.99);
-    let (tx0, tx1) = rect.seg(0.84, 0.93);
-    let (i0, i1) = region.icons_span();
-    let (ix0, ix1) = rect.seg(i0, i1);
-    let out = RegionLuma {
-        clock: measure(cx0, cx1),
-        tray: measure(tx0, tx1),
-        icons: measure(ix0, ix1),
-    };
-    // SAFETY: dc 由本函数获取。
-    unsafe { raw::ReleaseDC(std::ptr::null_mut(), dc) };
-    out
+        // 行内按步长抽样后取三行中位数（与原实现同口径）。
+        let measure = |x_ratio0: f32, x_ratio1: f32| -> Option<f32> {
+            let x0 = (width as f32 * x_ratio0) as u32;
+            let x1 = (width as f32 * x_ratio1) as u32;
+            if x1 <= x0 {
+                return None;
+            }
+            let step = ((x1 - x0) / 96).max(1);
+            let mut row_vals: Vec<f32> = Vec::with_capacity(rows.len());
+            for ry in rows {
+                if ry >= BAND_HEIGHT_PX {
+                    continue;
+                }
+                let mut sum = 0.0f64;
+                let mut n = 0u32;
+                let mut x = x0;
+                while x < x1 {
+                    let idx = ((ry * width + x) as usize).saturating_mul(4);
+                    if let Some(px) = bytes.get(idx..idx + 3) {
+                        let b = f32::from(px[0]);
+                        let g = f32::from(px[1]);
+                        let r = f32::from(px[2]);
+                        sum += f64::from(0.2126 * r + 0.7152 * g + 0.0722 * b);
+                        n += 1;
+                    }
+                    x += step;
+                }
+                if n > 0 {
+                    row_vals.push((sum / f64::from(n) / 255.0) as f32);
+                }
+            }
+            row_vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+            row_vals.get(row_vals.len() / 2).copied()
+        };
+
+        // 时钟贴最右、托盘紧随其左，图标区范围可调（S-20/S-21）。
+        let clock = measure(0.93, 0.99);
+        let tray = measure(0.84, 0.93);
+        let (i0, i1) = region.icons_span();
+        let icons = measure(i0, i1);
+        RegionLuma { clock, tray, icons }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -886,6 +890,7 @@ fn run_loop(
     let mut injected_pid = 0u32;
     let mut last_plan = ColorPlan::NONE;
     let mut ticks: u32 = 0;
+    let mut sampler = RegionSampler::new();
 
     while !stop.load(Ordering::SeqCst) {
         let cfg = shared.lock().map(|g| *g).unwrap_or_default();
@@ -918,7 +923,7 @@ fn run_loop(
         }
 
         // 2) 采样 + 判定（S-11 关闭时不再采样，沿用上次判定色）
-        let luma = if cfg.follow { sample_regions(&cfg.region) } else { RegionLuma::default() };
+        let luma = if cfg.follow { sampler.sample(&cfg.region) } else { RegionLuma::default() };
         if let Some(v) = luma.clock {
             j_clock.update(v, &cfg.policy);
         }

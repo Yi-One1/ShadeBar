@@ -40,7 +40,7 @@ use windows::Win32::Graphics::Direct2D::Common::{
 use windows::Win32::Graphics::Direct2D::{
     D2D1CreateFactory, D2D1_DRAW_TEXT_OPTIONS_NONE, D2D1_FACTORY_TYPE_SINGLE_THREADED,
     D2D1_FEATURE_LEVEL_DEFAULT, D2D1_HWND_RENDER_TARGET_PROPERTIES, D2D1_PRESENT_OPTIONS_NONE,
-    D2D1_RENDER_TARGET_PROPERTIES, D2D1_RENDER_TARGET_TYPE_DEFAULT, D2D1_RENDER_TARGET_USAGE_NONE,
+    D2D1_RENDER_TARGET_PROPERTIES, D2D1_RENDER_TARGET_TYPE_SOFTWARE, D2D1_RENDER_TARGET_USAGE_NONE,
     D2D1_ROUNDED_RECT, ID2D1Factory, ID2D1HwndRenderTarget, ID2D1RenderTarget,
     ID2D1SolidColorBrush,
 };
@@ -155,12 +155,6 @@ impl RenderCtx {
             scale,
             size_px,
         })
-    }
-
-    /// 当前 DPI。
-    #[must_use]
-    pub fn dpi(&self) -> u32 {
-        self.dpi
     }
 
     /// dip → 像素（本模块唯一换算点）。
@@ -340,7 +334,10 @@ fn create_hwnd_target(
     size_px: (u32, u32),
 ) -> SbResult<ID2D1HwndRenderTarget> {
     let props = D2D1_RENDER_TARGET_PROPERTIES {
-        r#type: D2D1_RENDER_TARGET_TYPE_DEFAULT,
+        // 软件渲染：设置页是一帧静态界面，硬件加速没有收益，
+        // 而 `D2D1_RENDER_TARGET_TYPE_DEFAULT` 会拉起整条 D3D11/DXGI 设备栈，
+        // 实测常驻多占 36 MB 且释放后不归还（NFR-02 要求 ≤20 MB）。
+        r#type: D2D1_RENDER_TARGET_TYPE_SOFTWARE,
         pixelFormat: D2D1_PIXEL_FORMAT {
             format: DXGI_FORMAT_B8G8R8A8_UNORM,
             // HWND 目标本身就是不透明表面；显式写 IGNORE 让"绝不碰窗口表面 alpha"
