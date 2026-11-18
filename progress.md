@@ -1,8 +1,11 @@
 # 随影 ShadeBar · 项目进展快照
 
-> **最后更新**：2026-11-15 12:30 (GMT+8)
+> **最后更新**：2026-11-18 08:50 (GMT+8)
 > **用途**：跨对话续接。新对话看不到此前聊天记录，本文件是唯一的状态依据。
-> **状态一句话**：**v1.0.0 已放行待发布**，所有 20 项团队任务 completed；代码、产物、文档均已冻结，只剩 v1.1 候选与 Minor 待办。
+> **状态一句话**：**v1.1.1 已交付并推送 GitHub**，任务栏自适应着色（时间/日期/托盘图标/指示条正常态）真机验证通过；
+> 剩下的都是打磨项，最大短板是内存 46 MB 偏高。
+>
+> 本文档已删除 v1.0.0 阶段「改色永久移出」「K-08 不可用」等过时结论，仅保留必要的溯源说明（见 §2.2）。
 
 ---
 
@@ -10,211 +13,296 @@
 
 | 项 | 值 |
 |---|---|
-| 项目 | 随影 ShadeBar — Windows 11 26H2 任务栏**亮度自适应采样/判定/诊断**工具 |
+| 产品 | 随影 / ShadeBar —— Windows 任务栏文字与系统图标的**自适应着色**工具 |
 | 工作目录 | `E:\AI工作空间\随影ShadeBar` |
-| 版本 | `1.0.0`（workspace `Cargo.toml`；SemVer 2.0.0） |
-| 技术栈 | Rust 2021 / `rust-version = "1.99"`；**只依赖 `windows = "=0.58.0"`** 一个 crate；Direct2D + DirectWrite 自绘；静态 CRT、无 VCRUNTIME140 |
-| 双 crate | `shadebar-core`（无窗口/无线程/可单测，平台能力全部 trait 化）、`shadebar-app`（真实 Win32/COM 适配 + UI） |
-| 构建（一条命令） | `powershell -ExecutionPolicy Bypass -File build.ps1` |
-| 运行 | `dist\随影_ShadeBar_v1.0.0.exe`（普通权限、**UAC = 0**、不改系统目录） |
-| 版本控制 | **尚未 `git init`，也未推 GitHub**。`Cargo.toml` 里已写 `repository = "https://github.com/Yi-One1/ShadeBar"` |
+| 版本 | **1.1.1**（`Cargo.toml` 的 `[workspace.package] version` 是唯一来源） |
+| 仓库 | https://github.com/Yi-One1/ShadeBar ，分支 `main`，最新 `dec3c61` |
+| 交付物 | `dist/随影ShadeBar_v1.1.1.exe`，**643072 B / 628.0 KB**，单文件、静态 CRT、**UAC=0** |
+| 技术栈 | Rust 2021（`windows = "=0.58.0"` 单一 crate）+ Direct2D/DirectWrite 自绘 UI + **C++ 注入载荷** |
+| 可改色 | 时间、日期、系统托盘字形图标、运行中指示条**正常态** |
+| **不可**改色 | 指示条**选中态**（系统强调色接管，见 §2.4）；悬停高亮块（未验证，未开放） |
+| 构建顺序 | `cd payload && bash build.sh` → `cargo build --release`（**顺序不能反**） |
+| 配置 | `%LOCALAPPDATA%\ShadeBar\config.json`；载荷释放到同目录 `ShadeBarTap_v1.1.1_<hash>.dll` |
+| 日志 | `%LOCALAPPDATA%\ShadeBar\shadebar.log`（宿主）、`payload.log`（载荷） |
+| 测试 | **214 项全绿**（116 + 96 + 2，`cargo test --release`） |
+| 设置项 | **28 项可见**（配置里保留 35 项编号，7 项未落地项从 UI 收起，值不丢） |
 
-**v1.0.0 交付范围 = L1**：采样任务栏区域亮度 → 迟滞判定 → 35 项设置 + 中英双语 + 诊断面板 + 单实例托盘。
-**明确不含**：任务栏改色（真机证伪，永久移出）、计划任务自启注册、崩溃恢复、日志轮转。产品如实显示降级横幅与受限角标。
+**接手第一件事**：`cargo test --release` + 一次真机冒烟（§5.1）。技术风险已清空，剩下是产品打磨。
 
-**必读文档（按优先级）**
-1. 本文件
-2. `README.md`（8 条已知限制 K-01~K-08，尤其 **K-08 不提供改色**）
-3. `docs/qa-report.md`（482 行，最终验收与放行结论）
-4. `docs/01-requirements.md` **v1.6**（§9 验收矩阵与发布条件、§4.7 放行裁定）
-5. `docs/02-architecture.md` **v2.1**（§9.5 验收口径速查、§8.6 三层关系）
-6. `docs/spike-report.md`（§1~§11 全部技术验证证据）
-7. `CHANGELOG.md`、`sp2_manual_report.txt`（用户真机 A-29 报告）
-
-**三条绝对不能踩的口径**
-- 不要再宣称"产品会改任务栏颜色"或"会注入/hook explorer"。v1.0.0 全程只读屏幕采样。
-- 不要用「单次采样 ≤5ms」判 NFR-03 —— 该口径**已废止**，见 §4.2。
-- 不要动 `docs/02-architecture.md` §9.5 / §9 验收矩阵（冻结区）；也不要改 A-02/A-13/A-14/A-20/EX-24/NFR-03/EX-04/D-04 的判据数值。
+**必读**：本文件 → `README.md`（对外口径）→ `docs/03-recolor-mechanism.md`（改色机制与全部踩坑）。
 
 ---
 
 ## 1. 已完成事项
 
-### 1.1 产品与架构
-- 需求基线 `docs/01-requirements.md` **v1.6**（624 行）：FR 38（L1 19 / L2 8 / L3 6 / L4 5）、设置 35、NFR 19、边界场景 28、验收 48。含 CR-01~CR-06 与勘误 E-01。
-- 系统架构 `docs/02-architecture.md` **v2.1**（2160 行）：任务分解、文件清单、调用序列、共享知识 §11、风险台账 §13。
-- 两份文档口径一致，§9.5 为冻结的验收口径速查表。
+### 1.1 产品能力（全部真机验证，非推测）
 
-### 1.2 技术验证（三个 Spike）
-| 项 | 结论 |
-|---|---|
-| **SP-1**（Mica + D2D 共存） | 定案 **B3**：保留 DWM 标准标题栏、**不接管 `WM_NCCALCSIZE`**（自绘标题栏会把画在 frame 上的 Mica 盖掉）；`ID2D1HwndRenderTarget` + `D2D1_ALPHA_MODE_IGNORE`；处理 `D2DERR_RECREATE_TARGET`（GPU 复位 / 显示器切换 / RDP 断连会白屏）。 |
-| **SP-2**（改色可行性） | 定位链打通：`symprobe` 从 msdl 取 PDB、枚举 33,631 符号，双算法互证定位 `DateTimeIconContent::OnApplyTemplate` RVA `0x2F28C`；偏移表 `data/symbols/26300.9711.json` 三重校验（build + TimeDateStamp + SizeOfImage）。**但最终改色在真机证伪，见 §2.2**。 |
-| **A-29**（用户真机一键脚本） | `tools/manual-sp2-verify.ps1` 由**用户亲自执行完毕**，报告 `sp2_manual_report.txt`。Phase A 叶函数近跳转探针 31s `EXPLORER_DIED`；Phase B `FAIL (maxRed=0)`（HookFired ✅ / colorCount=1467 / t≈22.3s explorer 死亡）；基线红像素 28→28 无残留。**不需要再跑**。 |
-
-### 1.3 代码实现（20 条团队任务全部 completed）
-| 阶段 | 内容 |
-|---|---|
-| T01 | 构建骨架 + 六道门禁 `build.ps1`（编码护栏 / 体积 / 无 VCRUNTIME140 / FileVersion / PerMonitorV2+manifest / 图标） |
-| T02 | `crates/shadebar-core/src/engine/` 7 文件：任务栏几何、抓屏采样、UIA 遮罩、直方图 P50、EWMA 迟滞判定、600s 闭环状态机。**10 类平台能力 trait 化**，纯逻辑可单测 |
-| T03.1 | `shadebar-app` 渲染骨架（B3 落地），`HwndRenderTarget` |
-| T03.2~T03.6 | 35 项设置（6 分组 + 诊断页共 7 卡片）、中英双语 142 key 内嵌 `include_str!`、配置 JSON 原子落盘 + 损坏 `.bak` 回退、降级项置灰但保留用户值 |
-| T04 | `crates/shadebar-app/src/engine/` 8 文件（代码实测 **3803 行**；早期汇报的 3944 为转述误差，以 `wc -l` 为准）：`FindWindowW`/`SHAppBarMessage`、`BitBlt`+DIB 复用、`IUIAutomation2` 独立 MTA 线程 + 350ms 看门狗、`CreateWaitableTimerW` 驱动闭环、零依赖 PNG 编码器、诊断/纯色窗口 |
-| T04.1 | 单实例（`FindWindowW` + `WM_APP+1`，替代架构原定的命名管道）+ 托盘；`WM_CLOSE` 按 S-41 最小化到托盘 |
-| 收尾 | `README.md` / `LICENSE` / `CHANGELOG.md`；`cfg(feature="verify")` 隔离取证编排；正式版体积压回 400 KB 内 |
-
-**源码规模**：39 个 `.rs` / **16627 行**。
-
-### 1.4 测试与验收（QA 严过关，独立验证）
-- `cargo test --workspace` **四档**：默认 208 / verify 231 / no-en 208 / all-features 231 = **878 次执行、0 failed**；文档测试 2 通过 / 1 ignored。
-- `clippy --workspace --all-targets -- -D warnings` 四档全零告警；`build.ps1` **15/15 门禁全绿**（Gate0 + 三产物各 5 门禁），重建后三产物体积逐字节一致。
-- 三产物 PE 独立核对 **3/3 PASS**（手写解析器，无第三方库）：FileVersion 1.0.0.0、`asInvoker`+`PerMonitorV2`、五帧图标含 32×32、无 VCRUNTIME140/MSVCP140、`UI_Xaml` 0 命中、`dist/` 根唯一 exe。
-- CLI **12/12 PASS**：正式版 `--version`/`--help` exit 0，`--verify` 返回 `EXIT_USAGE(2)`（分支确未编译）。
-- A-01 单实例真机受控实测 PASS（第二次启动 0.026s 退出、进程数恒为 1、零残留）。
-- 运行时禁用项扫描（剔除 3193 行 `#[cfg(test)]`）：TODO/FIXME/panic!/unwrap()/expect(/unimplemented!/todo!/unreachable!/UI_Xaml **全部 0 命中**。
-- **路由判定 `NoOne`**（无源码 Bug、无测试代码 Bug，Round 1 一次收敛），**Blocker / Critical = 0**。
-- **48 项验收最终分布**：`✅19 通过 ｜ ⚠️9 观察 ｜ 🔜3 后续版本 ｜ ⛔15 范围外 ｜ 👤2 人工验收 = 48`。
-- **D-03 通过（放行）**，`docs/qa-report.md` §10 未关闭条件 **0 项**。
-
-### 1.5 交付物与实测数字
-| 产物 | 大小 | md5 |
+| 能力 | 状态 | 证据 |
 |---|---|---|
-| `dist/随影_ShadeBar_v1.0.0.exe`（**验收依据**） | **408064 B / 398.5 KB** | `1213aac5a87a470ee7ec0d8fe4cbe778` |
-| `dist/verify/随影_ShadeBar_v1.0.0_verify.exe` | 498688 B | `7a28a7e9cbaf1042f925ed79b0b82059` |
-| `dist/compare/随影_ShadeBar_v1.0.0_no-en.exe` | 401920 B | `af4d0effec5aa70f6aecfeed5cc97f3d` |
+| 时间 / 日期自适应着色 | ✅ 连续 60 s 稳定 | `evidence/recolor-spike/s5.bmp` → `s60.bmp` |
+| 托盘系统字形图标着色（网络/音量/电池/输入法） | ✅ 第三方位图不受影响 | `G1.bmp`（系统图标变青，QQ/100 原样） |
+| 指示条正常态着色 | ✅ | `FINAL_ind.bmp` |
+| 分区独立判定（时钟 / 托盘 / 图标区各判各的） | ✅ | `run2_icons.bmp`、`run2_tray.bmp` |
+| 自定义端色（S-13/S-14/S-15） | ✅ | `E1.bmp`（青/品红端色上屏） |
+| 强制亮端 / 强制暗端（S-10） | ✅ | `C1.bmp`（强制浅色，浅背景上可见） |
+| 宿主被强杀 → 7 s 内自动还原 | ✅ 状态条不消失 | `payload.log`：`心跳超时 → 还原并转入待命` |
+| 宿主重启（不重启 explorer）→ 立即恢复 | ✅ | `K1_restart.bmp` |
+| 退出后完全还原系统默认 | ✅ | `L_restored.bmp` |
+| 打包版独立运行 | ✅ | `PKG1.bmp`（从 dist 直接跑） |
 
-- 正式版 **< 400 KB 软目标**，硬限 4096 KB；双语增量 **6144 B = 6 KB ≤ 40 KB**（A-26）。
-- 真机证据：A-02 采样矩形误差 **0px**、A-20 CPU **0.0312%**、NFR-03 双口径达标、EX-24 真 `BitBlt` 失败不崩且保持上次判定、A-13/A-14 独立 session **2/2 obtained / flips=0**。
+### 1.2 技术链路（已打通并产品化）
+
+```
+Rust 宿主
+  ├ 采样：Shell_TrayWnd 真实矩形 → 顶边下 3/5/7 px 三行 → 三行取中位数（抗图标污染）
+  ├ 分段：时钟 93~99% / 托盘 84~93% / 图标区 0~100%（S-20/S-21 可调）
+  ├ 判定：EWMA(α=0.3) + 双阈值迟滞(0.06) → 二值化 → 浅色端/深色端
+  ├ 下发：共享内存 Local\ShadeBar.Ipc.v1（80 B）
+  └ 注入：CreateRemoteThread + LoadLibraryW（普通权限，UAC=0）
+          ↓
+C++ 载荷（ShadeBarTap.dll，211968 B，内嵌进 exe）
+  ├ TAP 抢席位：InitializeXamlDiagnosticsEx("VisualDiagConnection1")
+  ├ 订阅：AdviseVisualTreeChange 必须在 XAML 线程（SetSite 内）
+  ├ 编组：CoreDispatcher::RunAsync + IAgileObject 回调 → UI 线程
+  └ 改画刷：CreateInstance(SolidColorBrush) + SetProperty(elem, brush, idx)
+```
+
+### 1.3 设置与外壳
+
+- 设置页 6 分组 + 诊断面板，中英双语热切换，无「应用」按钮，改动同拍生效并落盘。
+- 托盘：单实例、6 项菜单、左键三选一、关闭窗口最小化（S-40/S-41）。
+- 开机自启：写 `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`，启动时 `reconcile` 校正一次，
+  修掉「开关看着是开的、其实没生效」。
+- 降级横幅：仅当载荷释放或配色服务**真的**失败才显示（1.1.0 曾误报，1.1.1 已修）。
+
+### 1.4 构建与打包
+
+- `crates/shadebar-app/build.rs` 读 `payload/build/ShadeBarTap.dll`，算 FNV-1a 指纹 →
+  `cargo:rustc-env=SB_PAYLOAD_TAG` → 载荷文件名 `ShadeBarTap_v1.1.1_<hash>.dll`。
+- 内容一变文件名就变，**升级不再需要重启 explorer**。
+- 版本号单一来源，`文件名 / 关于页 / exe 属性` 三处不可能漂移。
+
+### 1.5 已推送 GitHub
+
+```
+dec3c61 docs: 修订需求基线 §4.6 的改色裁决（v1.1 已实现）
+7cbd950 chore: 移除被 1.1.1 取代的 1.1.0 产物
+cda09a5 fix: 降级横幅误报，版本对齐 1.1.1 (PATCH)
+8e8e244 feat: 任务栏自适应着色 (v1.1.0)
+```
+
+`.gitignore` 排除：`target/`、`scratch/`、`payload/build/*.dll`、`*.pdb`、`.workbuddy/`。
+仓库共 176 个文件、约 32000 行。
 
 ---
 
 ## 2. 关键决策（含理由，防止被重新发明）
 
-### 2.1 范围与放行
-1. **v1.0.0 = L1 核心，不修改任务栏外观**。理由：A-29 真机证伪了两条改色路线；L1 采样/判定/设置/诊断全部实测通过且零 Blocker，是可独立交付的完整产品。
-2. **D-03 放行（v1.6 CR-06）**：把 §9 发布条件从「全部 P0 项勾选通过」**改写为**「v1.0.0 P0 门禁 = §9.1 A 组中结果列仍为 `☐` 的 **25 项**全部通过，且无 Blocker/Critical」。**选"修订文字"而非"新增范围例外"** —— 例外条款会被后续逐项援引、边界易被扩大。
-   - 新增**三态定义**：`☐` 门禁内 ｜ `范围外` 不再计划 ｜ `后续版本` 仍计划、本版明确不含。
-   - **A-04 / A-05 / A-27 标「后续版本」，不标「范围外」**（后者在 v1.5 中专指 A-29 证伪/不再计划，语义不同），不计入门禁、不算通过也不算失败、**QA 不得记为失败**。
-   - D-01~D-05 属发布前总检查，单独核对，不计入「P0 需求项」统计。
-3. **偏差⑥四项归属**：T04.2 计划任务自启 / T04.3 崩溃恢复 / T04.5 日志轮转 → **v1.1 候选补齐**；**T04.4 注入编排框架 → ⛔ 永久移出、v1.1 也不补**（随 A-29 证伪，与 T05 一致）。架构 §8.7 依赖图已加「图上的边只表示技术依赖、不表示待办」的读图须知。
+### 2.1 不重做，在 v1.0.0 骨架上继续
 
-### 2.2 改色功能：真机证伪，永久移出
-- **结论措辞纪律（重要）**：被证伪的只是「把颜色改上去」的两条实现路线（近跳转叶函数 / `OnApplyTemplate` 期间走查改色）。**定位链（symprobe→RVA→双算法互证）、14 字节绝对跳转 hook 结构（10/10 存活）、偏移表三重校验、TTB 零 patch 检测、起点检测工具链、winmd 槽位解析、手写 WinRT ABI 全部仍然成立**，不得把整段技术积累写成失败。
-- 附录 C 的 C.4 已更正：**Phase A 探测的是叶函数近跳转 `0x170DD4`，14 字节绝对跳转结构并未被 A-29 证伪**。
-- **近跳转 `E9` fail-fast 是真机缺陷、非 AI 沙箱特异**（架构 §13.2 风险项 R10）。故障码 `0xC0000409`（fail-fast 家族，内核级不可拦截）—— 这也解释了 VEH 全程静默。
-- `OnApplyTemplate` 只在任务栏构建时执行（启动期实测触发 1467 次、运行期静默）；期间走查 XAML 会重入破坏原函数栈。
-- **元素引用必须「当次有效当次使用」**（架构 §11.10）：1467 个启动期瞬态实例大多已析构，跨时点持有指针 QI = 堆破坏。
-- TranslucentTB 共存问题经 `--memdiff` 证实为**行为级冲突**（ExplorerTAP 对 `SystemTray.dll` **零代码 patch**），不是补丁碰撞；v1.0.0 不碰该进程空间，天然共存。
+v1.0.0 已有 16627 行 Rust（采样、判定、配置体系、双语、单实例托盘、D2D/Mica 自绘 UI、门禁）。
+新需求要的正是在这上面"上屏"。重写等于扔掉 90% 工作量，还要重踩已记录在案的十几个坑。
 
-### 2.3 判据口径（全部已冻结）
-4. **NFR-03 双口径（v1.4）**，三项须同时满足：
-   - 主判据：10 分钟平均**单核 CPU < 0.1%**（`GetProcessTimes` Kernel+User ÷ 墙钟）；实测 **0.0312%** / 全机 0.0026%。
-   - 辅助（墙钟）：`cost_us` **p95 ≤10ms**（6.725）、**max ≤15ms**（11.721）、样本 ≥500（592）。范围 `sampler.rs:835` 的 `Instant::elapsed()`，含真 BitBlt+直方图+判定、不含 UIA/几何。
-   - `cost_us` 含 **DWM 合成/抓屏阻塞等待**，不作 CPU 性能指标（交叉核算：10min 累计 2.6912s vs 进程 CPU 0.1875s，差 2.5037s 为阻塞）。「CPU 达标不得豁免墙钟超线 / 墙钟超线不得反推 CPU 不达标」。
-5. **EX-04 勘误 E-01**：**不统一数值、统一口径**。0.5% 保留但标注为「**瞬态峰值上限**」（≤1s 窗口、≤100ms 间隔、取峰值不取平均），与 NFR-03 的 10 分钟平均**分别测量分别打勾**；双向禁止豁免；QA 无法可靠复现时降级为观察项。
-6. **A-13/A-14 稳态段编排获 PM 认可**：判据数值一字未动（仍 60s 翻转 0 次）。第一次独立重跑 1/2（A-14 `flips=1` 且不在段首），真因是 `Judge::new()` 冷启动 `ewma_y=0` + 旧编排为取几何先 `tick()` 一拍采到真实桌面暗色 `#01141B`，导致 EWMA 收敛翻转。修法：`read_probe()` + `TaskbarGeom::from_probe()` 只读几何、先建覆盖窗口，让**第一拍就采到目标背景**（`pre_loop_ticks=0`）。**稳态拍数看 `steady_sample_ticks`(=59)，不是 `steady_publishes`(=0)** —— 后者因静态纯色背景 `change_threshold=8` 属正常，不得据此判不通过。
-7. **S-35/S-37 默认值裁定 `#38FFFFFF`**（WinUI `#AARRGGBB`，alpha `0x38`≈22% 半透明白），不采用旧表 `#FFFFFF`。理由：指示条/悬停块是装饰性覆盖层而非文字，不透明纯白会遮挡壁纸、违背 Fluent/Mica 观感。**工程师实现本来就是这个值，无需改代码**。取值范围含 alpha、禁用 `00` 全透明。
-8. **体积收口**：隔离取证代码后正式版反而涨（新增 35 项 UI 超过取证代码节省）。对照实验定位真大头是 `engine/uia.rs` 约 **76 KB**（独立 MTA 线程 + COM vtable）；依据 K-05（26H2 UIA 枚举 30 后代命中 0）把 UIA 适配器也门到 `verify`，正式版用 `FixedFallbackClockRectSource`，**不假装 UIA 可用、真机行为不变**。
+**但"上屏层"（注入 + XAML）是全新写的**，v1.0.0 那部分为零。
 
-### 2.4 工程原则
-9. **证据分级**：单测通过 ≠ 功能可用；API 返回成功 + 属性回读正确 ≠ 效果生效；**逻辑证据 ≠ 真机效果证据**。T02 的 96 单测全是假几何/假像素，直到 T04 接线补回 A-02/A-13/A-14/A-20/EX-24 真机像素与日志证据才算闭合。
-10. **替换等价实现后必须用同一组采样点做逐字节回归**，不得凭目测。基准点集（浅色主题）：`caption #DADADB` / `client bg #F3F3F3` / `card fill #FFFFFF` / `left margin #D5AA7E` / `page heading #F3F3F3`。
-11. **实现与文档冲突的处理**：先判「文档意图更合理」还是「实测更可靠」—— 意图合理则**改实现**（DCRenderTarget→HwndRenderTarget 那次），实测推翻则**改文档**（自绘标题栏那条）。**不得简化为"永远是实测对"**。
-12. **崩溃归因四步、禁止跳步**：`--memdiff` 排除代码修改 → 引用生命周期 → 第三方事件/时机竞争 → 沙箱收割。「TTB 在场」不是有效归因。
-13. **跨成员信息必须经主理人中转**（团队模式下）。多次因直连造成「已撤回结论被写成硬判决」「文档口径与转达打架」。
-14. **Q-1 本次裁定不修**：`resources/app.manifest` L6–7 XML 注释残留「注册计划任务由 `ShellExecuteExW(runas)` 重新拉起自身」，与 K-01 矛盾、且描述未做的功能。理由：仅注释、功能无影响（源码无 runas 调用、manifest 实为 `asInvoker`），修它会重建三产物、使已 15/15 全绿的门禁与 3/3 PE 结果全部失效，收益不抵风险。转待办。
+### 2.2 技术路线：XAML 元素级改色（官方诊断接口）
+
+- **否决**「只切系统明暗主题」：只有两档、连动开始菜单/通知中心，粒度太粗。
+- **采纳** TAP 注入 + `IXamlDiagnostics` / `IVisualTreeService2/3`，与 CTM 工具同构。
+
+**v1.0.0 的"证伪"必须正确理解**：被证伪的是两条**自制**路线——
+叶函数 `E9` 近跳转、`OnApplyTemplate` 期间走查 XAML。共同错误是
+**在任务栏构建期重入 + 跨时点持有瞬态指针**。这推不出"改色不可行"。
+`docs/01-requirements.md` §4.6 已加 v1.1 修订块，**旧结论作废但保留溯源**。
+
+### 2.3 语言分工：Rust 宿主 + C++ 载荷
+
+- Rust 宿主：UI/采样/判定/托盘/自启全部复用现有代码。
+- C++ 载荷：`IXamlDiagnostics` 一票 COM 接口 + vtable 槽位序，C++ 现成；
+  Rust 要手写 winmd 槽位，前团队已在此反复踩坑。
+- **否决 C#**：self-contained ≥10 MB，与"尽量小体积"直接冲突。
+- **否决纯 C**：COM/XAML 无封装。
+- **否决全 C++**：16.6k 行 Rust（含已验收的 Mica+D2D UI）全部作废。
+
+### 2.4 指示条选中态：**完全不介入**（重要，别再试）
+
+选中态（`ActualWidth=16`）的 `RunningIndicator.Fill` 由 XAML 视觉状态持续接管。
+`SetProperty` 返回 `S_OK`，但选中/取消选中时立即被覆盖，屏幕永远显示系统强调色。
+
+试过：每秒重写（无效）、改父级 `TaskListButton.Foreground`（无效）。
+**结论：与其做无用功，不如不碰**——系统本来就会按主题给对比度合适的强调色。
+`docs/03-recolor-mechanism.md` §5.2 有完整交付边界表。
+
+### 2.5 设置页从 35 项收敛到 28 项可见
+
+收起的是**未落地项**，配置字段全部保留（旧配置可平滑迁移）：
+S-19（主题联动）、S-23（采样预览）、S-34~S-37（悬停块与固定色）、S-44（注入失败策略）。
+
+语义调整：S-32 由「悬停高亮块」→「系统托盘图标」；
+S-20/S-21/S-22 由「采样区偏移/宽度/内缩」→「图标区起点/宽度/采样带垂直偏移」。
+
+### 2.6 版本号策略（严格 SemVer 2.0.0）
+
+- 1.0.0 → **1.1.0 MINOR**：向下兼容地新增"自适应着色"能力，配置格式不变。
+- 1.1.0 → **1.1.1 PATCH**：修降级横幅误报（用户可感知的 bug 就是 PATCH）。
+- 判定结果写进每次提交信息首段。
+
+### 2.7 开机自启用 HKCU\Run
+
+零 UAC、零额外进程、零侧车文件；任务管理器「启动」页可见可管。
+否决计划任务（需一次提权，违背 UAC=0）、否决启动文件夹（多一个 .lnk 易残留）。
+
+### 2.8 与其它工具共存
+
+- **TranslucentTB**：可共存（实测它常驻 TAP 不影响我们抢席位）。
+- **CTM 工具**：会抢同一个 `TextBlock`，同时开启颜色会打架。
+  **不做自动检测**，只在 README 说明「建议只留一个」。
+
+### 2.9 载荷文件名带内容指纹
+
+固定文件名 → explorer 已加载同名模块时 `LoadLibraryW` 不再执行 `DllMain` → 改了代码行为不变。
+指纹进文件名后，升级与本地迭代都**不需要重启 explorer**。
 
 ---
 
 ## 3. 未完成的待办
 
-### 3.1 v1.1 候选（计划内、未被证伪，v1.0.0 明确不含）
-| 项 | 现状 |
-|---|---|
-| **T04.2** 计划任务自启注册（FR-05 / A-04、A-05） | S-02 只持久化用户设定、**不注册 `schtasks`**；UAC = 0 不受影响 |
-| **T04.3** 崩溃恢复（FR-14 / A-27） | `RegisterApplicationRestart` 约束不变，只是延后 |
-| **T04.5** 诊断包日志轮转 | 按天切分已可用，延后的仅是 **7 天轮转策略** |
-| **Q-1** manifest 注释清理 | 见 §2.4 第 14 条，仅删改 XML 注释 |
+### 3.1 优先级高（用户已注意到）
 
-对应验收项 **A-04 / A-05 / A-27 标「后续版本」**，不计入 v1.0.0 门禁。
+1. **内存 46 MB 偏高**（TranslucentTB 约 15 MB）。
+   疑点：D2D 设备 / 交换链在窗口隐藏后未释放。
+   方向：最小化到托盘时释放 D2D 资源、需要时重建（v1.0.0 已有 `D2DERR_RECREATE_TARGET` 处理经验）。
+2. **CPU 占用未复测**。v1.0.0 实测 0.0312%，v1.1 加了 1 s/拍采样 + 2 s/次 IPC 重发，需重测。
 
-### 3.2 永久移出（**不要再排期**）
-- **T04.4 注入编排框架**、**T05 任务栏着色 / L2 / L3**：A-29 真机证伪，v1.0.0 及后续版本均不再计划（除非重新设计上屏方案）。
-- 需求侧相关 FR 条目**保留但标范围外**（保留溯源），共 15 项验收（B-01~B-11 + C-01~C-04）标「范围外」。
+### 3.2 中等
 
-### 3.3 Minor / 证据瑕疵（均不阻塞发布，QA 报告 §9）
-- **Q-2**：`evidence/t04/A-20-real-screen.png` 与 `EX-24-real-screen.png` SHA-256 完全相同，A-20 无独立截图；判据以 600s CPU 日志为准，截图仅辅助。
-- **Q-3**：`evidence/t04-smoke/t04-summary.md` 引用不存在的 `t04-fast4/` 路径，三张 panel 图为同一张全黑图而汇总表标「是 ok」（该档为 fast smoke，已明示不作验收依据）。
-- **Q-4**：`build.rs` 9 处构建期 `panic!`（已声明白名单、不进产物）、`error.rs:321` 测试构造硬编码路径 `C:\Program Files\ShadeBar`；运行时代码 0 命中。
-- **偏差⑤**：诊断包生成 stored ZIP（≤2 MB）但不自动打开所在文件夹（当初为避免新起 explorer 触碰用户环境）。
-- **EX-04 短窗口峰值**（≤1s 窗口 / ≤100ms 间隔）当前**无采样实现**（取证档只有 fast/full/endpoints）。若要做需新增采样能力 + 可控黑白交替；注意环境纪律（不改壁纸、不动用户窗口）。已按 E-01 降级观察项。
-- **EX-26 口径**：双语资源缺失实际回退 **zh-CN，再缺失显示 key**（不是回退 English），按权威需求判通过。
+3. **悬停高亮块**（`BackgroundElement` / `BackgroundBorder`）：探针阶段验证过 `Background`
+   写入生效（`parent_exp.bmp` 图标底色变青），但**未做稳定性验证**，故未开放。
+   若要做：先验证 60 s 稳定，再决定是否恢复 S-32 原语义 / S-36/S-37。
+4. **多显示器**：目前只处理含任务栏的主屏（`Shell_TrayWnd`）；副屏是 `Shell_SecondaryTrayWnd`。
+5. **深色壁纸真机证据**：当前机器壁纸偏浅，未在真实深色壁纸下拍过"输出浅色字"的对照图。
+   可用 S-10 强制端色间接验证，但缺一张真实场景证据。
 
-### 3.4 9 项观察项（长时/真机未独立复现，均有单测或静态覆盖，0 失败）
-A-03（动态壁纸 10min + 20% 污染真机）、A-10（强杀重启）、A-11（只读目录）、A-15（干净虚拟机）、A-19（30min 工作集）、A-21（5 次冷启动）、A-22（1h 出站监控；源码/导入表无网络栈依赖）、A-23（系统语言真机首启）、A-28（极端污染 60s）。**不要包装成通过**。
+### 3.3 文档（不一致但已标注）
 
-### 3.5 人工验收项 2 项
-`D-01`、`D-02`（§9 声明，需用户/环境配合）。**A-04 已从人工验收项移除**（归后续版本）、B-06 归范围外。
+6. `docs/01-requirements.md` 已加 v1.1 修订块，但全文仍有大量 v1.0.0 时代的
+   "L2/L3 移出""A-29 证伪"表述。**不影响使用**，做开源门面时需通读重写。
+7. `docs/02-architecture.md` 未包含注入层（TAP / IPC / 元素映射）的架构描述。
 
-### 3.6 工程基础设施
-- **`git init` + 首次提交 + 推 GitHub**（`Cargo.toml` 已写 `repository = "https://github.com/Yi-One1/ShadeBar"`）。当前所有文件仅本地，无版本控制。
-- 可选：v1.0.0 发布打包（zip + 校验值清单）、GitHub Release。
+### 3.4 明确不做
+
+- 第三方托盘位图图标染色（会丢图标辨识度）。
+- 指示条选中态改色（见 §2.4，技术上被系统接管）。
+- 改系统主题 / 改壁纸 / 重启 explorer 作为常规手段。
 
 ---
 
 ## 4. 其它需记录的内容
 
-### 4.1 文件校验值（完整性基准；任何改动都会让 hash 变化）
-| 文件 | md5 |
+### 4.1 踩坑清单（本项目最贵的资产，全部已修）
+
+| 现象 | 真因 | 修法 |
+|---|---|---|
+| **第二次启动随影后再也不改色，无任何日志** | `ensure_payload_dll` 覆盖写"已被 explorer 映射"的 DLL 失败 → 静默返回 `None` → 服务根本没起来 | 写失败即视为"同名同内容，复用"（文件名已含指纹）。**排查耗时最久的一个** |
+| 宿主正常退出后载荷永久失效 | 收到 `shutdown` 直接 `break` 退出循环，DLL 仍驻留 explorer，后续注入命中已加载模块、`DllMain` 不执行 | 改为"还原 + 清零状态 + 继续待命"，不退出、不 `Unadvise` |
+| 多个载荷副本互相覆盖 | 同 explorer 内多版本共享同一块 IPC，旧副本用旧逻辑持续覆盖新结果 | 代际令牌 `reserved[1]`：后注入者接管，旧副本静默退位且**不还原** |
+| **状态条变透明（用户可见故障）** | `RunningIndicator.Fill` 由视觉状态驱动，`ClearProperty` 后无人重新赋值 → 全透明 | 覆写前缓存原色，退出**写回原色**；无缓存则保持现状 |
+| 判定反了（浅底给浅色） | 采样点取在任务栏**上方 8 px 的壁纸**，TranslucentTB 模糊后任务栏显示的颜色更亮 | 改采**任务栏自身**条带（顶边下 3/5/7 px） |
+| 状态条全被当成"正常态" | `Width` 实测值是字符串 `"Auto"`，解析失败 | 改用 `ActualWidth`（6 / 16） |
+| `E_UNEXPECTED` | 在自建线程调 `AdviseVisualTreeChange` | 移到 `SetSite`（XAML 线程）内 |
+| `RPC_E_WRONG_THREAD` | 工作线程读写属性 | `CoreDispatcher::RunAsync` 编组 |
+| `E_INVALIDARG`（RunAsync） | 回调未实现 `IAgileObject` | QI 里放行 `IAgileObject` |
+| `E_INVALIDARG`（GetPropertyIndex） | 该 API 对任务栏元素不可用 | 从属性链取 `Index` |
+| explorer `c0000409` 崩溃 | `GetExitCodeThread` 取 64 位模块基址被截断，远程线程跳野地址 | 改由 DLL 自报基址 |
+| 还原被跳过 | `g_uiDoneEvent` 手动重置事件未复位，第二次 `Wait` 立即返回 | `PostToUi` 投递前 `ResetEvent` |
+| 强制端色不彻底 | S-10 用"把阈值推到 0/1"实现，加减迟滞带后仍落进区间 | `PolicyCfg.force` 直接返回端色 |
+
+**通用教训**：`SetProperty` 返回 `S_OK` **不代表生效**。唯一可信的验收方式是**截图看像素**。
+
+### 4.2 关键技术参数（改代码前必看）
+
+| 项 | 值 |
 |---|---|
-| `dist/随影_ShadeBar_v1.0.0.exe` | `1213aac5a87a470ee7ec0d8fe4cbe778` |
-| `README.md`（158 行 / 9919 B） | `62ba39935b8711feeed7b48677864fe8` |
-| `CHANGELOG.md`（77 行 / 5462 B） | `54087395dfd9cc5a33a947e3f11fac99` |
-| `docs/01-requirements.md` v1.6（624 行 / 93107 B） | `995f53e1309fad7fa009b0ce3c2f0b55` |
-| `docs/02-architecture.md` v2.1（2160 行） | `72ec9f7d6f7a0010e537c986ef43e2a4` |
-| `docs/qa-report.md`（482 行 / 52565 B） | `5e1d5feb7a244040d7df96a12639d86d` |
+| 时间元素 | `TextBlock name=TimeInnerTextBlock` |
+| 日期元素 | `TextBlock name=DateInnerTextBlock` |
+| 托盘字形 | `SystemTray.AdaptiveTextBlock`，每个图标三层 `Underlay`/`Base`/`AccentOverlay` |
+| 状态条 | `Windows.UI.Xaml.Shapes.Rectangle`，**Name** 是 `RunningIndicator`（按 Type 匹配会全漏） |
+| 状态条尺寸 | `Height=3`、`RadiusX/Y=1.5`、正常 `ActualWidth=6`、选中 `16` |
+| 原始状态条色 | 正常 `#72000000`、选中 `#FF0078D4`（系统强调色，随主题变） |
+| 共享内存 | `Local\ShadeBar.Ipc.v1`，80 B，`reserved[0]`=元素掩码，`reserved[1]`=代际 |
+| 元素掩码 | bit0 时间 / bit1 日期 / bit2 托盘 / bit3 指示条；未置位 = 写回原色 |
+| 端色默认 | 暗背景 `#F2F2F2`、亮背景 `#1A1A1A`；阈值 0.55、迟滞 0.06、EWMA 0.3 |
+| 状态条正常态 alpha | `0x72`（与系统一致） |
+| XAML 树规模 | 约 285 个元素，其中目标元素约 26 个 |
 
-### 4.2 已废止 / 不得再引用的口径（防新对话复用）
-- ❌「单次采样耗时 ≤5ms」—— NFR-03 口径错误，v1.4 废止，改用双口径（§2.3 第 4 条）。
-- ❌「**#B3B3B3 平板灰**」「**破坏 alpha 通道**」—— 两条关于 GDI `AlphaBlend` 的论据**已被撤回**（结论对、理由错），全仓仅在历史溯源处出现，不得作为任何决策依据。真正成立的两条理由：① DWM backdrop 不进客户区；② `WM_ERASEBKGND→TRUE` + 逐帧 AlphaBlend 会让不透明度按 `1 − 0.3ⁿ` 累积。
-- ❌「自绘标题栏 / `WM_NCCALCSIZE` 返回 0」—— 会盖掉画在 frame 上的 Mica，已否决。
-- ❌「注入需要管理员权限」—— SP-2 实测 medium IL 对 medium IL explorer 可完成注入；但 v1.0.0 根本不注入，权限模型仍是普通权限、UAC=0。
-- ❌「SP-2 = 技术成立、证据受限」—— 已被 A-29 真机证伪取代为「真机证伪，改色路线移出」。
-- ❌「T02 引擎体积 Δ=0」—— 是 `opt-level=z + lto=fat` 消除未引用代码的**假象**，接线后 +172.5 KB，收口后 398.5 KB。
-- ❌「TTB 在场必崩 = 补丁碰撞」—— memdiff 证实零代码 patch，是行为级冲突。
-- ❌「AI 沙箱特异导致 fail-fast」—— A-29 真机同样复现，已升级为 R10。
+### 4.3 环境与命令
 
-### 4.3 可复用经验（踩过的坑）
-- `windows` 0.58 返回值三态混用会编译失败：`GetClientRect`/`GetWindowRect` → `Result<()>`（**不是 `Option`**，写 `is_some()` 直接报错）；`GetDC`/`SelectObject`/`GetDpiForWindow`/`GetWindowLongPtrW` → 裸值（不要加 `?`）；`BitBlt`/`CreateDIBSection` → `Result<T>`；`SHAppBarMessage` → `usize` 位掩码。收口方式：所有 Win32 调用经 `win/mod.rs` 的 `win_*` 包装转 `SbResult<T>`，业务代码不碰 `windows::` 返回类型。详见架构 §11.9。
-- `PTIMERAPCROUTINE` 在 `System::Threading` 而非 `UI::WindowsAndMessaging`；`CreateWaitableTimerW` 需 `Win32_Security` feature。
-- **publics RVA 常指向函数中间**（obj101 的 `0x170DDC` 实际是 +8，真起点 `0x170DD4`）；打补丁到指令中间必崩。起点检测（CC-padding 回扫 + E8 调用图 + 绝对指针引用扫描）已成必要工序，工具在 `tools/symprobe/`。
-- **PSYM_ENUMERATESYMBOLS_CALLBACKW 是三参数原型**（首参 `SYMBOL_INFOW*`），网上流传的四参数老原型会导致枚举崩溃 —— 以本机 SDK `DbgHelp.h` 为准。
-- `SystemTray.pdb` 是 publics-only 剥离版，`SymFromAddrW` 恒报 87；改用「全量枚举 + 最近邻匹配」。
-- `build.ps1` 在 PS 5.1.26100 下 `Get-ChildItem | Remove-Item -Force` 会报 `ParameterBindingException: InputObjectNotBound`（dist 残留旧 exe 才触发）。已修为 `ForEach-Object { Remove-Item -LiteralPath $_.FullName -Force }`，**别改回管道写法**（架构 §11.11）。
-- 主程序 `panic = "abort"`，但注入 DLL profile `release-inject` 用 `panic = "unwind"` —— 否则一次 panic 会杀掉 explorer。
-- `GlobalAlloc` 分配计数器必须 `thread_local!` + `const { Cell::new(0) }`，否则并行测试互相污染、且避免分配器自身递归。
-- UIA 快照 `clear()` 会抹掉 L3 的 `ColoredRects`；已拆 `external_masks` 独立保存、刷新后重新并入。
-- 本 AI 执行环境有两个干扰源：① 沙箱在命令会话结束时**收割全部子进程**（无 WER 干净终止，曾把"explorer 消失"误判为崩溃）；② 近跳转匿名页触发 fail-fast 时 VEH 收不到记录。排查时先排除环境。
+```bash
+# 构建（顺序不能反：宿主编译期要内嵌载荷）
+cd payload && bash build.sh && cd ..
+cargo build --release
 
-### 4.4 环境与团队
-- 桌面环境：A-29 实验后 explorer / TranslucentTB 均已恢复；最后一次复核为 **explorer pid 36264、TranslucentTB pid 27336**（**pid 会随重启变化，别当常量用**）。`ExplorerTAP.dll` 在 explorer 内属正常共存。
-- 全程未改用户壁纸、注册表（仅只读查询 UIA CLSID）、未动用户已打开窗口；取证可视化窗口均为本进程新建 `WS_EX_NOACTIVATE`，用完销毁。
-- 团队模式：`software-company` 专家团（主理人 + 产品经理 + 架构师 + 工程师 + QA），共享任务台账 **20/20 completed**。若新对话继续走该模式，注意「成员产出必须由成员输出、跨成员信息经主理人中转」。
-- 历史工作日志：`.workbuddy/memory/2026-11-11.md`（前期）、`.workbuddy/memory/2026-11-15.md`（交付总结与经验沉淀）。
+# 测试
+cargo test --release          # 214 项
 
-### 4.5 用户偏好（长期强制）
-- **简体中文**回答。
-- **任何截图（窗口/区域/全屏/录屏）必须先询问并取得明确同意**，且同意仅在约定时段内有效，过期需重新询问。未经同意改用读文件/跑测试/读属性等方式验证。
-- **安装应用必须先询问并取得同意，安装路径由用户选择**（可推荐）。
-- **版本号一律遵循最新 SemVer 2.0.0**：不兼容变更 → MAJOR；向下兼容新功能 → MINOR；向下兼容问题修正（含用户可感知的 bug 修复）→ PATCH。改版本号前先判定并把结论写进提交信息。
+# 打包
+cp target/x86_64-pc-windows-msvc/release/shadebar-app.exe "dist/随影ShadeBar_v1.1.1.exe"
+
+# 推送
+git push origin main
+```
+
+- Rust 1.99+（`rust-toolchain.toml` 锁定）、VS2022 Build Tools（C++ 工作负载）、Win11 SDK。
+- 载荷用 `payload/build.sh` 手工拼 `cl.exe` 环境（不依赖 vcvars，避开 `reg.exe` 被安全策略拦）。
+- 开发机：Win11 26H2 Build 26300.9711，单显示器 2560×1440，TranslucentTB + Wallpaper Engine 常驻，
+  **火绒实时防护开启**（目前未拦注入，但被拦时 `payload.log` 会记 `远程 LoadLibraryW 失败`）。
+
+### 4.4 用户偏好（长期强制）
+
+- **截图必须先征求同意**，同意有时效、过期需重新申请。（本项目开发期已获授权，交付后失效）
+- **安装软件必须先问，且由用户选路径**。
+- 版本号严格按 SemVer 2.0.0，判定结果写进提交信息。
+- 只用简体中文交流。
+- 交付物默认只打包可直接运行的 exe，文件名带版本号（`随影ShadeBar_v1.1.1.exe`）；
+  只有明确要求才生成安装包。
+
+### 4.5 本项目验证有效的开发方法
+
+1. **先证最高风险点**：动手写产品前，用一次性探针把"注入能不能改色"跑通，再谈架构。
+   探针留在 `scratch/tap_probe/`（不进产品、不进仓库）。
+2. **验证必须看像素**：日志里的"成功"可能是假的。
+3. **改完立刻归档证据**：`evidence/recolor-spike/` 的截图是后续判断"是否回归"的基线。
+4. **一个已知坑要顺手写进文档**：`docs/03` §5 与本文件 §4.1 是同一份清单的两个入口。
 
 ---
 
 ## 5. 新对话续接建议
 
-1. **先读本文件 + `README.md` + `docs/qa-report.md` §10**，再决定要做什么。不要从旧聊天记录里找结论。
-2. **若只是查看成果**：直接运行 `dist\随影_ShadeBar_v1.0.0.exe`；复现构建用 `powershell -ExecutionPolicy Bypass -File build.ps1`。
-3. **若要继续开发**：先确认目标是 §3.1 哪一项（建议从 `git init` 与 Q-1 注释清理起步，风险最低）。**不要动冻结的判据数值**，不要在没跑 `build.ps1` 的情况下交付新 exe。
-4. **若考虑重启改色研究**：先读 `docs/spike-report.md` §2.6~§2.10 与 `sp2_manual_report.txt`。已有证据表明近跳转与模板内走查两条路在真机均崩；除非有全新上屏方案，否则不建议重开。
-5. **A-29 一键脚本已由用户执行完毕**，不要再让用户跑第二次。
-6. 每次改代码后按 §4.1 的 hash 表核对哪些文件变了，并同步更新本文件。
+### 5.1 冒烟验证（3 分钟）
+
+```powershell
+# 1) 确认 explorer 加载的是当前版本载荷
+(Get-Process explorer).Modules | ? ModuleName -like '*ShadeBar*'
+
+# 2) 启动
+dist\随影ShadeBar_v1.1.1.exe
+
+# 3) 日志应有：[Init] 代际=N → [Apply] seq=2 mask=F time=1 date=1 tray=15 ind=7
+Get-Content "$env:LOCALAPPDATA\ShadeBar\payload.log" -Tail 5
+
+# 4) 截图看时间/日期/托盘图标颜色是否跟随背景
+# 5) 退出后应见 [Restore] restored=N，任务栏恢复默认
+```
+
+### 5.2 不可推翻的结论（别重新论证）
+
+- 元素级改色**可行**，路线是官方诊断接口 + UI 线程改画刷。
+- 指示条**选中态**改不动，别再试 `Fill` / `Foreground` / `Background`。
+- 注入**不会**让 explorer 崩，前提是：订阅失败立即收手、所有 XAML 调用回 UI 线程、
+  不跨时点持有句柄。
+- 时间/日期/托盘的 `Foreground` 与指示条**正常态**的 `Fill` 都是稳的（60 s 验证）。
+
+### 5.3 如果只有一件事要做
+
+**降内存**。功能已齐，46 MB 对一个常驻托盘工具是明显短板，
+而用户对"尽量小的体积和低系统占用"有明确要求（这也是当初选 Rust 的原因之一）。
