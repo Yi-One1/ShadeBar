@@ -382,8 +382,12 @@ struct RestoreColors {
     unsigned tray = 0;
     unsigned indNormal = 0;
     unsigned indSelected = 0;
+    // 选中态那条 Fill 指向的画刷对象（退出时即使已无图标处于选中态，也要把它改回来）
+    InstanceHandle indSelectedBrush = 0;
 };
 static RestoreColors g_restore;
+// 我们最后一次写进指示条的色值，供退出时按内容识别"哪些画刷是我们染的"。
+static unsigned g_appliedIndColor = 0;
 
 static bool SetColorProp(InstanceHandle h, const wchar_t* propName, unsigned argb) {
     IVisualTreeService* svc = VtsBase();
@@ -411,6 +415,88 @@ static bool ClearColorProp(InstanceHandle h, const wchar_t* propName) {
     unsigned int idx = 0;
     if (!IndexFromChain(h, propName, &idx)) return false;
     return SUCCEEDED(svc->ClearProperty(h, idx));
+}
+
+// 取某属性链里第一个非空的画刷句柄。
+// 选中态的 Fill 有两个 Local 槽：VisualState 写的那个排在前面（优先级更高），
+// 因此这里取到的就是系统强调色画刷，而不是我们自己写进去的那个。
+static InstanceHandle BrushHandleOfProp(InstanceHandle elem, const wchar_t* propName) {
+    IVisualTreeService* svc = VtsBase();
+    if (!svc || !elem) return 0;
+    unsigned int sc = 0, pc = 0;
+    PropertyChainSource* src = nullptr;
+    PropertyChainValue* pr = nullptr;
+    InstanceHandle out = 0;
+    if (SUCCEEDED(svc->GetPropertyValuesChain(elem, &sc, &src, &pc, &pr))) {
+        for (unsigned int i = 0; i < pc; ++i) {
+            if (pr[i].PropertyName && wcscmp(pr[i].PropertyName, propName) == 0 && pr[i].Value) {
+                InstanceHandle cand = (InstanceHandle)_wtoi64(pr[i].Value);
+                if (cand) { out = cand; break; }
+            }
+        }
+        for (unsigned int i = 0; i < pc; ++i) {
+            SysFreeString(pr[i].Type); SysFreeString(pr[i].DeclaringType);
+            SysFreeString(pr[i].ValueType); SysFreeString(pr[i].ItemType);
+            SysFreeString(pr[i].Value); SysFreeString(pr[i].PropertyName);
+        }
+        for (unsigned int i = 0; i < sc; ++i) { SysFreeString(src[i].TargetType); SysFreeString(src[i].Name); }
+        if (pr) CoTaskMemFree(pr);
+        if (src) CoTaskMemFree(src);
+    }
+    return out;
+}
+
+// 读画刷对象自身的 Color（不是从元素属性链绕）。
+static bool ReadColorOfBrush(InstanceHandle brushH, unsigned* outArgb) {
+    IVisualTreeService* svc = VtsBase();
+    if (!svc || !brushH || !outArgb) return false;
+    unsigned int sc = 0, pc = 0;
+    PropertyChainSource* src = nullptr;
+    PropertyChainValue* pr = nullptr;
+    bool ok = false;
+    if (SUCCEEDED(svc->GetPropertyValuesChain(brushH, &sc, &src, &pc, &pr))) {
+        for (unsigned int i = 0; i < pc; ++i) {
+            if (pr[i].PropertyName && wcscmp(pr[i].PropertyName, L"Color") == 0 && pr[i].Value) {
+                unsigned a = 0;
+                if (ParseColorStr(pr[i].Value, &a)) { *outArgb = a; ok = true; break; }
+            }
+        }
+        for (unsigned int i = 0; i < pc; ++i) {
+            SysFreeString(pr[i].Type); SysFreeString(pr[i].DeclaringType);
+            SysFreeString(pr[i].ValueType); SysFreeString(pr[i].ItemType);
+            SysFreeString(pr[i].Value); SysFreeString(pr[i].PropertyName);
+        }
+        for (unsigned int i = 0; i < sc; ++i) { SysFreeString(src[i].TargetType); SysFreeString(src[i].Name); }
+        if (pr) CoTaskMemFree(pr);
+        if (src) CoTaskMemFree(src);
+    }
+    return ok;
+}
+
+// 直接改画刷对象的 Color。
+// 为什么必须这么做：选中态下 VisualState 会往 Local 层插一个更高优先级的 Fill 槽，
+// SetProperty 写元素的 Fill 永远排在它后面 —— 真机实测 6 条正常态全部生效、
+// 唯独 ActualWidth=16 的选中态那条纹丝不动（读回有值、视觉不变）。
+// 而画刷对象是共用的，改它自身的 Color 不经过属性优先级，可以穿透。
+static bool SetBrushColorDirect(InstanceHandle brushH, unsigned argb) {
+    IVisualTreeService* svc = VtsBase();
+    if (!svc || !brushH) return false;
+    unsigned int idx = 0;
+    if (!IndexFromChain(brushH, L"Color", &idx)) return false;
+    wchar_t s[16];
+    swprintf_s(s, L"#%08X", argb);
+    InstanceHandle colorObj = 0;
+    BSTR tn = SysAllocString(L"Windows.UI.Color");
+    BSTR v = SysAllocString(s);
+    HRESULT hr = svc->CreateInstance(tn, v, &colorObj);
+    SysFreeString(tn); SysFreeString(v);
+    if (FAILED(hr) || !colorObj) return false;
+    return SUCCEEDED(svc->SetProperty(brushH, colorObj, idx));
+}
+
+static bool SetBrushColorOfProp(InstanceHandle elem, const wchar_t* propName, unsigned argb) {
+    InstanceHandle bh = BrushHandleOfProp(elem, propName);
+    return bh ? SetBrushColorDirect(bh, argb) : false;
 }
 
 // ---------------------------------------------------------------- UI 线程工作
@@ -460,31 +546,47 @@ static void ApplyColors() {
             // 正常态约 6 px、选中态约 16 px，这是区分两态的唯一可靠依据。
             double w = 0.0;
             bool selected = ReadNumber(e.handle, L"ActualWidth", &w) && w >= 10.0;
-            // 选中态（宽条）由系统强调色接管：XAML 视觉状态会在选中/取消选中时
-            // 覆盖 Fill，写入返回 S_OK 但随即失效。与其做无用功，不如**完全不碰**，
-            // 让系统按主题给出对比度合适的强调色（真机实测：这是唯一稳定的做法）。
-            //
-            // 但**必须仍然缓存它的原色**：用户退出随影时若某个图标正处于选中态，
-            // RestoreAll 要靠 g_restore.indSelected 写回强调色；不缓存就会写回
-            // 正常态的半透明黑，短条从蓝色变成暗灰（v1.1.1 的还原缺陷）。
-            if (selected) {
-                if (g_restore.indSelected == 0) {
-                    unsigned a = 0;
-                    if (ReadBrushColor(e.handle, L"Fill", &a)) g_restore.indSelected = a;
-                }
-                continue;
-            }
 
-            unsigned* slot = &g_restore.indNormal;
             if (mask & kMaskIndicator) {
-                if (*slot == 0) { unsigned a = 0; if (ReadBrushColor(e.handle, L"Fill", &a)) *slot = a; }
-                if (SetColorProp(e.handle, L"Fill", cmd.indicatorNormalColor)) {
-                    ++nInd;
-                    LogW(L"[Ind] h=0x%llX w=%.1f 正常 -> %08X",
-                         (unsigned long long)e.handle, w, cmd.indicatorNormalColor);
+                g_appliedIndColor = cmd.indicatorNormalColor;
+                if (selected) {
+                    // 选中态：VisualState 在 Local 层插了一个更高优先级的 Fill 槽，
+                    // 写元素的 Fill 永远排在它后面（实测：6 条正常态全生效，唯独这条不动，
+                    // 且回读能读到我们写的值 —— 因为诊断接口读属性链、渲染取有效值）。
+                    // 改 Fill 当前指向的画刷自身的 Color，不经过属性优先级，可以穿透。
+                    // 首次遇到时缓存原色与画刷句柄，供退出还原（v1.1.1 曾因未缓存而写回暗灰）。
+                    if (g_restore.indSelected == 0) {
+                        InstanceHandle bh = BrushHandleOfProp(e.handle, L"Fill");
+                        unsigned a = 0;
+                        if (bh && ReadColorOfBrush(bh, &a)) {
+                            g_restore.indSelected = a;
+                            g_restore.indSelectedBrush = bh;
+                        }
+                    }
+                    if (SetBrushColorOfProp(e.handle, L"Fill", cmd.indicatorNormalColor)) {
+                        ++nInd;
+                        LogW(L"[Ind] h=0x%llX w=%.1f 选中(改画刷) -> %08X",
+                             (unsigned long long)e.handle, w, cmd.indicatorNormalColor);
+                    }
+                } else {
+                    if (g_restore.indNormal == 0) {
+                        unsigned a = 0;
+                        if (ReadBrushColor(e.handle, L"Fill", &a)) g_restore.indNormal = a;
+                    }
+                    if (SetColorProp(e.handle, L"Fill", cmd.indicatorNormalColor)) {
+                        ++nInd;
+                        LogW(L"[Ind] h=0x%llX w=%.1f 正常 -> %08X",
+                             (unsigned long long)e.handle, w, cmd.indicatorNormalColor);
+                    }
                 }
-            } else if ((g_activeMask & kMaskIndicator) && *slot != 0) {
-                if (SetColorProp(e.handle, L"Fill", *slot)) ++nUndo;
+            } else if (g_activeMask & kMaskIndicator) {
+                if (selected) {
+                    if (g_restore.indSelected &&
+                        SetBrushColorOfProp(e.handle, L"Fill", g_restore.indSelected)) ++nUndo;
+                } else if (g_restore.indNormal &&
+                           SetColorProp(e.handle, L"Fill", g_restore.indNormal)) {
+                    ++nUndo;
+                }
             }
         }
     }
@@ -516,13 +618,48 @@ static void RestoreAll() {
             double w = 0.0;
             // 与 ApplyColors 保持同一判据：`Width` 实测是 "Auto"，只有 `ActualWidth` 可用。
             bool selected = ReadNumber(e.handle, L"ActualWidth", &w) && w >= 10.0;
-            unsigned orig = selected ? g_restore.indSelected : g_restore.indNormal;
-            // 选中态缓存可能因「从未选中过」而为空：此时退回正常态原色，
-            // 至少不会写进一个系统里根本不存在的颜色。
-            if (!orig) orig = g_restore.indNormal;
-            // 关键：优先写回原色。ClearProperty 会让视觉状态驱动的 Fill 变透明（v1.1 实测故障）
-            // 没有缓存就保持现状：ClearProperty 会让视觉状态驱动的 Fill 变透明
-            if (orig && SetColorProp(e.handle, L"Fill", orig)) ++n;
+            if (selected && g_restore.indSelected) {
+                // 选中态必须改回画刷自身的 Color：写元素 Fill 会被 VisualState 压住
+                if (SetBrushColorOfProp(e.handle, L"Fill", g_restore.indSelected)) ++n;
+            } else if (!selected && g_restore.indNormal) {
+                if (SetColorProp(e.handle, L"Fill", g_restore.indNormal)) ++n;
+            }
+        }
+    }
+    // 退出瞬间可能已没有任何图标处于选中态，但我们改过的选中态画刷还在树里，
+    // 按缓存的句柄直接改回原色（幂等，重复写无副作用）。
+    if (g_restore.indSelectedBrush && g_restore.indSelected) {
+        bool ok = SetBrushColorDirect(g_restore.indSelectedBrush, g_restore.indSelected);
+        unsigned back = 0;
+        bool rback = ReadColorOfBrush(g_restore.indSelectedBrush, &back);
+        LogW(L"[Restore] 选中态画刷 h=0x%llX -> %08X ok=%d 读回=%08X(found=%d)",
+             (unsigned long long)g_restore.indSelectedBrush, g_restore.indSelected,
+             (int)ok, back, (int)rback);
+        if (ok) ++n;
+    } else {
+        LogW(L"[Restore] 选中态画刷无缓存 h=0x%llX s=%08X",
+             (unsigned long long)g_restore.indSelectedBrush, g_restore.indSelected);
+    }
+
+    // 按内容兜底：选中态画刷可能被系统换成新实例，缓存的句柄会改不到它。
+    // 这里对每条指示条取"当前"画刷，只要它的颜色正是我们写进去的那个，就改回原色。
+    if (g_appliedIndColor) {
+        for (auto& e : v) {
+            if (e.name != L"RunningIndicator") continue;
+            InstanceHandle bh = BrushHandleOfProp(e.handle, L"Fill");
+            if (!bh) continue;
+            unsigned c = 0;
+            if (!ReadColorOfBrush(bh, &c) || c != g_appliedIndColor) continue;
+            double w = 0.0;
+            bool sel = ReadNumber(e.handle, L"ActualWidth", &w) && w >= 10.0;
+            unsigned target = (sel && g_restore.indSelected)
+                                  ? g_restore.indSelected
+                                  : (g_restore.indNormal ? g_restore.indNormal : 0);
+            if (target && SetBrushColorDirect(bh, target)) {
+                ++n;
+                LogW(L"[Restore] 按内容还原 h=0x%llX %08X -> %08X",
+                     (unsigned long long)bh, c, target);
+            }
         }
     }
     LogW(L"[Restore] restored=%d (cache t=%08X d=%08X g=%08X n=%08X s=%08X)",
@@ -743,7 +880,13 @@ static DWORD WINAPI Worker(LPVOID) {
                 }
                 InterlockedExchange(&g_touched, 0);
                 g_restore = RestoreColors{};
+                g_appliedIndColor = 0;
                 wasEnabled = false;
+                // 关键：把 seq 标记为"已处理"。
+                // RestoreAll 内部会把 g_applied 归零，而共享内存里的 seq 仍是最后一条，
+                // 下一轮主循环看到 seq != g_applied 就会立刻重新上色 ——
+                // 实测表现就是"还原 ok=1、读回也是原色，但屏幕又被刷回灰色"。
+                InterlockedExchange(&g_applied, (LONG)g_ipc->seq);
             }
             lastBeat = g_ipc->heartbeat;
             staleLoops = 0;

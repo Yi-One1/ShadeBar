@@ -4,6 +4,49 @@ All notable changes to 随影 ShadeBar are documented here. The version is a sin
 source of truth in `Cargo.toml` (`[workspace.package] version`), also used for the
 artifact filename, the About page and the exe VERSIONINFO (FR-16 / A-16).
 
+## [1.1.3]
+
+### Fixed
+
+- **选中态指示条改成不了色**（长期缺口：v1.1 只改正常态，选中态被直接跳过）。
+  根因不是"写不进去"，而是**写进了被压住的层级**：
+
+  选中态下 `RunningIndicator.Fill` 的属性链有**三层**，正常态只有两层：
+
+  ```
+  正常态:  Fill = <brush>  base=Local       ← 我们写的本地值
+           Fill = 0         base=Default
+
+  选中态:  Fill = <brush A> base=Local      ← ① VisualState 写的（优先级更高）
+           Fill = <brush B> base=Local      ← ② 普通本地值（我们写在这里）
+           Fill = 0         base=Default
+  ```
+
+  WinUI 的 `VisualState.Setters` 会往 Local 层插一个**更高优先级的槽**，
+  `SetProperty` 写的普通本地值永远排在它后面。所以表现为：
+  `SetProperty` 返回 `S_OK`、`GetPropertyValuesChain` 能读回我们写的值（它读属性链）、
+  但渲染取的是有效值 → **视觉上一帧都不变**。这也解释了此前"保持 15 秒仍无变化"：
+  不是抢不到时机，是层级被永久压住。
+
+  **修复方式**：选中态改为直接修改 `Fill` 当前指向的**画刷对象自身的 `Color`**。
+  画刷是共用的（真机实测：选中态画刷当时只被 1 个元素引用，正常态画刷被 29 个引用，
+  含 `DefaultIcon`），改它不经过属性优先级，可以穿透状态切换。
+  正常态仍走原来的"新建画刷赋 `Fill`"，避免碰到共享画刷。
+
+  真机验证（2600×1440 / 100% DPI）：7 条 `RunningIndicator` 逐条染不同色，
+  6 条正常态全部生效，唯独 `ActualWidth=16` 的选中态纹丝不动；
+  改用画刷 `Color` 后该条由 `RGB(13,126,213)` 变为目标色。
+
+- **退出还原后颜色又被自己刷回去**。`RestoreAll` 会把 `g_applied` 归零，
+  而共享内存里的 `seq` 仍是最后一条命令，主循环看到 `seq != g_applied` 就重新上色 ——
+  表现为"还原 `ok=1`、读回也是原色，但屏幕仍是自定义色"。
+  修复：心跳超时还原后把 `g_applied` 标记为当前 `seq`，不再重放。
+
+  同时补了两处还原保障：缓存选中态画刷句柄（退出时即使无图标处于选中态也能改回），
+  以及"按内容兜底"——遍历指示条取当前画刷，颜色等于我们写入值的就改回原色。
+
+  真机全链路：基线 `(15,127,214)` → 运行中 `(148,149,153)` → 强杀宿主后 `(13,126,213)`。
+
 ## [1.1.2]
 
 ### Fixed
