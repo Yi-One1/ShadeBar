@@ -4,6 +4,18 @@ All notable changes to 随影 ShadeBar are documented here. The version is a sin
 source of truth in `Cargo.toml` (`[workspace.package] version`), also used for the
 artifact filename, the About page and the exe VERSIONINFO (FR-16 / A-16).
 
+## [1.1.1]
+
+### Fixed
+
+- **降级横幅误报**：设置页默认 `degraded = true`（v1.0.0「只采样不改色」的遗留），
+  导致 v1.1 已能正常着色却仍显示「任务栏着色能力暂不可用（仅 L1）」。
+  改为默认正常态，只有注入/服务真的失败才降级，并把横幅文案改成
+  「注入失败或被安全软件拦截，任务栏已回落系统默认外观」。
+- 关于页与 `--version` 的版本号统一为 1.1.1。
+
+> 版本判定：PATCH。修正用户可感知的错误提示，不新增能力、不改配置格式。
+
 ## [1.1.0] - 任务栏自适应着色
 
 ### Added

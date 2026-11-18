@@ -70,7 +70,8 @@ impl App {
                 config,
                 diag: DiagView::default(),
                 decision_color: Rgba::opaque(255, 255, 255),
-                degraded: true,
+                // v1.1：着色能力已落地，默认为正常态；只有注入/采样真的失败才降级
+                degraded: false,
                 last_post_ms: 0,
                 last_sample_seq: 0,
             }),
@@ -159,9 +160,17 @@ impl App {
             cfg.enabled, cfg.follow, cfg.mask, cfg.policy.force, cfg.policy.threshold,
             cfg.policy.on_dark.r, cfg.policy.on_dark.g, cfg.policy.on_dark.b
         ));
-        let Some(dll) = crate::recolor::ensure_payload_dll() else { return };
-        if let Ok(svc) = crate::recolor::RecolorService::start(dll, cfg) {
-            *slot = Some(svc);
+        let Some(dll) = crate::recolor::ensure_payload_dll() else {
+            drop(slot);
+            self.mark_degraded(true, "payload dll unavailable");
+            return;
+        };
+        match crate::recolor::RecolorService::start(dll, cfg) {
+            Ok(svc) => *slot = Some(svc),
+            Err(e) => {
+                drop(slot);
+                self.mark_degraded(true, &format!("recolor service failed: {e}"));
+            }
         }
     }
 
@@ -581,10 +590,10 @@ mod tests {
     }
 
     #[test]
-    fn app_defaults_are_l1_and_degraded() {
+    fn app_defaults_are_active_not_degraded() {
         let app = App::new();
         assert_eq!(app.config().get(SettingKey::S01), 1);
-        assert!(app.degraded(), "L1 交付态下 L2/L3 能力未启用，如实显示降级横幅");
+        assert!(!app.degraded(), "v1.1 着色能力已落地，默认不显示降级横幅");
         assert_eq!(app.decision_color(), None, "无数据时不虚报判定色");
     }
 

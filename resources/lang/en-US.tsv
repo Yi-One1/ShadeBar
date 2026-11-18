@@ -108,9 +108,9 @@ tray.about	About (version)
 tray.exit	Exit
 tray.balloon.first_run	ShadeBar is running in the tray. Enable autostart in Settings.
 tray.restricted	Restricted (degraded mode)
-banner.degraded.title	Degraded mode (L1 only)
-banner.degraded.body	Taskbar coloring is unavailable; sampling and settings still work without admin rights.
-banner.inject_fail	Injection failed; automatically degraded to L1 mode.
+banner.degraded.title	Taskbar colouring inactive (degraded)
+banner.degraded.body	Injection failed or was blocked; the taskbar looks stock again. Sampling and settings still work.
+banner.inject_fail	Injection failed; the taskbar keeps its stock appearance.
 banner.s19_warning	Also changes Start menu and Control Center colors
 banner.region_small	Sample region too small; judgment may be affected
 diag.title	Diagnostics
@@ -141,5 +141,5 @@ common.enabled	Enabled
 common.disabled	Disabled
 common.copy_ok	Version copied
 common.export_ok	Diagnostic bundle created
-common.version_value	v1.1.0
+common.version_value	v1.1.1
 common.region_preview	Sample frame updates with the sliders above

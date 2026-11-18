@@ -108,9 +108,9 @@ tray.about	关于（版本号）
 tray.exit	退出
 tray.balloon.first_run	随影已驻留托盘。可在设置中开启开机自启动。
 tray.restricted	受限（降级模式）
-banner.degraded.title	当前为降级模式（仅 L1）
-banner.degraded.body	任务栏着色能力暂不可用；核心采样与设置仍可使用，无需管理员权限。
-banner.inject_fail	注入失败，已自动降级为 L1 模式。
+banner.degraded.title	任务栏着色未生效（降级模式）
+banner.degraded.body	注入失败或被安全软件拦截，任务栏已回落系统默认外观；采样与设置仍可使用。
+banner.inject_fail	注入失败，任务栏保持系统默认外观。
 banner.s19_warning	会连动开始菜单与控制中心配色
 banner.region_small	采样区过小，可能影响判定
 diag.title	诊断面板
@@ -141,5 +141,5 @@ common.enabled	已启用
 common.disabled	已停用
 common.copy_ok	版本号已复制
 common.export_ok	诊断包已生成
-common.version_value	v1.1.0
+common.version_value	v1.1.1
 common.region_preview	采样框随上方滑块实时更新
