@@ -154,6 +154,59 @@ C++ 载荷 (ShadeBarTap.dll, ~206 KB)
 
 ---
 
+## 5.3 选中态：**无副作用路径已证伪**（v1.1.2 实测）
+
+`progress.md` §2.4 曾列出四个探索方向，其中第 2 条「找可被本地值覆盖的同源元素」
+与第 3 条「抢状态切换时序」属于不改系统设置的路径。本次把两条都试完了，**均不可行**。
+
+### 实验一：子树属性存活筛选（`scratch/tap_probe` mode=`surv`）
+
+对选中态 `TaskListButton` 的**整棵子树**（9 个元素）逐个尝试写入 4 个画刷属性
+（`Fill` / `Background` / `Foreground` / `BorderBrush`），写品红后等 3 s 回读：
+
+| 元素 | 属性 | 写入 | 3 s 后回读 |
+|---|---|---|---|
+| `TaskListButton` | Background / Foreground / BorderBrush | S_OK | 读不到本地值 |
+| `IconPanel`(Grid) | Background / BorderBrush | S_OK | 读不到本地值 |
+| `MostRecentlyUsedDivider`(Rectangle) | Fill | S_OK | 读不到本地值 |
+| 匿名 Border | Background / BorderBrush | S_OK | 读不到本地值 |
+| `BackgroundElement`(Border) | Background / BorderBrush | S_OK | 读不到本地值 |
+| `MultiWindowElement`(Border) | Background / BorderBrush | S_OK | 读不到本地值 |
+| **`RunningIndicator`(Rectangle)** | **Fill** | S_OK | **读不到本地值** |
+| `DefaultIcon`(Rectangle) | Fill | S_OK | 读不到本地值 |
+
+**14 项全部返回 `S_OK`，3 s 后全部读不到本地值。**
+
+### 实验二：直接盯着选中态短条（`mode=hold`）
+
+滑块筛选的回读结果有歧义（读不到 ≠ 没生效），所以补一个只看像素的实验：
+定位 `ActualWidth=16` 的选中态 `RunningIndicator`，只写它的 `Fill`，保持 15 s 不恢复，
+在 t+2 s / t+8 s 各截一次全任务栏（2560×110），统计品红像素（±60）。
+
+结果：**两次都只有 1 个品红像素，位于托盘区 (2300,88)，是指示条以外的图标自身颜色。
+短条颜色零变化。**
+
+### 结论
+
+- 选中态短条由视觉状态**当帧接管**，`SetProperty` 写入既不报错也不留痕，
+  连一帧都抓不到——「抢时序」没有窗口可言。
+- 子树里其他元素的画刷属性同样被视觉状态接管（回读全部落空）。
+- 旁证：非选中态按钮的 `TaskListButton.Background` 写入**视觉上确实生效**
+  （截图出现品红方块，探针清理前可见）——说明写入链路本身没问题，
+  失效的是「选中态」这一特定状态下的属性。
+- 因此 `progress.md` §2.4 的方向 2、3 **可以划掉**，不要再试。
+
+### 剩下的两条路（都需要用户决策）
+
+1. **改系统强调色**（`HKCU\...\Explorer\Accent` + 广播 `WM_SETTINGCHANGE("ImmersiveColorSet")`）：
+   一次成功概率最高，但开始菜单高亮、开关控件、链接色会一起变，**侵入性大**。
+2. **S-19 明暗跟随兜底**：不注入、零风险，但只有两档且会连动开始菜单，本质是退一步。
+
+> 复现：`cd scratch/tap_probe && bash build.sh`，`mode.txt` 写 `surv` / `hold` / `clean`，
+`injector.exe` 注入（每次换 DLL 文件名）。`clean` 用于清理探针写入的本地值。
+
+---
+
 ## 6. 对 v1.0.0 文档的处置
 
 | 文件 | 处置 |
