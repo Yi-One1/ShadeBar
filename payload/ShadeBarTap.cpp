@@ -463,7 +463,17 @@ static void ApplyColors() {
             // 选中态（宽条）由系统强调色接管：XAML 视觉状态会在选中/取消选中时
             // 覆盖 Fill，写入返回 S_OK 但随即失效。与其做无用功，不如**完全不碰**，
             // 让系统按主题给出对比度合适的强调色（真机实测：这是唯一稳定的做法）。
-            if (selected) continue;
+            //
+            // 但**必须仍然缓存它的原色**：用户退出随影时若某个图标正处于选中态，
+            // RestoreAll 要靠 g_restore.indSelected 写回强调色；不缓存就会写回
+            // 正常态的半透明黑，短条从蓝色变成暗灰（v1.1.1 的还原缺陷）。
+            if (selected) {
+                if (g_restore.indSelected == 0) {
+                    unsigned a = 0;
+                    if (ReadBrushColor(e.handle, L"Fill", &a)) g_restore.indSelected = a;
+                }
+                continue;
+            }
 
             unsigned* slot = &g_restore.indNormal;
             if (mask & kMaskIndicator) {
@@ -504,9 +514,12 @@ static void RestoreAll() {
             else if (ClearColorProp(e.handle, L"Foreground")) ++n;
         } else if (e.name == L"RunningIndicator") {
             double w = 0.0;
-            bool selected = ReadNumber(e.handle, L"Width", &w) && w >= 10.0;
+            // 与 ApplyColors 保持同一判据：`Width` 实测是 "Auto"，只有 `ActualWidth` 可用。
+            bool selected = ReadNumber(e.handle, L"ActualWidth", &w) && w >= 10.0;
             unsigned orig = selected ? g_restore.indSelected : g_restore.indNormal;
-            if (!orig) orig = g_restore.indNormal ? g_restore.indNormal : g_restore.indSelected;
+            // 选中态缓存可能因「从未选中过」而为空：此时退回正常态原色，
+            // 至少不会写进一个系统里根本不存在的颜色。
+            if (!orig) orig = g_restore.indNormal;
             // 关键：优先写回原色。ClearProperty 会让视觉状态驱动的 Fill 变透明（v1.1 实测故障）
             // 没有缓存就保持现状：ClearProperty 会让视觉状态驱动的 Fill 变透明
             if (orig && SetColorProp(e.handle, L"Fill", orig)) ++n;
