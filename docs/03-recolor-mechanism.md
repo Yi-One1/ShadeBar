@@ -146,7 +146,7 @@ C++ 载荷 (ShadeBarTap.dll, ~206 KB)
 | 日期 `DateInnerTextBlock.Foreground` | ✅ 稳定 | 同上 |
 | 托盘字形 `AdaptiveTextBlock.Foreground` | ✅ 稳定 | `G1.bmp`：系统图标变青，第三方位图不动 |
 | 指示条**正常态** `RunningIndicator.Fill` | ✅ 可用 | `ActualWidth=6` 的那批写入有效 |
-| 指示条**选中态** | ❌ 不介入 | `ActualWidth=16` 的元素写入返回 `S_OK`，但选中/取消选中时被视觉状态覆盖，屏幕始终显示系统强调色。**产品决策：完全不碰**，让系统按主题给对比色 |
+| 指示条**选中态** | ⏳ 待攻克 | `ActualWidth=16` 的元素写入返回 `S_OK`，但选中/取消选中时被视觉状态覆盖，屏幕始终显示系统强调色。v1.1.1 **暂不介入**（让系统给对比色），能力保留为后续待办，探索方向见 `progress.md` §2.4 |
 | 悬停高亮块 `BackgroundElement` | ⚠ 未验证 | 探针阶段 `Background` 写入曾生效（`parent_exp.bmp` 图标底色变青），但未做稳定性验证，暂不开放 |
 
 > 判定「改色是否生效」不能只看 `SetProperty` 的返回值：XAML 对已被视觉状态接管的属性

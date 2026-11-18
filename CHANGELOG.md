@@ -59,9 +59,10 @@ artifact filename, the About page and the exe VERSIONINFO (FR-16 / A-16).
 
 ### Known issues
 
-- **指示条选中态**不做着色：它在选中/取消选中时被 XAML 视觉状态覆盖，
-  `SetProperty` 返回 `S_OK` 但随即失效。与其做无用功，不如完全不碰，
-  让系统按主题给出对比度合适的强调色。
+- **指示条选中态**暂不着色：它在选中/取消选中时被 XAML 视觉状态覆盖，
+  `SetProperty` 返回 `S_OK` 但随即失效。当前让系统按主题给出强调色。
+  **该能力未放弃**，已保留为后续待办（用户 2026-11-18 确认要做），
+  可探索方向见 `progress.md` §2.4。
 
 ## [1.0.0] - L1 主体交付
 
