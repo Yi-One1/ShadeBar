@@ -1,0 +1,110 @@
+%% 随影 ShadeBar v1.0.0 — 核心时序图
+%% 来源: docs/02-architecture.md §7（v1.2）
+%% 含三段: 7.1 冷启动→采样→判定→下发→着色 / 7.2 explorer 重启重挂 / 7.3 优雅退出还原
+%% v1.2: L2 目标在 SystemTray.dll、L3 目标在 Taskbar.View.dll，两条独立定位链；注入不需要管理员权限
+
+%% ============ 7.1 冷启动 → 采样 → 判定 → 下发 → 着色 ============
+sequenceDiagram
+    autonumber
+    participant OS as Windows
+    participant M as main T0
+    participant SM as T1 采样线程
+    participant W as T2 监视IO
+    participant U as UIA 线程
+    participant EX as explorer.exe
+    participant D as shadebar_inject.dll
+    participant X as XAML 线程
+
+    M->>OS: CreateMutexW(Local\ShadeBar.SingleInstance)
+    alt 已存在实例
+        M->>OS: 连 ShadeBar.activate 管道 -> 写 Activate -> ExitProcess(0)
+    end
+    M->>OS: log::init / ConfigStore::load 损坏则默认+bak
+    M->>OS: RegisterApplicationRestart + bump_restart_count
+    M->>OS: 创建隐藏主窗口 + 托盘图标 矢量绘制
+    M->>W: 启动 T2
+    W->>OS: 建判定管道服务器 + SetWinEventHook 回调只 SetEvent
+    M->>U: 启动 UIA 线程
+    U->>OS: ElementFromHandle(Shell_TrayWnd) 递归取时钟与日期矩形
+    U-->>M: MaskSet 时钟+日期+2px 膨胀
+    M->>SM: 启动 T1 继承 ConfigBank SharedDiag DecisionSlot
+    SM->>OS: locate() -> TaskbarGeom 物理像素
+    SM->>SM: compute_sample_rect() -> 300x48
+    SM->>OS: BitBlt 到复用 DIB
+    SM->>SM: 单遍直方图 跳过 MaskSet 像素 -> p50 -> SampleStats
+    SM->>SM: Judge::update EWMA + 阈值 + 变化触发
+    SM-->>M: SharedDiag 原子写 + PostMessage WM_SHADEBAR_DIAG
+    SM->>W: DecisionSlot::publish + SetEvent
+    Note over W,EX: 仅当 is_elevated 且非 --no-inject
+    W->>OS: ensure_dll_on_disk SHA-256 校验
+    W->>EX: OpenProcess + VirtualAllocEx + WriteProcessMemory
+    W->>EX: CreateRemoteThread LoadLibraryW -> DLL 载入
+    W->>EX: remote_call_export ShadeBarStart pipe_name main_pid
+    EX->>D: DllMain 仅 DisableThreadLibraryCalls
+    D->>D: 起 D0 客户端线程 + D1 看门狗
+    D->>W: 连管道 -> Frame Hello build chain hooked
+    W->>D: Frame Decision seq flags 4xARGB
+    D->>X: TryEnqueue 首帧在 hook 回调中已捕获 IDispatcherQueue
+    X->>X: 遍历 SystemTray.dll 可视树 -> Name() 匹配 TimeInnerTextBlock 与 DateInnerTextBlock
+    X->>X: 快照原 Foreground AddRef + SetForeground 新画刷
+    X-->>D: 完成
+    D->>W: Frame Ack seq + Frame ColoredRects + Frame LogChunk DLL日志经管道回传 不落盘
+    W->>SM: 合并 ColoredRects 进 MaskSet 双保险
+    W-->>M: SharedDiag.level = L2 托盘去受限角标
+
+%% ============ 7.2 explorer 重启重挂 ============
+sequenceDiagram
+    autonumber
+    participant OS as Windows
+    participant W as T2 监视线程
+    participant M as main T0
+    participant D as 旧 DLL 实例
+    participant NE as 新 explorer.exe
+
+    OS->>D: 旧 explorer 终止 DLL 随宿主消失 无需还原
+    OS->>W: WinEventHook EVENT_OBJECT_DESTROY Shell_TrayWnd -> SetEvent
+    W->>W: 打开 explorer 句柄 WaitForSingleObject 1s 确认已退出
+    W-->>M: PostMessage WM_SHADEBAR_DEGRADED 托盘临时受限
+    W->>OS: 轮询 FindWindowW Shell_TrayWnd 300ms x 最多 50 次
+    OS-->>W: 新 Shell_TrayWnd 出现
+    W->>OS: GetWindowThreadProcessId -> 新 pid
+    alt pid 与上次相同
+        W->>W: 仅重建几何 跳过注入 避免重复注入
+    else pid 变化
+        W->>NE: CreateRemoteThread LoadLibraryW 重新注入
+        W->>NE: ShadeBarStart 新 pipe 名 main_pid
+        NE->>W: Hello
+        W->>NE: Decision 立即补发当前判定色 不等下一拍
+        W-->>M: level 回 L2 托盘去角标
+    end
+    W->>W: 记录 inject remount ok pid elapsed_ms
+
+%% ============ 7.3 优雅退出 ============
+sequenceDiagram
+    autonumber
+    participant U as 用户或系统
+    participant M as main T0
+    participant W as T2 监视线程
+    participant D as DLL in explorer
+    participant J as T1 采样线程
+    participant OS as Windows
+
+    U->>M: 托盘退出 或 S-41 直接退出 或 WM_QUERYENDSESSION
+    M->>W: Cmd Shutdown 先停 T1
+    M->>J: SetEvent stop T1 退出 join 250ms 超时 detach
+    M->>W: 请求还原 deadline 1000ms
+    W->>D: Frame Restore
+    D->>D: 遍历快照写回原 Foreground -> 卸 hook -> 发 Bye -> 停 D0 D1
+    D-->>W: Frame Bye 超时 1s 未回则计时器到期
+    W->>D: DisconnectNamedPipe
+    M->>M: thememode::restore_original 先读当前值
+    alt 当前值仍等于 OWNED_VALUE
+        M->>OS: 写回 state.json 中的原值 + 广播 ImmersiveColorSet
+    else 用户中途手动改过主题
+        M->>M: 放弃恢复 以用户为准 记日志 restore skipped user changed
+    end
+    M->>M: ConfigStore::flush 确保节流改动落盘
+    M->>M: clear_restart_count 正常退出重置崩溃计数
+    M->>W: SetEvent stop W 退出
+    M->>M: 销毁托盘图标 DestroyWindow PostQuitMessage
+    M->>U: ExitProcess(0)

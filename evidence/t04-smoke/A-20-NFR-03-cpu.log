@@ -1,0 +1,25 @@
+=== A-20 / NFR-03: real CPU & per-sample cost ===
+profile=fast duration_ms=20000
+metric: wall_ms=20281
+metric: cpu_delta_100ns=0
+metric: logical_cpus=12
+metric: cpu_core_pct=0.0000
+metric: cpu_machine_pct=0.0000
+metric: samples=20
+metric: ticks=20
+metric: bad_frames=0
+metric: cost_avg_us=4516
+metric: cost_p95_us=6349
+metric: cost_max_us=6943
+metric: budget_us=5000
+metric: over_budget=5
+metric: cost_sample_scope=this segment only
+metric: nfr03_budget_met=false
+metric: sleeper_waits=45
+metric: dib_rebuilds=1
+metric: full_10min=false
+cumulative_all_session (NOT used for NFR-03 verdict): avg=3608us p95=6349us max=6943us
+summary_this_segment: ok=20 skip=0 bad=0 flips=0 y_milli=893 cost_avg_us=4516 cost_p95_us=6349 cost_max_us=6943
+result: evidence_obtained=false nfr03_budget_met=false
+result_detail: 10min CPU evidence NOT obtained: fast profile (20s smoke) must not be presented as 600s; NFR-03 single-sample budget NOT met: p95=6349us max=6943us over_budget=5/20 (budget=5000us)
+panel screenshot: evidence/t04-fast4\A-20-cpu-panel.png

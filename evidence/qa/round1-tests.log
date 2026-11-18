@@ -1,0 +1,1010 @@
+
+########## TEST default ##########
+CMD: cargo test --workspace
+START: 2026-11-14 08:40:27
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.75s
+     Running unittests src\main.rs (target\x86_64-pc-windows-msvc\debug\deps\shadebar_app-7778a9ad03af060c.exe)
+
+running 110 tests
+test app::tests::app_defaults_are_l1_and_degraded ... ok
+test app::tests::hwnd_roundtrip ... ok
+test app::tests::crc32_matches_known_vectors ... ok
+test config::tests::corrupt_json_is_rejected_not_panicking ... ok
+test config::tests::engine_config_maps_interval_region_and_pause ... ok
+test config::tests::exactly_35_settings_with_unique_indices ... ok
+test config::tests::defaults_match_requirements_table ... ok
+test config::tests::neg_push_helpers_handle_min ... ok
+test config::tests::restore_defaults_resets_every_value ... ok
+test config::tests::set_bumps_version_only_on_real_change ... ok
+test config::tests::sanitize_clamps_out_of_range_values ... ok
+test config::tests::color_field_never_allows_fully_transparent ... ok
+test config::tests::json_roundtrip_preserves_all_values ... ok
+test engine::platform::tests::decision_sink_counts_flips ... ok
+test engine::platform::tests::fixed_config_source_returns_same_snapshot ... ok
+test app::tests::sync_view_keeps_35_rows ... ok
+test engine::platform::tests::process_cpu_is_readable ... ok
+test config::tests::language_resolution_values ... ok
+test engine::platform::tests::cost_stats_avg_p95_max ... ok
+test engine::platform::tests::cost_stats_empty_is_zero ... ok
+test engine::platform::tests::filetime_conversion_matches_high_low ... ok
+test engine::platform::tests::steady_flips_excludes_segment_head ... ok
+test engine::screen::tests::fault_injection_flag_is_observable ... ok
+test engine::screen::tests::bgra_to_hex_swaps_channels ... ok
+test engine::screen::tests::pixel_at_reads_top_left ... ok
+test engine::screen::tests::bgra_to_hex_rejects_short_slice ... ok
+test engine::taskbar::tests::tray_find_struct_carries_real_flag ... ok
+test engine::tests::set_config_is_reflected_by_next_snapshot ... ok
+test engine::taskbar::tests::auto_hide_visible_bar_is_not_flagged ... ok
+test ipc_server::tests::posting_to_invalid_window_is_a_no_op ... ok
+test render::tests::dip_to_px_at_96_is_identity ... ok
+test render::tests::dip_to_px_scales_linearly ... ok
+test ipc_server::tests::window_class_is_stable_and_non_empty ... ok
+test ipc_server::tests::already_exists_code_matches_win32 ... ok
+test ipc_server::tests::custom_messages_are_in_wm_app_private_range_and_unique ... ok
+test tray::tests::copy_wide_never_overruns_and_keeps_nul ... ok
+test engine::taskbar::tests::auto_hide_geometry_detects_offscreen_bar ... ok
+test render::tests::min_window_size_meets_acceptance ... ok
+test render::tests::palette_is_fully_opaque ... ok
+test tray::tests::icon_size_is_16_pixels ... ok
+test tray::tests::six_menu_ids_are_sequential_and_unique ... ok
+test tray::tests::tray_event_extracts_low_word ... ok
+test tray::tests::left_click_has_three_documented_modes ... ok
+test tray::tests::menu_command_id_extracts_low_word ... ok
+test ui::i18n::tests::both_tables_have_identical_key_sets ... ok
+test ui::i18n::tests::option_tables_are_not_empty_and_in_range ... ok
+test ui::layout::tests::cjk_is_wider_than_ascii ... ok
+test ui::layout::tests::content_view_coordinates_roundtrip ... ok
+test ui::layout::tests::ellipsize_short_text_is_unchanged ... ok
+test ui::i18n::tests::english_flag_matches_feature ... ok
+test ui::layout::tests::scroll_never_exposes_content_past_bottom ... ok
+test ui::i18n::tests::known_texts_resolve_in_both_languages ... ok
+test ui::layout::tests::rect_contains_and_inset ... ok
+test ui::layout::tests::metrics_fit_720x560_without_horizontal_overflow ... ok
+test ui::layout::tests::scroll_page_and_to_top ... ok
+test ui::layout::tests::wrap_text_handles_explicit_newline ... ok
+test ui::pages::behavior::tests::behavior_page_has_7_items ... ok
+test ui::pages::behavior::tests::close_action_default_keeps_process_alive ... ok
+test ui::pages::behavior::tests::sub_groups_match_key_metadata ... ok
+test engine::tests::session_constructs_and_ticks_without_panicking ... ok
+test ui::layout::tests::short_content_has_zero_scroll_range ... ok
+test ui::pages::color::tests::interval_default_is_1000ms ... ok
+test ui::pages::color::tests::color_page_has_10_items_in_color_group ... ok
+test ui::layout::tests::wrap_text_breaks_and_preserves_all_chars ... ok
+test ui::pages::diagnostics::tests::hex_is_uppercase_six_digits ... ok
+test ui::pages::diagnostics::tests::region_warnings_are_independent ... ok
+test ui::pages::diagnostics::tests::push_y_keeps_last_10 ... ok
+test ui::pages::elements::tests::degraded_keeps_user_values_not_zeroed ... ok
+test ui::pages::color::tests::s19_carries_the_linkage_warning ... ok
+test ui::pages::elements::tests::s35_s37_defaults_have_alpha_0x38 ... ok
+test ui::pages::general::tests::general_page_has_6_items_in_general_group ... ok
+test ui::pages::general::tests::s02_defaults_off_and_s04_follows_system ... ok
+test ui::pages::region::tests::region_matches_engine_config ... ok
+test ui::pages::diagnostics::tests::contrast_low_requires_real_data ... ok
+test ui::pages::tests::diagnostics_page_has_no_settings ... ok
+test ui::pages::elements::tests::elements_page_has_8_items_in_elements_group ... ok
+test ui::pages::tests::pages_cover_exactly_35_unique_settings ... ok
+test ui::pages::elements::tests::greyed_set_matches_key_metadata ... ok
+test ui::pages::region::tests::small_region_only_warns_with_real_data ... ok
+test ui::pages::region::tests::region_page_has_4_items_in_region_group ... ok
+test ui::tests::clicking_restore_defaults_requires_confirmation_popup ... ok
+test ui::tests::language_switch_is_instant_and_keeps_pid_state ... ok
+test ui::tests::layout_produces_7_cards_and_positive_content_height ... ok
+test ui::tests::hex_parser_accepts_rgb_and_argb_and_rejects_garbage ... ok
+test ui::tests::tab_moves_focus_through_all_rows ... ok
+test ui::tests::rebuild_syncs_values_and_greys_only_degraded_elements ... ok
+test ui::tests::view_builds_35_rows_and_7_group_headers ... ok
+test ui::tests::overlay_escape_closes_popups ... ok
+test ui::theme::tests::every_control_color_is_fully_opaque ... ok
+test ui::tests::wheel_scrolls_and_clamps ... ok
+test ui::theme::tests::palette_lookup_is_static_and_distinct ... ok
+test ui::theme::tests::control_helpers_switch_on_enabled ... ok
+test ui::widgets::tests::all_35_settings_can_build_a_widget ... ok
+test ui::widgets::tests::banner_is_zero_height_when_hidden ... ok
+test ui::widgets::tests::button_kinds_open_correct_popups ... ok
+test ui::widgets::tests::disabled_widget_keeps_value_but_refuses_input ... ok
+test ui::widgets::tests::color_defaults_and_hex_text ... ok
+test ui::widgets::tests::keyboard_arrows_step_slider ... ok
+test ui::widgets::tests::keyboard_space_toggles ... ok
+test ui::widgets::tests::slider_click_maps_to_range_and_step ... ok
+test ui::widgets::tests::toggle_click_produces_changed_and_value_stays_legal ... ok
+test ui::widgets::tests::tooltip_detects_long_text ... ok
+test ui::widgets::tests::layout_splits_label_and_control_without_overflow ... ok
+test engine::platform::tests::system_clock_is_monotonic ... ok
+test ui::i18n::tests::both_tables_cover_every_required_key ... ok
+test engine::tests::wait_interval_returns_without_panicking ... ok
+test app::tests::apply_actions_persists_and_hot_switches_language ... ok
+test app::tests::pause_and_autostart_toggles_are_idempotent_per_call ... ok
+test app::tests::restore_defaults_is_confirmed_action ... ok
+test app::tests::stored_zip_has_valid_signatures_and_roundtrips_names ... ok
+
+test result: ok. 110 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+     Running unittests src\lib.rs (target\x86_64-pc-windows-msvc\debug\deps\shadebar_core-c6cc931765c80f3c.exe)
+
+running 96 tests
+test color::tests::from_rgb_splits_channels ... ok
+test engine::mask::tests::empty_and_inverted_rects_are_ignored ... ok
+test color::tests::parse_hex_rejects_bad_input ... ok
+test engine::mask::tests::disjoint_rects_stay_separate_and_areas_do_not_double_count ... ok
+test color::tests::hex_roundtrip_is_uppercase ... ok
+test color::tests::premul_zeroes_rgb_when_transparent ... ok
+test color::tests::straight_keeps_rgb_regardless_of_alpha ... ok
+test engine::mask::tests::empty_set_hits_nothing_and_covers_nothing ... ok
+test engine::mask::tests::duplicate_union_does_not_grow_without_bound ... ok
+test engine::mask::tests::adjacent_clock_and_date_merge_into_one ... ok
+test color::tests::premul_matches_formula ... ok
+test color::tests::parse_hex_accepts_six_and_eight_digits ... ok
+test engine::mask::tests::fully_masked_region_is_detected ... ok
+test engine::mask::tests::capacity_overflow_never_drops_a_mask ... ok
+test engine::mask::tests::topmost_window_occlusion_is_excluded ... ok
+test engine::mask::tests::union_inflates_by_two_pixels ... ok
+test engine::sampler::tests::histogram_skips_masked_pixels ... ok
+test engine::sampler::tests::a28_character_pollution_does_not_flip_judgement ... ok
+test engine::sampler::tests::bitblt_failure_propagates_and_burst_is_detected ... ok
+test engine::sampler::tests::hysteresis_prevents_threshold_chatter ... ok
+test engine::sampler::tests::judge_pure_black_and_pure_white_endpoints_do_not_flip ... ok
+test engine::sampler::tests::perceptual_y_endpoints_match_a13_a14 ... ok
+test engine::sampler::tests::summary_line_has_all_mandatory_fields ... ok
+test engine::sampler::tests::wcag_contrast_black_white_is_21 ... ok
+test engine::sampler::tests::histogram_p50_is_robust_to_20_percent_white_noise ... ok
+test engine::screen::tests::clip_fully_offscreen_is_rejected ... ok
+test engine::screen::tests::bitblt_failure_returns_error_not_panic ... ok
+test engine::screen::tests::buffer_ensure_only_allocates_on_size_change ... ok
+test engine::sampler::tests::sample_once_skips_small_region_per_decision_5 ... ok
+test engine::screen::tests::clip_partial_overlap_prefers_primary_screen ... ok
+test engine::sampler::tests::sample_once_skips_when_fully_masked ... ok
+test engine::sampler::tests::sampler_loop_interval_and_battery_floor ... ok
+test engine::screen::tests::checked_frame_size_matches_rect ... ok
+test engine::screen::tests::buffer_rejects_zero_size_without_panic ... ok
+test engine::taskbar::tests::a02_wild_region_config_is_clamped_back_into_tray ... ok
+test engine::taskbar::tests::a02_sample_rect_is_fully_inside_tray_within_4px ... ok
+test engine::taskbar::tests::expected_and_actual_agree_on_default_config ... ok
+test engine::taskbar::tests::ex06_auto_hide_makes_geometry_unusable ... ok
+test engine::taskbar::tests::ex07_vertical_taskbar_is_detected ... ok
+test engine::screen::tests::thumbnail_is_nearest_neighbour_and_argb ... ok
+test engine::taskbar::tests::ex22_monitor_hotplug_changes_topology_fingerprint ... ok
+test engine::taskbar::tests::locate_and_compute_are_allocation_free ... ok
+test engine::screen::tests::white_noise_ratio_is_bounded ... ok
+test engine::taskbar::tests::nfr08_dpi_change_is_detected_and_recomputed ... ok
+test engine::taskbar::tests::nfr07_multi_monitor_uses_only_the_screen_with_taskbar ... ok
+test engine::taskbar::tests::nfr07_taskbar_on_secondary_screen_is_supported ... ok
+test engine::taskbar::tests::offscreen_tray_is_unusable ... ok
+test engine::tests::constants_match_architecture ... ok
+test engine::tests::dip_to_px_is_the_only_scaling_point ... ok
+test engine::tests::battery_mode_enforces_2000ms_floor ... ok
+test engine::tests::config_sanitize_repairs_damaged_values ... ok
+test engine::tests::engine_colored_rects_survive_uia_snapshot_refresh ... ok
+test engine::taskbar::tests::taskbar_missing_returns_error_not_panic ... ok
+test engine::taskbar::tests::tray_collapse_and_expand_keep_rect_inside_tray ... ok
+test engine::tests::engine_auto_hide_suspends_and_keeps_last_decision ... ok
+test engine::tests::engine_config_change_applies_within_three_seconds ... ok
+test engine::tests::engine_pause_freezes_sample_timestamp_and_resumes_in_time ... ok
+test engine::tests::engine_dpi_change_recomputes_within_two_seconds ... ok
+test engine::tests::engine_lifecycle_start_pause_resume_stop ... ok
+test engine::tests::engine_tray_collapse_and_expand_keep_sampling ... ok
+test engine::tests::engine_explicit_dpi_notification_forces_recompute ... ok
+test engine::tests::rect_intersection_and_union_and_touches ... ok
+test engine::tests::geometry_helpers_are_px_exact ... ok
+test engine::tests::rect_clamp_never_escapes_tray ... ok
+test engine::uia::tests::connection_config_limits_timeout_to_300ms ... ok
+test engine::uia::tests::fallback_scales_with_dpi_and_stays_inside_tray ... ok
+test engine::uia::tests::rects_within_filters_offscreen_rects ... ok
+test engine::uia::tests::three_consecutive_failures_trip_circuit_and_reset_retries ... ok
+test engine::uia::tests::uia_timeout_over_300ms_trips_circuit_breaker ... ok
+test engine::tests::engine_uia_failure_falls_back_without_functional_degradation ... ok
+test engine::tests::engine_vertical_taskbar_suspends_and_notifies_exactly_once ... ok
+test engine::uia::tests::empty_uia_result_also_falls_back ... ok
+test engine::uia::tests::fallback_inflates_by_two_pixels_after_union ... ok
+test engine::uia::tests::uia_unavailable_falls_back_without_degradation ... ok
+test engine::uia::tests::working_uia_yields_clock_and_date_rects ... ok
+test error::tests::every_variant_has_i18n_key_and_log_stem ... ok
+test error::tests::i18n_keys_are_unique_per_variant_family ... ok
+test error::tests::technical_description_keeps_raw_codes ... ok
+test tests::activate_pipe_differs_from_decision_pipe ... ok
+test win::tests::from_wide_lossy_replaces_lone_surrogate ... ok
+test win::tests::from_wide_lossy_stops_at_first_nul ... ok
+test win::tests::hresult_ext_preserves_code ... ok
+test win::tests::to_wide_appends_nul ... ok
+test win::tests::win32_check_handle_rejects_invalid_handle ... ok
+test win::tests::win32_check_passes_on_true ... ok
+test tests::decision_pipe_name_has_pid_suffix ... ok
+test win::tests::to_wide_handles_empty_and_non_bmp ... ok
+test win::tests::win32_check_maps_failure_to_win32_error ... ok
+test tests::version_is_three_part_semver ... ok
+test win::tests::to_wide_roundtrip_with_chinese ... ok
+test engine::screen::tests::six_hundred_grabs_are_allocation_free ... ok
+test engine::tests::engine_battery_mode_slows_sampling_but_never_stops ... ok
+test engine::mask::tests::hits_and_union_are_allocation_free ... ok
+test engine::sampler::tests::sample_once_is_allocation_free_for_600_frames ... ok
+test engine::tests::engine_600s_closed_loop_meets_a03 ... ok
+test engine::sampler::tests::full_closed_loop_600s_with_fake_clock ... ok
+
+test result: ok. 96 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.51s
+
+   Doc-tests shadebar_core
+
+running 3 tests
+test crates\shadebar-core\src\win\mod.rs - win::HResultExt (line 106) ... ignored
+test crates\shadebar-core\src\win\mod.rs - win::wide (line 48) ... ok
+test crates\shadebar-core\src\win\mod.rs - win::to_wide (line 21) ... ok
+
+test result: ok. 2 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 2.63s
+
+EXIT_CODE=0
+END: 2026-11-14 08:40:32
+
+########## TEST verify ##########
+CMD: cargo test --workspace --features verify
+START: 2026-11-14 08:40:32
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.19s
+     Running unittests src\main.rs (target\x86_64-pc-windows-msvc\debug\deps\shadebar_app-56ab75f935832e89.exe)
+
+running 133 tests
+test app::tests::crc32_matches_known_vectors ... ok
+test config::tests::color_field_never_allows_fully_transparent ... ok
+test app::tests::hwnd_roundtrip ... ok
+test app::tests::app_defaults_are_l1_and_degraded ... ok
+test config::tests::defaults_match_requirements_table ... ok
+test config::tests::engine_config_maps_interval_region_and_pause ... ok
+test config::tests::corrupt_json_is_rejected_not_panicking ... ok
+test config::tests::exactly_35_settings_with_unique_indices ... ok
+test config::tests::language_resolution_values ... ok
+test config::tests::json_roundtrip_preserves_all_values ... ok
+test config::tests::neg_push_helpers_handle_min ... ok
+test config::tests::restore_defaults_resets_every_value ... ok
+test app::tests::sync_view_keeps_35_rows ... ok
+test config::tests::sanitize_clamps_out_of_range_values ... ok
+test config::tests::set_bumps_version_only_on_real_change ... ok
+test engine::evidence::tests::dual_criteria_limits_match_requirement_v1_4 ... ok
+test engine::evidence::tests::endpoint_specs_keep_unrelaxed_y_limits ... ok
+test engine::evidence::tests::endpoints_profile_keeps_60s_criteria_but_skips_cpu ... ok
+test engine::evidence::tests::fast_profile_never_claims_full_ten_minutes ... ok
+test engine::evidence::tests::mean_rgb_handles_empty_and_known_pixels ... ok
+test engine::evidence::tests::profile_durations_match_acceptance ... ok
+test engine::platform::tests::cost_stats_avg_p95_max ... ok
+test engine::platform::tests::cost_stats_empty_is_zero ... ok
+test engine::platform::tests::decision_sink_counts_flips ... ok
+test engine::platform::tests::filetime_conversion_matches_high_low ... ok
+test engine::platform::tests::fixed_config_source_returns_same_snapshot ... ok
+test engine::platform::tests::process_cpu_is_readable ... ok
+test engine::platform::tests::steady_flips_excludes_segment_head ... ok
+test engine::png::tests::adler32_matches_known_vectors ... ok
+test engine::png::tests::bgra_is_swapped_to_rgba_in_idat ... ok
+test engine::png::tests::crc32_matches_known_vectors ... ok
+test engine::png::tests::draw_rect_clips_out_of_bounds ... ok
+test engine::png::tests::invalid_dimensions_return_none ... ok
+test engine::png::tests::every_png_chunk_crc_matches_its_payload ... ok
+test engine::png::tests::png_signature_and_chunks_are_well_formed ... ok
+test engine::screen::tests::bgra_to_hex_rejects_short_slice ... ok
+test engine::screen::tests::bgra_to_hex_swaps_channels ... ok
+test engine::screen::tests::fault_injection_flag_is_observable ... ok
+test engine::screen::tests::pixel_at_reads_top_left ... ok
+test engine::png::tests::stored_blocks_split_at_65535 ... ok
+test engine::taskbar::tests::tray_find_struct_carries_real_flag ... ok
+test engine::taskbar::tests::auto_hide_visible_bar_is_not_flagged ... ok
+test engine::taskbar::tests::auto_hide_geometry_detects_offscreen_bar ... ok
+test engine::uia::tests::classify_matches_known_xaml_automation_ids ... ok
+test engine::uia::tests::classify_matches_time_and_date_text ... ok
+test engine::uia::tests::classify_rejects_huge_rects_for_time_text ... ok
+test engine::uia::tests::classify_rejects_unrelated_elements ... ok
+test engine::uia::tests::timeout_constant_matches_arch ... ok
+test engine::visual::tests::colorref_swaps_channels ... ok
+test engine::visual::tests::inflate_expands_all_sides ... ok
+test engine::visual::tests::map_rect_keeps_aspect_ratio_and_bounds ... ok
+test engine::visual::tests::map_rect_never_produces_empty_rect ... ok
+test ipc_server::tests::already_exists_code_matches_win32 ... ok
+test ipc_server::tests::custom_messages_are_in_wm_app_private_range_and_unique ... ok
+test ipc_server::tests::posting_to_invalid_window_is_a_no_op ... ok
+test ipc_server::tests::window_class_is_stable_and_non_empty ... ok
+test render::tests::dip_to_px_at_96_is_identity ... ok
+test render::tests::dip_to_px_scales_linearly ... ok
+test render::tests::min_window_size_meets_acceptance ... ok
+test render::tests::palette_is_fully_opaque ... ok
+test tray::tests::copy_wide_never_overruns_and_keeps_nul ... ok
+test app::tests::pause_and_autostart_toggles_are_idempotent_per_call ... ok
+test tray::tests::icon_size_is_16_pixels ... ok
+test tray::tests::left_click_has_three_documented_modes ... ok
+test tray::tests::menu_command_id_extracts_low_word ... ok
+test tray::tests::six_menu_ids_are_sequential_and_unique ... ok
+test tray::tests::tray_event_extracts_low_word ... ok
+test ui::i18n::tests::english_flag_matches_feature ... ok
+test ui::i18n::tests::known_texts_resolve_in_both_languages ... ok
+test ui::i18n::tests::both_tables_have_identical_key_sets ... ok
+test ui::i18n::tests::option_tables_are_not_empty_and_in_range ... ok
+test ui::layout::tests::cjk_is_wider_than_ascii ... ok
+test ui::layout::tests::content_view_coordinates_roundtrip ... ok
+test ui::layout::tests::ellipsize_short_text_is_unchanged ... ok
+test ui::layout::tests::metrics_fit_720x560_without_horizontal_overflow ... ok
+test ui::layout::tests::rect_contains_and_inset ... ok
+test ui::layout::tests::scroll_never_exposes_content_past_bottom ... ok
+test ui::layout::tests::scroll_page_and_to_top ... ok
+test ui::layout::tests::short_content_has_zero_scroll_range ... ok
+test ui::layout::tests::wrap_text_breaks_and_preserves_all_chars ... ok
+test ui::layout::tests::wrap_text_handles_explicit_newline ... ok
+test ui::pages::behavior::tests::behavior_page_has_7_items ... ok
+test ui::pages::behavior::tests::close_action_default_keeps_process_alive ... ok
+test ui::pages::behavior::tests::sub_groups_match_key_metadata ... ok
+test ui::pages::color::tests::color_page_has_10_items_in_color_group ... ok
+test ui::pages::color::tests::interval_default_is_1000ms ... ok
+test ui::pages::color::tests::s19_carries_the_linkage_warning ... ok
+test ui::pages::diagnostics::tests::contrast_low_requires_real_data ... ok
+test ui::pages::diagnostics::tests::hex_is_uppercase_six_digits ... ok
+test ui::pages::diagnostics::tests::push_y_keeps_last_10 ... ok
+test ui::pages::diagnostics::tests::region_warnings_are_independent ... ok
+test ui::pages::elements::tests::degraded_keeps_user_values_not_zeroed ... ok
+test ui::pages::elements::tests::elements_page_has_8_items_in_elements_group ... ok
+test ui::pages::elements::tests::greyed_set_matches_key_metadata ... ok
+test ui::pages::elements::tests::s35_s37_defaults_have_alpha_0x38 ... ok
+test ui::pages::general::tests::general_page_has_6_items_in_general_group ... ok
+test ui::pages::general::tests::s02_defaults_off_and_s04_follows_system ... ok
+test ui::pages::region::tests::region_matches_engine_config ... ok
+test ui::pages::region::tests::region_page_has_4_items_in_region_group ... ok
+test ui::pages::region::tests::small_region_only_warns_with_real_data ... ok
+test ui::pages::tests::diagnostics_page_has_no_settings ... ok
+test ui::pages::tests::pages_cover_exactly_35_unique_settings ... ok
+test ui::tests::hex_parser_accepts_rgb_and_argb_and_rejects_garbage ... ok
+test app::tests::apply_actions_persists_and_hot_switches_language ... ok
+test ui::tests::clicking_restore_defaults_requires_confirmation_popup ... ok
+test ui::tests::language_switch_is_instant_and_keeps_pid_state ... ok
+test ui::tests::layout_produces_7_cards_and_positive_content_height ... ok
+test ui::tests::overlay_escape_closes_popups ... ok
+test ui::tests::rebuild_syncs_values_and_greys_only_degraded_elements ... ok
+test ui::tests::tab_moves_focus_through_all_rows ... ok
+test app::tests::restore_defaults_is_confirmed_action ... ok
+test ui::theme::tests::control_helpers_switch_on_enabled ... ok
+test ui::tests::view_builds_35_rows_and_7_group_headers ... ok
+test ui::tests::wheel_scrolls_and_clamps ... ok
+test ui::theme::tests::every_control_color_is_fully_opaque ... ok
+test ui::theme::tests::palette_lookup_is_static_and_distinct ... ok
+test ui::widgets::tests::all_35_settings_can_build_a_widget ... ok
+test ui::widgets::tests::banner_is_zero_height_when_hidden ... ok
+test ui::widgets::tests::button_kinds_open_correct_popups ... ok
+test ui::widgets::tests::color_defaults_and_hex_text ... ok
+test ui::widgets::tests::disabled_widget_keeps_value_but_refuses_input ... ok
+test ui::widgets::tests::keyboard_arrows_step_slider ... ok
+test ui::widgets::tests::keyboard_space_toggles ... ok
+test ui::widgets::tests::layout_splits_label_and_control_without_overflow ... ok
+test ui::widgets::tests::slider_click_maps_to_range_and_step ... ok
+test ui::widgets::tests::tooltip_detects_long_text ... ok
+test ui::widgets::tests::toggle_click_produces_changed_and_value_stays_legal ... ok
+test ui::i18n::tests::both_tables_cover_every_required_key ... ok
+test engine::platform::tests::system_clock_is_monotonic ... ok
+test engine::tests::wait_interval_returns_without_panicking ... ok
+test engine::tests::set_config_is_reflected_by_next_snapshot ... ok
+test app::tests::stored_zip_has_valid_signatures_and_roundtrips_names ... ok
+test engine::tests::session_constructs_and_ticks_without_panicking ... ok
+
+test result: ok. 133 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s
+
+     Running unittests src\lib.rs (target\x86_64-pc-windows-msvc\debug\deps\shadebar_core-c6cc931765c80f3c.exe)
+
+running 96 tests
+test color::tests::from_rgb_splits_channels ... ok
+test color::tests::hex_roundtrip_is_uppercase ... ok
+test color::tests::parse_hex_accepts_six_and_eight_digits ... ok
+test color::tests::parse_hex_rejects_bad_input ... ok
+test color::tests::premul_matches_formula ... ok
+test color::tests::premul_zeroes_rgb_when_transparent ... ok
+test color::tests::straight_keeps_rgb_regardless_of_alpha ... ok
+test engine::mask::tests::adjacent_clock_and_date_merge_into_one ... ok
+test engine::mask::tests::capacity_overflow_never_drops_a_mask ... ok
+test engine::mask::tests::disjoint_rects_stay_separate_and_areas_do_not_double_count ... ok
+test engine::mask::tests::duplicate_union_does_not_grow_without_bound ... ok
+test engine::mask::tests::empty_and_inverted_rects_are_ignored ... ok
+test engine::mask::tests::fully_masked_region_is_detected ... ok
+test engine::mask::tests::empty_set_hits_nothing_and_covers_nothing ... ok
+test engine::mask::tests::topmost_window_occlusion_is_excluded ... ok
+test engine::mask::tests::union_inflates_by_two_pixels ... ok
+test engine::sampler::tests::bitblt_failure_propagates_and_burst_is_detected ... ok
+test engine::sampler::tests::histogram_skips_masked_pixels ... ok
+test engine::sampler::tests::hysteresis_prevents_threshold_chatter ... ok
+test engine::sampler::tests::judge_pure_black_and_pure_white_endpoints_do_not_flip ... ok
+test engine::sampler::tests::perceptual_y_endpoints_match_a13_a14 ... ok
+test engine::sampler::tests::sample_once_skips_small_region_per_decision_5 ... ok
+test engine::sampler::tests::sample_once_skips_when_fully_masked ... ok
+test engine::sampler::tests::histogram_p50_is_robust_to_20_percent_white_noise ... ok
+test engine::sampler::tests::summary_line_has_all_mandatory_fields ... ok
+test engine::sampler::tests::a28_character_pollution_does_not_flip_judgement ... ok
+test engine::sampler::tests::wcag_contrast_black_white_is_21 ... ok
+test engine::screen::tests::bitblt_failure_returns_error_not_panic ... ok
+test engine::screen::tests::buffer_rejects_zero_size_without_panic ... ok
+test engine::screen::tests::checked_frame_size_matches_rect ... ok
+test engine::screen::tests::clip_fully_offscreen_is_rejected ... ok
+test engine::screen::tests::clip_partial_overlap_prefers_primary_screen ... ok
+test engine::screen::tests::buffer_ensure_only_allocates_on_size_change ... ok
+test engine::screen::tests::thumbnail_is_nearest_neighbour_and_argb ... ok
+test engine::sampler::tests::sampler_loop_interval_and_battery_floor ... ok
+test engine::taskbar::tests::a02_sample_rect_is_fully_inside_tray_within_4px ... ok
+test engine::taskbar::tests::a02_wild_region_config_is_clamped_back_into_tray ... ok
+test engine::taskbar::tests::ex06_auto_hide_makes_geometry_unusable ... ok
+test engine::taskbar::tests::ex07_vertical_taskbar_is_detected ... ok
+test engine::taskbar::tests::ex22_monitor_hotplug_changes_topology_fingerprint ... ok
+test engine::taskbar::tests::expected_and_actual_agree_on_default_config ... ok
+test engine::taskbar::tests::nfr07_multi_monitor_uses_only_the_screen_with_taskbar ... ok
+test engine::screen::tests::white_noise_ratio_is_bounded ... ok
+test engine::taskbar::tests::nfr07_taskbar_on_secondary_screen_is_supported ... ok
+test engine::taskbar::tests::locate_and_compute_are_allocation_free ... ok
+test engine::taskbar::tests::nfr08_dpi_change_is_detected_and_recomputed ... ok
+test engine::taskbar::tests::offscreen_tray_is_unusable ... ok
+test engine::taskbar::tests::taskbar_missing_returns_error_not_panic ... ok
+test engine::taskbar::tests::tray_collapse_and_expand_keep_rect_inside_tray ... ok
+test engine::tests::battery_mode_enforces_2000ms_floor ... ok
+test engine::tests::config_sanitize_repairs_damaged_values ... ok
+test engine::tests::constants_match_architecture ... ok
+test engine::tests::dip_to_px_is_the_only_scaling_point ... ok
+test engine::tests::engine_auto_hide_suspends_and_keeps_last_decision ... ok
+test engine::tests::engine_lifecycle_start_pause_resume_stop ... ok
+test engine::tests::engine_colored_rects_survive_uia_snapshot_refresh ... ok
+test engine::tests::engine_config_change_applies_within_three_seconds ... ok
+test engine::tests::engine_tray_collapse_and_expand_keep_sampling ... ok
+test engine::tests::engine_vertical_taskbar_suspends_and_notifies_exactly_once ... ok
+test engine::tests::geometry_helpers_are_px_exact ... ok
+test engine::tests::engine_dpi_change_recomputes_within_two_seconds ... ok
+test engine::tests::rect_clamp_never_escapes_tray ... ok
+test engine::tests::rect_intersection_and_union_and_touches ... ok
+test engine::uia::tests::connection_config_limits_timeout_to_300ms ... ok
+test engine::uia::tests::empty_uia_result_also_falls_back ... ok
+test engine::uia::tests::fallback_inflates_by_two_pixels_after_union ... ok
+test engine::uia::tests::fallback_scales_with_dpi_and_stays_inside_tray ... ok
+test engine::uia::tests::rects_within_filters_offscreen_rects ... ok
+test engine::uia::tests::three_consecutive_failures_trip_circuit_and_reset_retries ... ok
+test engine::uia::tests::uia_timeout_over_300ms_trips_circuit_breaker ... ok
+test engine::uia::tests::uia_unavailable_falls_back_without_degradation ... ok
+test engine::uia::tests::working_uia_yields_clock_and_date_rects ... ok
+test error::tests::every_variant_has_i18n_key_and_log_stem ... ok
+test error::tests::i18n_keys_are_unique_per_variant_family ... ok
+test error::tests::technical_description_keeps_raw_codes ... ok
+test tests::activate_pipe_differs_from_decision_pipe ... ok
+test tests::version_is_three_part_semver ... ok
+test engine::tests::engine_explicit_dpi_notification_forces_recompute ... ok
+test tests::decision_pipe_name_has_pid_suffix ... ok
+test engine::tests::engine_pause_freezes_sample_timestamp_and_resumes_in_time ... ok
+test win::tests::from_wide_lossy_replaces_lone_surrogate ... ok
+test win::tests::from_wide_lossy_stops_at_first_nul ... ok
+test win::tests::hresult_ext_preserves_code ... ok
+test engine::tests::engine_uia_failure_falls_back_without_functional_degradation ... ok
+test win::tests::to_wide_appends_nul ... ok
+test win::tests::to_wide_handles_empty_and_non_bmp ... ok
+test win::tests::to_wide_roundtrip_with_chinese ... ok
+test win::tests::win32_check_handle_rejects_invalid_handle ... ok
+test win::tests::win32_check_maps_failure_to_win32_error ... ok
+test win::tests::win32_check_passes_on_true ... ok
+test engine::screen::tests::six_hundred_grabs_are_allocation_free ... ok
+test engine::tests::engine_battery_mode_slows_sampling_but_never_stops ... ok
+test engine::mask::tests::hits_and_union_are_allocation_free ... ok
+test engine::sampler::tests::sample_once_is_allocation_free_for_600_frames ... ok
+test engine::tests::engine_600s_closed_loop_meets_a03 ... ok
+test engine::sampler::tests::full_closed_loop_600s_with_fake_clock ... ok
+
+test result: ok. 96 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.27s
+
+   Doc-tests shadebar_core
+
+running 3 tests
+test crates\shadebar-core\src\win\mod.rs - win::HResultExt (line 106) ... ignored
+test crates\shadebar-core\src\win\mod.rs - win::to_wide (line 21) ... ok
+test crates\shadebar-core\src\win\mod.rs - win::wide (line 48) ... ok
+
+test result: ok. 2 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.92s
+
+EXIT_CODE=0
+END: 2026-11-14 08:40:34
+
+########## TEST no-en ##########
+CMD: cargo test --workspace --features no-en
+START: 2026-11-14 08:40:34
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.22s
+     Running unittests src\main.rs (target\x86_64-pc-windows-msvc\debug\deps\shadebar_app-688f42fc07637b17.exe)
+
+running 110 tests
+test app::tests::crc32_matches_known_vectors ... ok
+test app::tests::hwnd_roundtrip ... ok
+test app::tests::app_defaults_are_l1_and_degraded ... ok
+test config::tests::color_field_never_allows_fully_transparent ... ok
+test config::tests::corrupt_json_is_rejected_not_panicking ... ok
+test config::tests::defaults_match_requirements_table ... ok
+test config::tests::engine_config_maps_interval_region_and_pause ... ok
+test config::tests::exactly_35_settings_with_unique_indices ... ok
+test config::tests::json_roundtrip_preserves_all_values ... ok
+test config::tests::language_resolution_values ... ok
+test app::tests::sync_view_keeps_35_rows ... ok
+test config::tests::neg_push_helpers_handle_min ... ok
+test config::tests::restore_defaults_resets_every_value ... ok
+test config::tests::sanitize_clamps_out_of_range_values ... ok
+test config::tests::set_bumps_version_only_on_real_change ... ok
+test engine::platform::tests::cost_stats_avg_p95_max ... ok
+test engine::platform::tests::cost_stats_empty_is_zero ... ok
+test engine::platform::tests::decision_sink_counts_flips ... ok
+test engine::platform::tests::filetime_conversion_matches_high_low ... ok
+test engine::platform::tests::fixed_config_source_returns_same_snapshot ... ok
+test engine::platform::tests::process_cpu_is_readable ... ok
+test engine::platform::tests::steady_flips_excludes_segment_head ... ok
+test engine::screen::tests::bgra_to_hex_rejects_short_slice ... ok
+test engine::screen::tests::bgra_to_hex_swaps_channels ... ok
+test engine::screen::tests::fault_injection_flag_is_observable ... ok
+test engine::screen::tests::pixel_at_reads_top_left ... ok
+test engine::taskbar::tests::tray_find_struct_carries_real_flag ... ok
+test engine::taskbar::tests::auto_hide_geometry_detects_offscreen_bar ... ok
+test engine::tests::set_config_is_reflected_by_next_snapshot ... ok
+test engine::taskbar::tests::auto_hide_visible_bar_is_not_flagged ... ok
+test ipc_server::tests::already_exists_code_matches_win32 ... ok
+test ipc_server::tests::custom_messages_are_in_wm_app_private_range_and_unique ... ok
+test ipc_server::tests::posting_to_invalid_window_is_a_no_op ... ok
+test ipc_server::tests::window_class_is_stable_and_non_empty ... ok
+test render::tests::dip_to_px_at_96_is_identity ... ok
+test render::tests::dip_to_px_scales_linearly ... ok
+test render::tests::min_window_size_meets_acceptance ... ok
+test render::tests::palette_is_fully_opaque ... ok
+test tray::tests::copy_wide_never_overruns_and_keeps_nul ... ok
+test tray::tests::icon_size_is_16_pixels ... ok
+test tray::tests::left_click_has_three_documented_modes ... ok
+test tray::tests::menu_command_id_extracts_low_word ... ok
+test tray::tests::six_menu_ids_are_sequential_and_unique ... ok
+test tray::tests::tray_event_extracts_low_word ... ok
+test ui::i18n::tests::both_tables_have_identical_key_sets ... ok
+test ui::i18n::tests::english_flag_matches_feature ... ok
+test ui::i18n::tests::option_tables_are_not_empty_and_in_range ... ok
+test ui::layout::tests::cjk_is_wider_than_ascii ... ok
+test ui::i18n::tests::known_texts_resolve_in_both_languages ... ok
+test ui::layout::tests::content_view_coordinates_roundtrip ... ok
+test ui::layout::tests::ellipsize_short_text_is_unchanged ... ok
+test ui::layout::tests::metrics_fit_720x560_without_horizontal_overflow ... ok
+test ui::layout::tests::rect_contains_and_inset ... ok
+test ui::layout::tests::scroll_never_exposes_content_past_bottom ... ok
+test ui::layout::tests::scroll_page_and_to_top ... ok
+test ui::layout::tests::short_content_has_zero_scroll_range ... ok
+test ui::layout::tests::wrap_text_breaks_and_preserves_all_chars ... ok
+test ui::layout::tests::wrap_text_handles_explicit_newline ... ok
+test ui::pages::behavior::tests::behavior_page_has_7_items ... ok
+test ui::pages::behavior::tests::close_action_default_keeps_process_alive ... ok
+test ui::pages::behavior::tests::sub_groups_match_key_metadata ... ok
+test ui::pages::color::tests::color_page_has_10_items_in_color_group ... ok
+test ui::pages::color::tests::interval_default_is_1000ms ... ok
+test ui::pages::diagnostics::tests::contrast_low_requires_real_data ... ok
+test ui::pages::color::tests::s19_carries_the_linkage_warning ... ok
+test ui::pages::diagnostics::tests::hex_is_uppercase_six_digits ... ok
+test ui::pages::diagnostics::tests::push_y_keeps_last_10 ... ok
+test ui::pages::diagnostics::tests::region_warnings_are_independent ... ok
+test ui::pages::elements::tests::degraded_keeps_user_values_not_zeroed ... ok
+test ui::pages::elements::tests::elements_page_has_8_items_in_elements_group ... ok
+test ui::pages::elements::tests::greyed_set_matches_key_metadata ... ok
+test ui::pages::elements::tests::s35_s37_defaults_have_alpha_0x38 ... ok
+test ui::pages::general::tests::general_page_has_6_items_in_general_group ... ok
+test ui::pages::general::tests::s02_defaults_off_and_s04_follows_system ... ok
+test ui::pages::region::tests::region_matches_engine_config ... ok
+test ui::pages::region::tests::region_page_has_4_items_in_region_group ... ok
+test ui::pages::region::tests::small_region_only_warns_with_real_data ... ok
+test ui::pages::tests::diagnostics_page_has_no_settings ... ok
+test ui::pages::tests::pages_cover_exactly_35_unique_settings ... ok
+test ui::tests::hex_parser_accepts_rgb_and_argb_and_rejects_garbage ... ok
+test ui::tests::clicking_restore_defaults_requires_confirmation_popup ... ok
+test ui::tests::language_switch_is_instant_and_keeps_pid_state ... ok
+test ui::tests::layout_produces_7_cards_and_positive_content_height ... ok
+test ui::tests::overlay_escape_closes_popups ... ok
+test ui::tests::rebuild_syncs_values_and_greys_only_degraded_elements ... ok
+test ui::tests::tab_moves_focus_through_all_rows ... ok
+test ui::tests::wheel_scrolls_and_clamps ... ok
+test ui::theme::tests::control_helpers_switch_on_enabled ... ok
+test ui::tests::view_builds_35_rows_and_7_group_headers ... ok
+test ui::theme::tests::every_control_color_is_fully_opaque ... ok
+test ui::theme::tests::palette_lookup_is_static_and_distinct ... ok
+test ui::widgets::tests::banner_is_zero_height_when_hidden ... ok
+test ui::widgets::tests::all_35_settings_can_build_a_widget ... ok
+test ui::widgets::tests::button_kinds_open_correct_popups ... ok
+test ui::widgets::tests::color_defaults_and_hex_text ... ok
+test app::tests::pause_and_autostart_toggles_are_idempotent_per_call ... ok
+test ui::widgets::tests::disabled_widget_keeps_value_but_refuses_input ... ok
+test ui::widgets::tests::keyboard_arrows_step_slider ... ok
+test ui::widgets::tests::keyboard_space_toggles ... ok
+test ui::widgets::tests::layout_splits_label_and_control_without_overflow ... ok
+test ui::widgets::tests::slider_click_maps_to_range_and_step ... ok
+test ui::widgets::tests::toggle_click_produces_changed_and_value_stays_legal ... ok
+test ui::widgets::tests::tooltip_detects_long_text ... ok
+test engine::tests::session_constructs_and_ticks_without_panicking ... ok
+test ui::i18n::tests::both_tables_cover_every_required_key ... ok
+test app::tests::apply_actions_persists_and_hot_switches_language ... ok
+test app::tests::restore_defaults_is_confirmed_action ... ok
+test engine::tests::wait_interval_returns_without_panicking ... ok
+test engine::platform::tests::system_clock_is_monotonic ... ok
+test app::tests::stored_zip_has_valid_signatures_and_roundtrips_names ... ok
+
+test result: ok. 110 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running unittests src\lib.rs (target\x86_64-pc-windows-msvc\debug\deps\shadebar_core-c6cc931765c80f3c.exe)
+
+running 96 tests
+test color::tests::from_rgb_splits_channels ... ok
+test color::tests::hex_roundtrip_is_uppercase ... ok
+test color::tests::parse_hex_accepts_six_and_eight_digits ... ok
+test color::tests::parse_hex_rejects_bad_input ... ok
+test color::tests::premul_matches_formula ... ok
+test engine::mask::tests::duplicate_union_does_not_grow_without_bound ... ok
+test color::tests::straight_keeps_rgb_regardless_of_alpha ... ok
+test engine::mask::tests::adjacent_clock_and_date_merge_into_one ... ok
+test engine::mask::tests::disjoint_rects_stay_separate_and_areas_do_not_double_count ... ok
+test color::tests::premul_zeroes_rgb_when_transparent ... ok
+test engine::mask::tests::empty_and_inverted_rects_are_ignored ... ok
+test engine::mask::tests::capacity_overflow_never_drops_a_mask ... ok
+test engine::mask::tests::fully_masked_region_is_detected ... ok
+test engine::mask::tests::empty_set_hits_nothing_and_covers_nothing ... ok
+test engine::mask::tests::topmost_window_occlusion_is_excluded ... ok
+test engine::mask::tests::union_inflates_by_two_pixels ... ok
+test engine::sampler::tests::bitblt_failure_propagates_and_burst_is_detected ... ok
+test engine::sampler::tests::histogram_skips_masked_pixels ... ok
+test engine::sampler::tests::hysteresis_prevents_threshold_chatter ... ok
+test engine::sampler::tests::judge_pure_black_and_pure_white_endpoints_do_not_flip ... ok
+test engine::sampler::tests::perceptual_y_endpoints_match_a13_a14 ... ok
+test engine::sampler::tests::sample_once_skips_small_region_per_decision_5 ... ok
+test engine::sampler::tests::sample_once_skips_when_fully_masked ... ok
+test engine::sampler::tests::a28_character_pollution_does_not_flip_judgement ... ok
+test engine::sampler::tests::summary_line_has_all_mandatory_fields ... ok
+test engine::sampler::tests::wcag_contrast_black_white_is_21 ... ok
+test engine::screen::tests::bitblt_failure_returns_error_not_panic ... ok
+test engine::screen::tests::buffer_rejects_zero_size_without_panic ... ok
+test engine::screen::tests::checked_frame_size_matches_rect ... ok
+test engine::sampler::tests::histogram_p50_is_robust_to_20_percent_white_noise ... ok
+test engine::screen::tests::clip_fully_offscreen_is_rejected ... ok
+test engine::screen::tests::clip_partial_overlap_prefers_primary_screen ... ok
+test engine::screen::tests::thumbnail_is_nearest_neighbour_and_argb ... ok
+test engine::screen::tests::buffer_ensure_only_allocates_on_size_change ... ok
+test engine::taskbar::tests::a02_sample_rect_is_fully_inside_tray_within_4px ... ok
+test engine::taskbar::tests::a02_wild_region_config_is_clamped_back_into_tray ... ok
+test engine::taskbar::tests::ex06_auto_hide_makes_geometry_unusable ... ok
+test engine::taskbar::tests::ex07_vertical_taskbar_is_detected ... ok
+test engine::taskbar::tests::ex22_monitor_hotplug_changes_topology_fingerprint ... ok
+test engine::sampler::tests::sampler_loop_interval_and_battery_floor ... ok
+test engine::taskbar::tests::expected_and_actual_agree_on_default_config ... ok
+test engine::taskbar::tests::nfr07_taskbar_on_secondary_screen_is_supported ... ok
+test engine::taskbar::tests::nfr07_multi_monitor_uses_only_the_screen_with_taskbar ... ok
+test engine::taskbar::tests::nfr08_dpi_change_is_detected_and_recomputed ... ok
+test engine::taskbar::tests::offscreen_tray_is_unusable ... ok
+test engine::taskbar::tests::taskbar_missing_returns_error_not_panic ... ok
+test engine::screen::tests::white_noise_ratio_is_bounded ... ok
+test engine::taskbar::tests::locate_and_compute_are_allocation_free ... ok
+test engine::tests::battery_mode_enforces_2000ms_floor ... ok
+test engine::tests::config_sanitize_repairs_damaged_values ... ok
+test engine::taskbar::tests::tray_collapse_and_expand_keep_rect_inside_tray ... ok
+test engine::tests::constants_match_architecture ... ok
+test engine::tests::dip_to_px_is_the_only_scaling_point ... ok
+test engine::tests::engine_lifecycle_start_pause_resume_stop ... ok
+test engine::tests::engine_auto_hide_suspends_and_keeps_last_decision ... ok
+test engine::tests::engine_colored_rects_survive_uia_snapshot_refresh ... ok
+test engine::tests::engine_config_change_applies_within_three_seconds ... ok
+test engine::tests::engine_dpi_change_recomputes_within_two_seconds ... ok
+test engine::tests::engine_vertical_taskbar_suspends_and_notifies_exactly_once ... ok
+test engine::tests::rect_clamp_never_escapes_tray ... ok
+test engine::tests::geometry_helpers_are_px_exact ... ok
+test engine::tests::engine_tray_collapse_and_expand_keep_sampling ... ok
+test engine::uia::tests::empty_uia_result_also_falls_back ... ok
+test engine::tests::engine_explicit_dpi_notification_forces_recompute ... ok
+test engine::tests::rect_intersection_and_union_and_touches ... ok
+test engine::uia::tests::connection_config_limits_timeout_to_300ms ... ok
+test engine::uia::tests::fallback_inflates_by_two_pixels_after_union ... ok
+test engine::uia::tests::three_consecutive_failures_trip_circuit_and_reset_retries ... ok
+test engine::uia::tests::fallback_scales_with_dpi_and_stays_inside_tray ... ok
+test engine::uia::tests::rects_within_filters_offscreen_rects ... ok
+test engine::tests::engine_uia_failure_falls_back_without_functional_degradation ... ok
+test engine::uia::tests::uia_timeout_over_300ms_trips_circuit_breaker ... ok
+test engine::uia::tests::uia_unavailable_falls_back_without_degradation ... ok
+test engine::uia::tests::working_uia_yields_clock_and_date_rects ... ok
+test error::tests::every_variant_has_i18n_key_and_log_stem ... ok
+test error::tests::i18n_keys_are_unique_per_variant_family ... ok
+test tests::decision_pipe_name_has_pid_suffix ... ok
+test error::tests::technical_description_keeps_raw_codes ... ok
+test tests::activate_pipe_differs_from_decision_pipe ... ok
+test tests::version_is_three_part_semver ... ok
+test win::tests::from_wide_lossy_replaces_lone_surrogate ... ok
+test win::tests::hresult_ext_preserves_code ... ok
+test win::tests::from_wide_lossy_stops_at_first_nul ... ok
+test engine::tests::engine_pause_freezes_sample_timestamp_and_resumes_in_time ... ok
+test win::tests::to_wide_appends_nul ... ok
+test win::tests::to_wide_handles_empty_and_non_bmp ... ok
+test win::tests::to_wide_roundtrip_with_chinese ... ok
+test win::tests::win32_check_handle_rejects_invalid_handle ... ok
+test win::tests::win32_check_passes_on_true ... ok
+test win::tests::win32_check_maps_failure_to_win32_error ... ok
+test engine::screen::tests::six_hundred_grabs_are_allocation_free ... ok
+test engine::tests::engine_battery_mode_slows_sampling_but_never_stops ... ok
+test engine::mask::tests::hits_and_union_are_allocation_free ... ok
+test engine::sampler::tests::sample_once_is_allocation_free_for_600_frames ... ok
+test engine::sampler::tests::full_closed_loop_600s_with_fake_clock ... ok
+test engine::tests::engine_600s_closed_loop_meets_a03 ... ok
+
+test result: ok. 96 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.33s
+
+   Doc-tests shadebar_core
+
+running 3 tests
+test crates\shadebar-core\src\win\mod.rs - win::HResultExt (line 106) ... ignored
+test crates\shadebar-core\src\win\mod.rs - win::to_wide (line 21) ... ok
+test crates\shadebar-core\src\win\mod.rs - win::wide (line 48) ... ok
+
+test result: ok. 2 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 1.04s
+
+EXIT_CODE=0
+END: 2026-11-14 08:40:37
+
+########## TEST all-features ##########
+CMD: cargo test --workspace --all-features
+START: 2026-11-14 08:40:37
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.19s
+     Running unittests src\main.rs (target\x86_64-pc-windows-msvc\debug\deps\shadebar_app-299ac43d7128d88a.exe)
+
+running 133 tests
+test app::tests::crc32_matches_known_vectors ... ok
+test config::tests::color_field_never_allows_fully_transparent ... ok
+test app::tests::hwnd_roundtrip ... ok
+test app::tests::app_defaults_are_l1_and_degraded ... ok
+test config::tests::defaults_match_requirements_table ... ok
+test config::tests::corrupt_json_is_rejected_not_panicking ... ok
+test config::tests::engine_config_maps_interval_region_and_pause ... ok
+test config::tests::exactly_35_settings_with_unique_indices ... ok
+test config::tests::language_resolution_values ... ok
+test config::tests::json_roundtrip_preserves_all_values ... ok
+test config::tests::neg_push_helpers_handle_min ... ok
+test config::tests::restore_defaults_resets_every_value ... ok
+test app::tests::sync_view_keeps_35_rows ... ok
+test config::tests::sanitize_clamps_out_of_range_values ... ok
+test config::tests::set_bumps_version_only_on_real_change ... ok
+test engine::evidence::tests::dual_criteria_limits_match_requirement_v1_4 ... ok
+test engine::evidence::tests::endpoint_specs_keep_unrelaxed_y_limits ... ok
+test engine::evidence::tests::endpoints_profile_keeps_60s_criteria_but_skips_cpu ... ok
+test engine::evidence::tests::fast_profile_never_claims_full_ten_minutes ... ok
+test engine::evidence::tests::mean_rgb_handles_empty_and_known_pixels ... ok
+test engine::evidence::tests::profile_durations_match_acceptance ... ok
+test engine::platform::tests::cost_stats_avg_p95_max ... ok
+test engine::platform::tests::cost_stats_empty_is_zero ... ok
+test engine::platform::tests::decision_sink_counts_flips ... ok
+test engine::platform::tests::filetime_conversion_matches_high_low ... ok
+test engine::platform::tests::fixed_config_source_returns_same_snapshot ... ok
+test engine::platform::tests::process_cpu_is_readable ... ok
+test engine::platform::tests::steady_flips_excludes_segment_head ... ok
+test engine::png::tests::adler32_matches_known_vectors ... ok
+test engine::png::tests::bgra_is_swapped_to_rgba_in_idat ... ok
+test engine::png::tests::draw_rect_clips_out_of_bounds ... ok
+test engine::png::tests::crc32_matches_known_vectors ... ok
+test engine::png::tests::invalid_dimensions_return_none ... ok
+test engine::png::tests::every_png_chunk_crc_matches_its_payload ... ok
+test engine::png::tests::png_signature_and_chunks_are_well_formed ... ok
+test engine::screen::tests::bgra_to_hex_rejects_short_slice ... ok
+test engine::screen::tests::bgra_to_hex_swaps_channels ... ok
+test engine::screen::tests::fault_injection_flag_is_observable ... ok
+test engine::screen::tests::pixel_at_reads_top_left ... ok
+test engine::png::tests::stored_blocks_split_at_65535 ... ok
+test engine::taskbar::tests::tray_find_struct_carries_real_flag ... ok
+test engine::taskbar::tests::auto_hide_visible_bar_is_not_flagged ... ok
+test engine::taskbar::tests::auto_hide_geometry_detects_offscreen_bar ... ok
+test engine::uia::tests::classify_matches_known_xaml_automation_ids ... ok
+test engine::uia::tests::classify_matches_time_and_date_text ... ok
+test engine::uia::tests::classify_rejects_huge_rects_for_time_text ... ok
+test engine::uia::tests::classify_rejects_unrelated_elements ... ok
+test engine::uia::tests::timeout_constant_matches_arch ... ok
+test engine::visual::tests::colorref_swaps_channels ... ok
+test engine::visual::tests::inflate_expands_all_sides ... ok
+test engine::visual::tests::map_rect_keeps_aspect_ratio_and_bounds ... ok
+test engine::visual::tests::map_rect_never_produces_empty_rect ... ok
+test ipc_server::tests::already_exists_code_matches_win32 ... ok
+test ipc_server::tests::custom_messages_are_in_wm_app_private_range_and_unique ... ok
+test ipc_server::tests::posting_to_invalid_window_is_a_no_op ... ok
+test ipc_server::tests::window_class_is_stable_and_non_empty ... ok
+test render::tests::dip_to_px_at_96_is_identity ... ok
+test app::tests::apply_actions_persists_and_hot_switches_language ... ok
+test render::tests::dip_to_px_scales_linearly ... ok
+test render::tests::min_window_size_meets_acceptance ... ok
+test tray::tests::copy_wide_never_overruns_and_keeps_nul ... ok
+test render::tests::palette_is_fully_opaque ... ok
+test tray::tests::icon_size_is_16_pixels ... ok
+test tray::tests::left_click_has_three_documented_modes ... ok
+test tray::tests::menu_command_id_extracts_low_word ... ok
+test tray::tests::six_menu_ids_are_sequential_and_unique ... ok
+test tray::tests::tray_event_extracts_low_word ... ok
+test ui::i18n::tests::both_tables_have_identical_key_sets ... ok
+test ui::i18n::tests::english_flag_matches_feature ... ok
+test ui::i18n::tests::option_tables_are_not_empty_and_in_range ... ok
+test ui::i18n::tests::known_texts_resolve_in_both_languages ... ok
+test ui::layout::tests::cjk_is_wider_than_ascii ... ok
+test ui::layout::tests::content_view_coordinates_roundtrip ... ok
+test ui::layout::tests::ellipsize_short_text_is_unchanged ... ok
+test ui::layout::tests::metrics_fit_720x560_without_horizontal_overflow ... ok
+test ui::layout::tests::rect_contains_and_inset ... ok
+test ui::layout::tests::scroll_never_exposes_content_past_bottom ... ok
+test ui::layout::tests::scroll_page_and_to_top ... ok
+test ui::layout::tests::short_content_has_zero_scroll_range ... ok
+test ui::layout::tests::wrap_text_breaks_and_preserves_all_chars ... ok
+test ui::layout::tests::wrap_text_handles_explicit_newline ... ok
+test ui::pages::behavior::tests::behavior_page_has_7_items ... ok
+test ui::pages::behavior::tests::sub_groups_match_key_metadata ... ok
+test ui::pages::behavior::tests::close_action_default_keeps_process_alive ... ok
+test ui::pages::color::tests::color_page_has_10_items_in_color_group ... ok
+test ui::pages::color::tests::interval_default_is_1000ms ... ok
+test ui::pages::color::tests::s19_carries_the_linkage_warning ... ok
+test app::tests::pause_and_autostart_toggles_are_idempotent_per_call ... ok
+test ui::pages::diagnostics::tests::contrast_low_requires_real_data ... ok
+test ui::pages::diagnostics::tests::push_y_keeps_last_10 ... ok
+test ui::pages::diagnostics::tests::hex_is_uppercase_six_digits ... ok
+test ui::pages::diagnostics::tests::region_warnings_are_independent ... ok
+test ui::pages::elements::tests::degraded_keeps_user_values_not_zeroed ... ok
+test ui::pages::elements::tests::elements_page_has_8_items_in_elements_group ... ok
+test ui::pages::elements::tests::greyed_set_matches_key_metadata ... ok
+test ui::pages::elements::tests::s35_s37_defaults_have_alpha_0x38 ... ok
+test ui::pages::general::tests::general_page_has_6_items_in_general_group ... ok
+test ui::pages::general::tests::s02_defaults_off_and_s04_follows_system ... ok
+test ui::pages::region::tests::region_matches_engine_config ... ok
+test ui::pages::region::tests::region_page_has_4_items_in_region_group ... ok
+test ui::pages::tests::diagnostics_page_has_no_settings ... ok
+test ui::pages::region::tests::small_region_only_warns_with_real_data ... ok
+test ui::pages::tests::pages_cover_exactly_35_unique_settings ... ok
+test ui::tests::hex_parser_accepts_rgb_and_argb_and_rejects_garbage ... ok
+test ui::tests::clicking_restore_defaults_requires_confirmation_popup ... ok
+test ui::tests::language_switch_is_instant_and_keeps_pid_state ... ok
+test ui::tests::overlay_escape_closes_popups ... ok
+test ui::tests::rebuild_syncs_values_and_greys_only_degraded_elements ... ok
+test app::tests::restore_defaults_is_confirmed_action ... ok
+test ui::theme::tests::control_helpers_switch_on_enabled ... ok
+test ui::i18n::tests::both_tables_cover_every_required_key ... ok
+test ui::tests::layout_produces_7_cards_and_positive_content_height ... ok
+test ui::theme::tests::every_control_color_is_fully_opaque ... ok
+test ui::tests::wheel_scrolls_and_clamps ... ok
+test ui::tests::tab_moves_focus_through_all_rows ... ok
+test ui::theme::tests::palette_lookup_is_static_and_distinct ... ok
+test ui::tests::view_builds_35_rows_and_7_group_headers ... ok
+test ui::widgets::tests::all_35_settings_can_build_a_widget ... ok
+test ui::widgets::tests::banner_is_zero_height_when_hidden ... ok
+test ui::widgets::tests::button_kinds_open_correct_popups ... ok
+test ui::widgets::tests::disabled_widget_keeps_value_but_refuses_input ... ok
+test ui::widgets::tests::keyboard_arrows_step_slider ... ok
+test ui::widgets::tests::layout_splits_label_and_control_without_overflow ... ok
+test ui::widgets::tests::keyboard_space_toggles ... ok
+test ui::widgets::tests::color_defaults_and_hex_text ... ok
+test ui::widgets::tests::slider_click_maps_to_range_and_step ... ok
+test ui::widgets::tests::toggle_click_produces_changed_and_value_stays_legal ... ok
+test ui::widgets::tests::tooltip_detects_long_text ... ok
+test engine::platform::tests::system_clock_is_monotonic ... ok
+test engine::tests::wait_interval_returns_without_panicking ... ok
+test engine::tests::set_config_is_reflected_by_next_snapshot ... ok
+test app::tests::stored_zip_has_valid_signatures_and_roundtrips_names ... ok
+test engine::tests::session_constructs_and_ticks_without_panicking ... ok
+
+test result: ok. 133 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s
+
+     Running unittests src\lib.rs (target\x86_64-pc-windows-msvc\debug\deps\shadebar_core-c6cc931765c80f3c.exe)
+
+running 96 tests
+test color::tests::from_rgb_splits_channels ... ok
+test color::tests::parse_hex_accepts_six_and_eight_digits ... ok
+test color::tests::parse_hex_rejects_bad_input ... ok
+test color::tests::hex_roundtrip_is_uppercase ... ok
+test color::tests::premul_matches_formula ... ok
+test color::tests::premul_zeroes_rgb_when_transparent ... ok
+test color::tests::straight_keeps_rgb_regardless_of_alpha ... ok
+test engine::mask::tests::capacity_overflow_never_drops_a_mask ... ok
+test engine::mask::tests::empty_set_hits_nothing_and_covers_nothing ... ok
+test engine::mask::tests::adjacent_clock_and_date_merge_into_one ... ok
+test engine::mask::tests::duplicate_union_does_not_grow_without_bound ... ok
+test engine::mask::tests::empty_and_inverted_rects_are_ignored ... ok
+test engine::mask::tests::disjoint_rects_stay_separate_and_areas_do_not_double_count ... ok
+test engine::mask::tests::fully_masked_region_is_detected ... ok
+test engine::mask::tests::topmost_window_occlusion_is_excluded ... ok
+test engine::mask::tests::union_inflates_by_two_pixels ... ok
+test engine::sampler::tests::bitblt_failure_propagates_and_burst_is_detected ... ok
+test engine::sampler::tests::histogram_skips_masked_pixels ... ok
+test engine::sampler::tests::hysteresis_prevents_threshold_chatter ... ok
+test engine::sampler::tests::judge_pure_black_and_pure_white_endpoints_do_not_flip ... ok
+test engine::sampler::tests::perceptual_y_endpoints_match_a13_a14 ... ok
+test engine::sampler::tests::sample_once_skips_when_fully_masked ... ok
+test engine::sampler::tests::summary_line_has_all_mandatory_fields ... ok
+test engine::sampler::tests::a28_character_pollution_does_not_flip_judgement ... ok
+test engine::sampler::tests::wcag_contrast_black_white_is_21 ... ok
+test engine::screen::tests::buffer_rejects_zero_size_without_panic ... ok
+test engine::sampler::tests::sample_once_skips_small_region_per_decision_5 ... ok
+test engine::sampler::tests::histogram_p50_is_robust_to_20_percent_white_noise ... ok
+test engine::screen::tests::bitblt_failure_returns_error_not_panic ... ok
+test engine::screen::tests::checked_frame_size_matches_rect ... ok
+test engine::screen::tests::thumbnail_is_nearest_neighbour_and_argb ... ok
+test engine::screen::tests::clip_partial_overlap_prefers_primary_screen ... ok
+test engine::taskbar::tests::a02_sample_rect_is_fully_inside_tray_within_4px ... ok
+test engine::screen::tests::clip_fully_offscreen_is_rejected ... ok
+test engine::screen::tests::buffer_ensure_only_allocates_on_size_change ... ok
+test engine::taskbar::tests::a02_wild_region_config_is_clamped_back_into_tray ... ok
+test engine::taskbar::tests::ex06_auto_hide_makes_geometry_unusable ... ok
+test engine::sampler::tests::sampler_loop_interval_and_battery_floor ... ok
+test engine::taskbar::tests::ex07_vertical_taskbar_is_detected ... ok
+test engine::taskbar::tests::ex22_monitor_hotplug_changes_topology_fingerprint ... ok
+test engine::screen::tests::white_noise_ratio_is_bounded ... ok
+test engine::taskbar::tests::expected_and_actual_agree_on_default_config ... ok
+test engine::taskbar::tests::nfr07_multi_monitor_uses_only_the_screen_with_taskbar ... ok
+test engine::taskbar::tests::locate_and_compute_are_allocation_free ... ok
+test engine::taskbar::tests::nfr07_taskbar_on_secondary_screen_is_supported ... ok
+test engine::taskbar::tests::nfr08_dpi_change_is_detected_and_recomputed ... ok
+test engine::taskbar::tests::offscreen_tray_is_unusable ... ok
+test engine::taskbar::tests::taskbar_missing_returns_error_not_panic ... ok
+test engine::taskbar::tests::tray_collapse_and_expand_keep_rect_inside_tray ... ok
+test engine::tests::battery_mode_enforces_2000ms_floor ... ok
+test engine::tests::config_sanitize_repairs_damaged_values ... ok
+test engine::tests::constants_match_architecture ... ok
+test engine::tests::dip_to_px_is_the_only_scaling_point ... ok
+test engine::tests::engine_lifecycle_start_pause_resume_stop ... ok
+test engine::tests::engine_auto_hide_suspends_and_keeps_last_decision ... ok
+test engine::tests::engine_colored_rects_survive_uia_snapshot_refresh ... ok
+test engine::tests::engine_dpi_change_recomputes_within_two_seconds ... ok
+test engine::tests::engine_vertical_taskbar_suspends_and_notifies_exactly_once ... ok
+test engine::tests::geometry_helpers_are_px_exact ... ok
+test engine::tests::engine_config_change_applies_within_three_seconds ... ok
+test engine::tests::engine_tray_collapse_and_expand_keep_sampling ... ok
+test engine::tests::rect_clamp_never_escapes_tray ... ok
+test engine::tests::rect_intersection_and_union_and_touches ... ok
+test engine::uia::tests::connection_config_limits_timeout_to_300ms ... ok
+test engine::uia::tests::empty_uia_result_also_falls_back ... ok
+test engine::tests::engine_pause_freezes_sample_timestamp_and_resumes_in_time ... ok
+test engine::uia::tests::fallback_inflates_by_two_pixels_after_union ... ok
+test engine::uia::tests::fallback_scales_with_dpi_and_stays_inside_tray ... ok
+test engine::uia::tests::rects_within_filters_offscreen_rects ... ok
+test engine::tests::engine_uia_failure_falls_back_without_functional_degradation ... ok
+test engine::uia::tests::three_consecutive_failures_trip_circuit_and_reset_retries ... ok
+test engine::uia::tests::uia_timeout_over_300ms_trips_circuit_breaker ... ok
+test engine::uia::tests::uia_unavailable_falls_back_without_degradation ... ok
+test engine::uia::tests::working_uia_yields_clock_and_date_rects ... ok
+test error::tests::every_variant_has_i18n_key_and_log_stem ... ok
+test error::tests::i18n_keys_are_unique_per_variant_family ... ok
+test error::tests::technical_description_keeps_raw_codes ... ok
+test tests::activate_pipe_differs_from_decision_pipe ... ok
+test tests::decision_pipe_name_has_pid_suffix ... ok
+test tests::version_is_three_part_semver ... ok
+test win::tests::from_wide_lossy_replaces_lone_surrogate ... ok
+test win::tests::from_wide_lossy_stops_at_first_nul ... ok
+test engine::tests::engine_explicit_dpi_notification_forces_recompute ... ok
+test win::tests::hresult_ext_preserves_code ... ok
+test win::tests::to_wide_appends_nul ... ok
+test win::tests::to_wide_handles_empty_and_non_bmp ... ok
+test win::tests::to_wide_roundtrip_with_chinese ... ok
+test win::tests::win32_check_handle_rejects_invalid_handle ... ok
+test win::tests::win32_check_maps_failure_to_win32_error ... ok
+test win::tests::win32_check_passes_on_true ... ok
+test engine::screen::tests::six_hundred_grabs_are_allocation_free ... ok
+test engine::tests::engine_battery_mode_slows_sampling_but_never_stops ... ok
+test engine::mask::tests::hits_and_union_are_allocation_free ... ok
+test engine::sampler::tests::sample_once_is_allocation_free_for_600_frames ... ok
+test engine::sampler::tests::full_closed_loop_600s_with_fake_clock ... ok
+test engine::tests::engine_600s_closed_loop_meets_a03 ... ok
+
+test result: ok. 96 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.30s
+
+   Doc-tests shadebar_core
+
+running 3 tests
+test crates\shadebar-core\src\win\mod.rs - win::HResultExt (line 106) ... ignored
+test crates\shadebar-core\src\win\mod.rs - win::to_wide (line 21) ... ok
+test crates\shadebar-core\src\win\mod.rs - win::wide (line 48) ... ok
+
+test result: ok. 2 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.82s
+
+EXIT_CODE=0
+END: 2026-11-14 08:40:39
+
+########## CLIPPY default ##########
+CMD: cargo clippy --workspace --all-targets -- -D warnings
+START: 2026-11-14 08:40:39
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.57s
+EXIT_CODE=0
+END: 2026-11-14 08:40:40
+
+########## CLIPPY verify ##########
+CMD: cargo clippy --workspace --all-targets --features verify -- -D warnings
+START: 2026-11-14 08:40:40
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.22s
+EXIT_CODE=0
+END: 2026-11-14 08:40:41
+
+########## CLIPPY no-en ##########
+CMD: cargo clippy --workspace --all-targets --features no-en -- -D warnings
+START: 2026-11-14 08:40:41
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.18s
+EXIT_CODE=0
+END: 2026-11-14 08:40:42
+
+########## CLIPPY all-features ##########
+CMD: cargo clippy --workspace --all-targets --all-features -- -D warnings
+START: 2026-11-14 08:40:42
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.18s
+EXIT_CODE=0
+END: 2026-11-14 08:40:42

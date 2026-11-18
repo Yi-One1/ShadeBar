@@ -1,0 +1,22 @@
+=== A-14-white: real screen endpoint (5000 ms) ===
+baseline center pixel = #688BBC
+baseline mean RGB before overlay = (224,223,230)
+covered mean RGB = (255,255,255) target=(255,255,255) delta=0
+screenshot: evidence/t04-fast4\A-14-white-screen.png
+loop: elapsed=5043ms samples=5 published=5 flips=1 side=Dark color=#000000
+uia: CoCreateInstance failed [CUIAutomation/CLSCTX_ALL] hr=0x80040154
+uia: CoCreateInstance failed [CUIAutomation/INPROC_SERVER] hr=0x80004002
+uia: CoCreateInstance OK: CUIAutomation8/INPROC_SERVER
+uia: IUIAutomation2 ready, ConnectionTimeout=350ms
+uia: UIA descendants enumerated: 30 (cap 512)
+uia: UIA hits total: 0
+uia: UIA descendants enumerated: 30 (cap 512)
+uia: UIA hits total: 0
+uia: UIA descendants enumerated: 30 (cap 512)
+uia: UIA hits total: 0
+judge_tail: judge: seq=11 side=Dark y=0.7710 contrast=21.000 flipped=false color=#000000
+judge_tail: judge: seq=10 side=Dark y=0.7137 contrast=21.000 flipped=false color=#000000
+judge_tail: judge: seq=9 side=Dark y=0.6421 contrast=21.000 flipped=true color=#000000
+judge_tail: judge: seq=8 side=Light y=0.5527 contrast=1.000 flipped=false color=#FFFFFF
+judge_tail: judge: seq=7 side=Light y=0.4408 contrast=1.000 flipped=false color=#FFFFFF
+result: obtained=true reason=ok

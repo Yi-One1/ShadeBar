@@ -1,0 +1,350 @@
+%% 随影 ShadeBar v1.0.0 — 核心类图（概念模型）
+%% 来源: docs/02-architecture.md §5
+%% 约定: 单位 px=物理像素 dip=逻辑像素; 颜色内部统一 Rgba(straight alpha, sRGB)
+%% v1.9: 本图是概念模型，T02 实际实现已 trait 化（EngineDeps / ScreenSource / ClockRectSource / RectPx
+%%       / 10 个对象安全 trait / Engine 同步循环），接线请以 §6.2 与 crates/shadebar-core/src/engine/ 为准
+%%       文件中 ScreenSampler/UiaProbe/TaskbarGeom 的 HDC/RECT 字段是设计期抽象，不代表实际代码
+
+classDiagram
+    class Config {
+        +u32 schema
+        +GeneralCfg general
+        +ColorCfg color
+        +RegionCfg region
+        +ElementsCfg elements
+        +TrayCfg tray
+        +default_v1() Config
+        +sanitize(&mut self)
+        +validate() SbResult
+    }
+    class GeneralCfg {
+        +bool enabled
+        +bool autostart
+        +bool start_minimized
+        +LangPref language
+    }
+    class ColorCfg {
+        +ColorMode mode
+        +bool follow_wallpaper
+        +f32 threshold_y
+        +PaletteMode palette
+        +Rgba light_color
+        +Rgba dark_color
+        +u32 sample_interval_ms
+        +u8 change_threshold
+        +f32 ewma_alpha
+        +bool follow_system_theme
+    }
+    class RegionCfg {
+        +u8 x_offset_pct
+        +u8 width_pct
+        +u8 v_inset_pct
+    }
+    class ElementsCfg {
+        +bool time
+        +bool date
+        +bool hover_block
+        +bool running_indicator
+        +ColorSource indicator_source
+        +Rgba indicator_fixed
+        +ColorSource hover_source
+        +Rgba hover_fixed
+    }
+    class TrayCfg {
+        +LeftClickAction left_click
+        +CloseAction on_close
+        +bool paused
+        +bool show_decision_dot
+        +InjectFailPolicy inject_fail_policy
+        +LogLevel log_level
+    }
+    class StateFile {
+        +u32 restart_count
+        +i64 last_start_unix
+        +u32 inject_fail_count
+        +Option_u32 original_system_light_theme
+        +Option_String last_known_exe_path
+    }
+    class ConfigStore {
+        -PathBuf path
+        -bool portable
+        -Option_String fallback_reason
+        +open(exe_dir) ConfigStore
+        +load() (Config, LoadOutcome)
+        +save_now(&Config) SbResult
+        +request_save(&Config)
+        +flush()
+    }
+    class Rgb8 { +u8 r; +u8 g; +u8 b }
+    class Rgba { +u8 r; +u8 g; +u8 b; +u8 a }
+    class ColorFns {
+        +perceptual_y(Rgb8) f32
+        +rel_luminance(Rgb8) f32
+        +contrast_ratio(Rgb8, Rgb8) f32
+        +parse_hex(&str) Option_Rgba
+        +to_hex(Rgba) String
+    }
+    class LumaHistogram {
+        -u32_256 bins
+        -u32_256 sum_r
+        -u32_256 sum_g
+        -u32_256 sum_b
+        -u32 skipped_px
+        +new() LumaHistogram
+        +reset()
+        +add_bgra_row(ptr, width, mask, y)
+        +finish() Option_SampleStats
+    }
+    class SampleStats {
+        +Rgb8 rep_rgb
+        +f32 y
+        +u8 p15
+        +u8 p50
+        +u8 p85
+        +u32 used_px
+        +f32 outlier_ratio
+    }
+    class Judge {
+        -f32 ewma_y
+        -f32 last_emit_y
+        -Side current
+        -u32 flip_count
+        -u32 stable_frames
+        +update(&SampleStats, &ColorCfg, Rgb8) Option_Judgement
+        +reset()
+        +flip_count() u32
+    }
+    class Judgement {
+        +Side side
+        +Rgba color
+        +f32 y_smoothed
+        +f32 contrast
+        +bool flipped
+        +u64 seq
+    }
+    class TaskbarGeom {
+        +RECT bar
+        +RECT tray
+        +bool auto_hide
+        +bool horizontal
+        +u32 dpi
+        +isize monitor
+        +is_usable() bool
+    }
+    class ScreenSampler {
+        -HDC mem_dc
+        -HBITMAP dib
+        -u32 w
+        -u32 h
+        -ptr bits
+        +ensure(&mut self, RECT) SbResult
+        +grab(&mut self) SbResult_slice
+        +thumbnail_into(&self, &mut u32_slice)
+    }
+    class MaskSet {
+        -Vec_MaskRect rects
+        +union_with(&mut self, &[MaskRect])
+        +hits(i32, i32) bool
+        +count() usize
+        +clear()
+    }
+    class MaskRect {
+        +RECT rect
+        +MaskKind kind
+    }
+    class UiaProbe {
+        -IUIAutomation automation
+        -bool available
+        +refresh(&mut self) SbResult_Vec_MaskRect
+    }
+    class SharedDiag {
+        +AtomicU32 seq
+        +AtomicU32 rep_rgb
+        +AtomicU32 decision_rgba
+        +AtomicU32 y_milli
+        +AtomicU32 contrast_milli
+        +AtomicU8 level
+        +AtomicU8 inject_state
+        +Mutex_History history
+        +AtomicU64 last_sample_ms
+        +snapshot() DiagSnapshot
+    }
+    class DecisionSlot {
+        -Mutex_Option_DecisionPayload slot
+        -HANDLE event
+        +publish(&DecisionPayload)
+        +take() Option_DecisionPayload
+    }
+    class Frame {
+        +u32 magic
+        +u8 version
+        +MsgKind kind
+        +u16 len
+        +u8_64 payload
+        +encode() u8_72
+        +decode(&u8_72) SbResult_Frame
+        +decision(&DecisionPayload) Frame
+        +hello(u32, u8, u16) Frame
+    }
+    class DecisionPayload {
+        +u32 seq
+        +u16 flags
+        +u32 time_argb
+        +u32 date_argb
+        +u32 hover_argb
+        +u32 indicator_argb
+    }
+    class ConflictInfo {
+        +u32 seq
+        +u8 which
+        +ConflictSource source
+    }
+    class ConflictSource {
+        <<enumeration>>
+        Unknown
+        Ctm
+        TranslucentTb
+        SogouInput
+    }
+    class Injector {
+        -u32 pid
+        -PathBuf dll_path
+        -InjectState state
+        -u32 backoff_ms
+        -u32 fail_count
+        +ensure_dll_on_disk() SbResult_PathBuf
+        +attach() SbResult_HelloInfo
+        +on_decision(&DecisionPayload) SbResult
+        +restore_and_detach(Duration) SbResult
+        +note_failure(&SbError)
+        +should_retry(Instant) bool
+    }
+    class HelloInfo {
+        +u32 build
+        +u32 dll_ver
+        +u8 chain
+        +bool hooked
+    }
+    class InjectSide {
+        -Vec_Snapshot snapshots
+        -DispatcherHandle dispatcher
+        -Located targets
+        +apply(&DecisionPayload) SbResult
+        +restore_all() SbResult
+        +readback_check() Readback
+        +report_rects() Vec_Pair_u8_RECT
+    }
+    class InjectLogBuffer {
+        -Vec_String ring_64
+        +push(level, &str)
+        +drain_to_frames(&mut Vec_Frame)
+    }
+    class ThemeMode {
+        +u32 OWNED_VALUE
+        +capture_original() Option_u32
+        +set_system_light_theme(bool) SbResult
+        +restore_original() RestoreOutcome
+    }
+    class RestoreOutcome {
+        <<enumeration>>
+        Restored
+        SkippedUserChanged
+        NothingToRestore
+    }
+    class Located {
+        +Option_TextTarget time
+        +Option_TextTarget date
+        +Vec_BorderTarget hover
+        +Vec_ShapeTarget indicator
+    }
+    class DispatcherHandle {
+        -ptr raw_queue
+        -u32 thread_id
+        +capture() Option_DispatcherHandle
+        +try_enqueue(FnOnce) SbResult
+    }
+    class ScanCtx {
+        +ptr base
+        +usize text_start
+        +usize text_end
+        +usize image_size
+    }
+    class HookRegistry {
+        -Vec_HookEntry hooks
+        +install(ptr, ptr) SbResult_ptr
+        +remove_all() SbResult
+    }
+    class View {
+        -ControlTree tree
+        -i32 scroll_y
+        -Lang lang
+        -DegLevel level
+        +rebuild(&Config, &DiagSnapshot, DegLevel)
+        +rebuild_texts()
+        +paint(&mut RenderCtx)
+        +on_message(HWND, u32, WPARAM, LPARAM) Option_LRESULT
+        +hit_test_and_update_cursor(POINT) bool
+    }
+    class Widget {
+        <<trait>>
+        +layout(Rect, &Metrics) Size
+        +paint(&RenderCtx)
+        +event(&UiEvent) WidgetResult
+        +set_texts(Lang)
+        +set_enabled(bool)
+    }
+    class App {
+        -Arc_ConfigBank bank
+        -Arc_SharedDiag diag
+        -Arc_DecisionSlot decision
+        -Injector injector
+        -DegLevel level
+        +dispatch(Cmd)
+        +on_tick_decision(&Judgement)
+        +set_level(DegLevel)
+    }
+
+    Config *-- GeneralCfg
+    Config *-- ColorCfg
+    Config *-- RegionCfg
+    Config *-- ElementsCfg
+    Config *-- TrayCfg
+    ConfigStore ..> Config : load / save
+    ConfigStore ..> StateFile : 独立持久化
+    Rgb8 <.. Rgba : contains
+    ColorFns ..> Rgb8
+    ColorFns ..> Rgba
+    LumaHistogram ..> SampleStats : produces
+    SampleStats *-- Rgb8
+    Judge ..> SampleStats : consumes
+    Judge ..> Judgement : emits
+    Judgement *-- Rgba
+    TaskbarGeom ..> ScreenSampler : sample rect
+    ScreenSampler ..> LumaHistogram : rows
+    MaskSet *-- MaskRect
+    MaskSet ..> LumaHistogram : skips pixels
+    UiaProbe ..> MaskSet : fills
+    Judgement --> SharedDiag : atomic publish
+    Judgement --> DecisionSlot : publish + wake
+    DecisionSlot ..> Frame : encode
+    Frame *-- DecisionPayload
+    Frame ..> InjectSide : named pipe
+    InjectSide ..> ConflictInfo : readback 不符时上报
+    ConflictInfo --> ConflictSource
+    note for ConflictSource "只用于日志与提示文案，不改变控制流：绝不卸他人 hook"
+    InjectSide *-- Located
+    InjectSide *-- DispatcherHandle
+    InjectSide ..> Injector : Ack / Conflict / ColoredRects
+    Injector ..> HelloInfo : handshake
+    Injector ..> ScanCtx : uses
+    HookRegistry ..> ScanCtx : target address
+    App *-- Injector
+    App *-- SharedDiag
+    App *-- DecisionSlot
+    App ..> View : UI snapshot
+    View *-- Widget
+    InjectSide *-- InjectLogBuffer : 日志只入内存经管道回传
+    ThemeMode ..> RestoreOutcome
+    App ..> ThemeMode : S-19
+    note for InjectLogBuffer "DLL 内禁止任何文件IO，日志经 MsgKind.LogChunk 回传主进程落盘"
+    note for RestoreOutcome "SkippedUserChanged: 当前值已非我们写入值，放弃恢复以用户为准"

@@ -1,0 +1,16 @@
+=== UIA real probe diagnostics ===
+worker_available=true
+fallback=true
+last_hit_count=0
+last_elapsed_ms=36
+last_timed_out=false
+uia: CoCreateInstance failed [CUIAutomation/CLSCTX_ALL] hr=0x80040154
+uia: CoCreateInstance failed [CUIAutomation/INPROC_SERVER] hr=0x80004002
+uia: CoCreateInstance OK: CUIAutomation8/INPROC_SERVER
+uia: IUIAutomation2 ready, ConnectionTimeout=350ms
+uia: UIA descendants enumerated: 30 (cap 512)
+uia: UIA hits total: 0
+uia: UIA descendants enumerated: 30 (cap 512)
+uia: UIA hits total: 0
+uia: UIA descendants enumerated: 30 (cap 512)
+uia: UIA hits total: 0

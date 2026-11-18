@@ -1,0 +1,18 @@
+SP-1 原型启动，mica=true, no_paint=true
+DwmExtendFrameIntoClientArea(-1) -> Ok(())
+DwmSetWindowAttribute(SYSTEMBACKDROP_TYPE=2) -> Ok(())
+DwmSetWindowAttribute(WINDOW_CORNER_PREFERENCE=ROUND) -> Ok(())
+diag: DwmGetWindowAttribute(SYSTEMBACKDROP_TYPE) -> Ok(()), readback=2
+diag: DwmGetWindowAttribute(WINDOW_CORNER_PREFERENCE) -> Ok(()), readback=2
+diag: exstyle=0x00000100, WS_EX_NOREDIRECTIONBITMAP=false
+diag: DwmIsCompositionEnabled -> enabled=true
+diag: GetWindowCompositionAttribute(WCA_ACCENT_POLICY) -> 0（0 = 未设置过 accent policy）
+SP-1 原型启动，mica=true, no_paint=true
+DwmExtendFrameIntoClientArea(-1) -> Ok(())
+DwmSetWindowAttribute(SYSTEMBACKDROP_TYPE=4) -> Ok(())
+DwmSetWindowAttribute(WINDOW_CORNER_PREFERENCE=ROUND) -> Ok(())
+diag: DwmGetWindowAttribute(SYSTEMBACKDROP_TYPE) -> Ok(()), readback=4
+diag: DwmGetWindowAttribute(WINDOW_CORNER_PREFERENCE) -> Ok(()), readback=2
+diag: exstyle=0x00000100, WS_EX_NOREDIRECTIONBITMAP=false
+diag: DwmIsCompositionEnabled -> enabled=true
+diag: GetWindowCompositionAttribute(WCA_ACCENT_POLICY) -> 0（0 = 未设置过 accent policy）

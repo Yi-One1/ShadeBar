@@ -1,0 +1,17 @@
+=== EX-24: real BitBlt failure (NULL source DC) ===
+outcome: Skipped(BitBltFailed { code: 0 })
+outcome: Skipped(BitBltFailed { code: 0 })
+outcome: Skipped(BitBltFailed { code: 0 })
+outcome: Skipped(BitBltFailed { code: 0 })
+outcome: Skipped(BadFrameBurst)
+outcome: Skipped(BadFrameBurst)
+metric: last_decision_kept=true
+metric: published_delta=0
+metric: bad_frames_delta=6
+metric: bitblt_calls=15
+metric: recovered_after_fault=true
+metric: dpi_recompute_after_fault=true
+metric: outcomes=["Skipped(BitBltFailed { code: 0 })", "Skipped(BitBltFailed { code: 0 })", "Skipped(BitBltFailed { code: 0 })", "Skipped(BitBltFailed { code: 0 })", "Skipped(BadFrameBurst)", "Skipped(BadFrameBurst)"]
+result: obtained=true reason=ok
+note: no crash / no panic occurred; process continued sampling.
+panel screenshot: evidence/t04-fast4\EX-24-panel.png

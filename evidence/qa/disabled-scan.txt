@@ -1,0 +1,62 @@
+Scanned .rs files: 39
+Total source lines: 16627
+Lines inside #[cfg(test)] regions: 3193
+
+PATTERN               ALL     TEST    COMMENT    RUNTIME
+TODO                    0        0          0          0
+FIXME                   0        0          0          0
+panic!                 12        3          0          9
+unwrap()                0        0          0          0
+expect(                54       54          0          0
+unimplemented!          0        0          0          0
+todo!                   0        0          0          0
+unreachable!            0        0          0          0
+UI_Xaml                 0        0          0          0
+
+=== RUNTIME (non-test, non-comment) HITS ===
+[panic!] crates/shadebar-app/build.rs:36: panic!(
+[panic!] crates/shadebar-app/build.rs:44: panic!("找不到资源脚本：{}（workspace 结构见 docs/02-architecture.md §4）", rc_path.display());
+[panic!] crates/shadebar-app/build.rs:51: panic!("写出 {} 失败：{e}", header_path.display());
+[panic!] crates/shadebar-app/build.rs:56: panic!(
+[panic!] crates/shadebar-app/build.rs:76: .unwrap_or_else(|e| panic!("启动 {} 失败：{e}", rc_exe.display()));
+[panic!] crates/shadebar-app/build.rs:79: panic!(
+[panic!] crates/shadebar-app/build.rs:88: panic!("rc.exe 报告成功但未产出 {}", res_path.display());
+[panic!] crates/shadebar-app/build.rs:105: std::env::var(key).unwrap_or_else(|_| panic!("构建期缺少环境变量 {key}（应由 cargo 注入）"))
+[panic!] crates/shadebar-app/build.rs:157: panic!("Cargo.toml 的 version 段 `{seg}` 不是数字：{version}")
+
+=== Files whose entire content is test-only (for context) ===
+  crates/shadebar-app/src/app.rs                                         lines= 570 test_lines=  87
+  crates/shadebar-app/src/config.rs                                      lines= 750 test_lines= 138
+  crates/shadebar-app/src/engine/evidence.rs                             lines=1396 test_lines=  71
+  crates/shadebar-app/src/engine/mod.rs                                  lines= 326 test_lines=  42
+  crates/shadebar-app/src/engine/platform.rs                             lines= 543 test_lines= 103
+  crates/shadebar-app/src/engine/png.rs                                  lines= 337 test_lines= 117
+  crates/shadebar-app/src/engine/screen.rs                               lines= 365 test_lines=  36
+  crates/shadebar-app/src/engine/taskbar.rs                              lines= 439 test_lines=  45
+  crates/shadebar-app/src/engine/uia.rs                                  lines= 430 test_lines=  42
+  crates/shadebar-app/src/engine/visual.rs                               lines= 366 test_lines=  31
+  crates/shadebar-app/src/ipc_server.rs                                  lines= 135 test_lines=  29
+  crates/shadebar-app/src/render.rs                                      lines= 543 test_lines=  47
+  crates/shadebar-app/src/tray.rs                                        lines= 400 test_lines=  53
+  crates/shadebar-app/src/ui/i18n.rs                                     lines= 213 test_lines=  87
+  crates/shadebar-app/src/ui/layout.rs                                   lines= 353 test_lines=  86
+  crates/shadebar-app/src/ui/mod.rs                                      lines= 897 test_lines= 105
+  crates/shadebar-app/src/ui/pages/behavior.rs                           lines=  51 test_lines=  27
+  crates/shadebar-app/src/ui/pages/color.rs                              lines=  44 test_lines=  25
+  crates/shadebar-app/src/ui/pages/diagnostics.rs                        lines= 253 test_lines=  49
+  crates/shadebar-app/src/ui/pages/elements.rs                           lines=  69 test_lines=  38
+  crates/shadebar-app/src/ui/pages/general.rs                            lines=  34 test_lines=  19
+  crates/shadebar-app/src/ui/pages/mod.rs                                lines=  60 test_lines=  24
+  crates/shadebar-app/src/ui/pages/region.rs                             lines=  63 test_lines=  31
+  crates/shadebar-app/src/ui/theme.rs                                    lines= 229 test_lines=  33
+  crates/shadebar-app/src/ui/widgets.rs                                  lines= 741 test_lines= 101
+  crates/shadebar-core/src/color.rs                                      lines= 175 test_lines=  55
+  crates/shadebar-core/src/engine/mask.rs                                lines= 364 test_lines= 139
+  crates/shadebar-core/src/engine/mod.rs                                 lines=1268 test_lines= 399
+  crates/shadebar-core/src/engine/sampler.rs                             lines=1304 test_lines= 401
+  crates/shadebar-core/src/engine/screen.rs                              lines= 439 test_lines= 132
+  crates/shadebar-core/src/engine/taskbar.rs                             lines= 535 test_lines= 196
+  crates/shadebar-core/src/engine/uia.rs                                 lines= 405 test_lines= 159
+  crates/shadebar-core/src/error.rs                                      lines= 395 test_lines=  96
+  crates/shadebar-core/src/lib.rs                                        lines= 222 test_lines=  76
+  crates/shadebar-core/src/win/mod.rs                                    lines= 201 test_lines=  74

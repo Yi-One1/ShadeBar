@@ -1,0 +1,20 @@
+=== A-13: real screen endpoint (60000 ms) ===
+orchestration: independent EngineSession for this endpoint (v1.4 9.1)
+geometry: direct read_probe (no pre-loop tick, first sample sees overlay)
+baseline center pixel = #00131A
+baseline mean RGB before overlay = (27,38,49)
+covered mean RGB = (0,0,0) target=(0,0,0) delta=0
+screenshot: evidence/t04-rerun\A-13-black-screen.png
+loop: elapsed=60900ms samples=60 published=1 flips=0 flips_head_excluded=false flips_steady=0 steady_publishes=0 steady_sample_ticks=59 side=Light color=#FFFFFF y_milli=0
+uia: CoCreateInstance failed [CUIAutomation/CLSCTX_ALL] hr=0x80040154
+uia: CoCreateInstance failed [CUIAutomation/INPROC_SERVER] hr=0x80004002
+uia: CoCreateInstance OK: CUIAutomation8/INPROC_SERVER
+uia: IUIAutomation2 ready, ConnectionTimeout=350ms
+uia: UIA descendants enumerated: 30 (cap 512)
+uia: UIA hits total: 0
+uia: UIA descendants enumerated: 30 (cap 512)
+uia: UIA hits total: 0
+uia: UIA descendants enumerated: 30 (cap 512)
+uia: UIA hits total: 0
+judge_tail: judge: seq=1 side=Light y=0.0000 contrast=21.000 flipped=false color=#FFFFFF
+result: obtained=true reason=ok

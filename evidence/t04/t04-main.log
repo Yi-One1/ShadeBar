@@ -1,0 +1,2 @@
+T04 verification start: profile=full endpoint_ms=60000 cpu_ms=600000
+T04 verification done: obtained=5/5 summary=evidence/t04\t04-summary.md

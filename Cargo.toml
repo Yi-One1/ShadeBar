@@ -1,0 +1,67 @@
+# 随影 ShadeBar — Cargo workspace 根清单
+#
+# 成员划分见 docs/02-architecture.md §4：
+#   crates/shadebar-core   共享库（无 UI、无窗口、可单测）
+#   crates/shadebar-app    主 exe（bin）
+#   crates/shadebar-inject 注入 DLL（cdylib）—— 随 T05 加入 members
+#
+# 注意：scratch/ 下的技术验证原型是独立工程，必须排除在 workspace 之外，
+# 否则它们的 profile / 依赖会污染主干构建（见 §12）。
+
+[workspace]
+resolver = "2"
+members = [
+    "crates/shadebar-core",
+    "crates/shadebar-app",
+]
+exclude = [
+    "scratch",
+    "scratch/sp1_mica_d2d",
+    "scratch/sp2_xaml_locate",
+]
+
+# 版本单一来源：build.ps1 从这里读取版本号，同时决定产物文件名与 VERSIONINFO，
+# 三处（文件名 / 关于页 / exe 属性）物理上不可能漂移（FR-16 / A-16）。
+[workspace.package]
+version = "1.1.0"
+edition = "2021"
+rust-version = "1.99"
+license = "MIT"
+authors = ["Yi-One1"]
+repository = "https://github.com/Yi-One1/ShadeBar"
+# DLL 用 unwind（见 install 于 §9.2 的说明），主 exe 用 abort；两者都在 crate 级 profile 里体现。
+publish = false
+
+# ---------------------------------------------------------------------------
+# 4 套 profile（§4 #1 / §9.2）
+# ---------------------------------------------------------------------------
+
+# 主 exe 发布构建：体积优先。
+[profile.release]
+opt-level = "z"
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = "symbols"
+debug = false
+debug-assertions = false
+overflow-checks = false
+incremental = false
+
+# 注入 DLL 发布构建：panic 必须是 unwind。
+# panic=abort 在 explorer.exe 内等于直接 abort 宿主进程 → 违反 FR-26 / NFR-05。
+# 每个 extern "C" 边界都 catch_unwind（§11.3），故必须 unwind。
+# 用 `cargo build --profile release-inject -p shadebar-inject` 构建。
+[profile.release-inject]
+inherits = "release"
+panic = "unwind"
+
+# L1 纯诊断构建：不内嵌注入 DLL（体积基线，供 A-18 / NFR-01 对照）。
+# 由 build.ps1 -L1 通过 --cfg 特性切换，profile 本身只保证同样的体积优化。
+[profile.release-l1]
+inherits = "release"
+
+# A-26 对照构建：移除 en 语言资源，用于验证双语增量 ≤ 40 KB（NFR-19）。
+# 由 build.ps1 -NoEn 通过 --features no-en 切换（i18n 表在 build.rs 里按特性裁剪）。
+[profile.release-no-en]
+inherits = "release"

@@ -1,0 +1,145 @@
+﻿# ShadeBar English string table (NFR-19 / A-25)
+# Format: key<TAB>value; lines starting with # are comments. Embedded via include_str!.
+# Key set MUST stay identical to zh-CN.tsv (unit test enforces this).
+group.general	General
+group.color	Color and Sampling
+group.region	Sample Region
+group.elements	Coloring Elements
+group.tray	Tray and Behavior
+group.behavior	Behavior
+group.diagnostics	Diagnostics
+s01	Master switch (enable ShadeBar)
+s01.help	Off stops sampling and coloring and restores the system look; settings are kept
+s02	Start with Windows
+s02.help	Writes an HKCU\Run entry with no UAC prompt; off by default, can be disabled in Task Manager
+s03	Start minimized to tray
+s03.help	Off also opens the settings window at startup
+s04	Interface language
+s04.help	Follow system by primary language ID: 2052 -> Chinese, otherwise English; applies instantly
+s05	Version
+s05.help	Click to copy, useful when reporting an issue
+s06	Restore defaults
+s06.help	Writes every default back after a confirmation
+s10	Adaptive mode
+s10.help	Automatic by luminance; forced endpoints give a fixed output for troubleshooting
+s11	Live wallpaper sampling
+s11.help	Off stops sampling and keeps the current decision color
+s12	Luminance threshold
+s12.help	Below threshold uses the light color, above uses the dark color; default 0.50
+s13	Color strategy
+s13.help	Black/white or custom; custom enables the light and dark color fields
+s14	Light color (dark background)
+s14.help	Any sRGB, fully transparent disabled; default white
+s15	Dark color (light background)
+s15.help	Any sRGB, fully transparent disabled; default black
+s16	Sampling interval
+s16.help	About once per second by default; larger values save power
+s17	Change trigger threshold
+s17.help	Differences below this value do not trigger recoloring (debounce)
+s18	Smoothing strength (EWMA alpha)
+s18.help	Smaller alpha is smoother but slower; 1.00 disables smoothing
+s19	Theme sync (follow system light/dark)
+s19.help	Also changes Start menu and Control Center colors; fallback only, not the default
+s20	Icon area start
+s20.help	Percentage of taskbar width; use it to skip strong colour blocks in the wallpaper
+s21	Icon area width
+s21.help	Width of the icon-area sample band as a percentage of the taskbar; 100% by default
+s22	Sample band offset
+s22.help	Pixels to shift the sample band down from the taskbar top edge
+s23	Sample region preview
+s23.help	Shows the sample frame and thumbnail, updated with the three sliders above
+s30	Time
+s30.help	Clock text darkens or lightens to match the local background
+s31	Date
+s31.help	Date text darkens or lightens to match the local background
+s32	System tray icons
+s32.help	System glyph icons such as network, volume and battery; app-drawn icons stay untouched
+s33	Running indicator bar (normal state)
+s33.help	The short bar under running icons; the selected state keeps the system accent colour
+s34	Indicator bar color source
+s34.help	Independent from the hover block; the two never affect each other
+s35	Fixed indicator color
+s35.help	Only available with an independent fixed color; includes a built-in alpha control
+s36	Hover block color source
+s36.help	Independent from the indicator bar; the two never affect each other
+s37	Fixed hover block color
+s37.help	Only available with an independent fixed color; includes a built-in alpha control
+s40	Left click on tray icon
+s40.help	Open settings / open tray menu / do nothing
+s41	When closing the settings window
+s41.help	Minimize to tray or exit; the process stays alive by default
+s42	Pause adaptive coloring
+s42.help	Stops sampling and restores the system look while selected
+s43	Show current decision color on tray icon
+s43.help	A dot in the icon corner reflects the working state
+s44	On injection failure
+s44.help	Control noise: degrade with one notice / stay silent / notify every time
+s45	Log level
+s45.help	Set to Debug when troubleshooting
+s46	Export diagnostic bundle
+s46.help	Creates a zip and opens its folder
+opt.lang.system	Follow system
+opt.lang.zh	Simplified Chinese
+opt.lang.en	English
+opt.adaptive.auto	Automatic (by luminance)
+opt.adaptive.light	Force light endpoint
+opt.adaptive.dark	Force dark endpoint
+opt.strategy.bw	Pure black / white
+opt.strategy.custom	Custom
+opt.source.adaptive	Follow adaptive
+opt.source.fixed	Independent fixed color
+opt.left.settings	Open settings
+opt.left.menu	Open tray menu
+opt.left.none	Do nothing
+opt.close.tray	Minimize to tray
+opt.close.exit	Exit
+opt.inject.once	Silent degrade, notify once
+opt.inject.silent	Silent degrade, no notice
+opt.inject.always	Notify on every failure
+opt.log.error	Error
+opt.log.warn	Warning
+opt.log.info	Info
+opt.log.debug	Debug
+tray.open	Open settings
+tray.pause	Pause adaptive coloring
+tray.autostart	Start with Windows
+tray.export	Export diagnostic bundle
+tray.about	About (version)
+tray.exit	Exit
+tray.balloon.first_run	ShadeBar is running in the tray. Enable autostart in Settings.
+tray.restricted	Restricted (degraded mode)
+banner.degraded.title	Degraded mode (L1 only)
+banner.degraded.body	Taskbar coloring is unavailable; sampling and settings still work without admin rights.
+banner.inject_fail	Injection failed; automatically degraded to L1 mode.
+banner.s19_warning	Also changes Start menu and Control Center colors
+banner.region_small	Sample region too small; judgment may be affected
+diag.title	Diagnostics
+diag.rep_color	Representative color HEX
+diag.decision_color	Decision color
+diag.y	Luminance Y
+diag.contrast	Contrast
+diag.valid_px	Valid pixels
+diag.cost_us	Per-tick cost (us)
+diag.samples	Samples
+diag.trend	Last 10 samples
+diag.contrast_low	Contrast below 3:1
+diag.region_suspect	Sample region may be outside the taskbar
+diag.no_data	No samples yet
+diag.timestamp	Timestamp
+dlg.restore.title	Restore defaults?
+dlg.restore.body	All 35 settings will be reset to their defaults. This cannot be undone.
+dlg.confirm	Restore
+dlg.cancel	Cancel
+about.title	About ShadeBar
+about.version	Version
+about.license	MIT License
+about.known_limits	See README.md for known limitations
+about.copy_version	Copy version
+common.on	On
+common.off	Off
+common.enabled	Enabled
+common.disabled	Disabled
+common.copy_ok	Version copied
+common.export_ok	Diagnostic bundle created
+common.version_value	v1.1.0
+common.region_preview	Sample frame updates with the sliders above

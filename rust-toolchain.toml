@@ -1,0 +1,12 @@
+# 固定工具链与目标（§4 #3）。
+#
+# 这里写 "stable" 而不是具体的 1.99.1，是因为 rustup 只会安装"具名工具链"，
+# 把版本号钉死会让每个新环境先下载一份独立 toolchain；而本项目对编译器版本
+# 没有 nightly 需求。实测通过与验收使用的版本记录在 docs/spike-report.md：
+#   rustc 1.99.1 (58cf8f9c3 2026-10-13) / cargo 1.99.1
+# 若需完全可复现的构建，把 channel 改成 "1.99.1" 即可。
+[toolchain]
+channel = "stable"
+components = ["rustfmt", "clippy"]
+targets = ["x86_64-pc-windows-msvc"]
+profile = "minimal"

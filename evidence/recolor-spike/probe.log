@@ -1,0 +1,970 @@
+[DllMain] loaded into pid=15192 base=00007FFBDC570000
+[DllMain] loaded into pid=9508 base=00007FFBDC570000
+==== TAP probe run start, pid=9508 tid=20720 ====
+[Init] Windows.UI.Xaml.dll -> 00007FFBF3370000
+[Init] InitializeXamlDiagnosticsEx -> 00007FFBF3AA7C30
+[Init] TAP dll = E:\AI工作空间\随影ShadeBar\scratch\tap_probe\tap_probe_v17.dll
+[Init] InitializeXamlDiagnosticsEx(VisualDiagConnection1) hr=0x00000000
+[DllGetClassObject] clsid={7B1F9C2A-4D3E-4A51-9C8B-2F61A40D33E7} riid={00000001-0000-0000-C000-000000000046}
+[Init] 抢席位 okAt=1 last=0x00000000
+[CreateInstance] riid={FC4801A3-2BA9-11CF-A229-00AA003D7352}
+[QI] requested {FC4801A3-2BA9-11CF-A229-00AA003D7352}
+[SetSite] called on tid=10376, site=0000000030824800
+[SetSite] QI IXamlDiagnostics hr=0x00000000 ptr=0000000030824800
+[SetSite] QI IVisualTreeService3 hr=0x00000000 ptr=0000000030824808
+[SetSite] QI IVisualTreeService2 hr=0x00000000 ptr=0000000030824808
+[QI] requested {BAD9EB88-AE77-4397-B948-5FA2DB0A19EA}
+[SetSite] 同线程 AdviseVisualTreeChange hr=0x00000000
+[Init] g_advised=1
+[UI] GetDispatcher hr=0x00000000 ptr=000000000620CDB0
+[UI] QI ICoreDispatcher hr=0x00000000 ptr=000000000620CDB0
+[UI] IDispatchedHandler::Invoke
+[UI] 进入 XAML UI 线程 tid=10376
+[Tree] 共 285 个元素
+[UI] RunAsync hr=0x00000000
+[Tree] h=0x17D35770 p=0x0 Windows.UI.Xaml.Hosting.DesktopWindowXamlSource | 
+[Init] PostToUiThread hr=0x00000000
+[Tree] h=0x17F37998 p=0x17D35770 Windows.UI.Xaml.PopupRoot | 
+[Tree] h=0x17642888 p=0x17D35770 Windows.UI.Xaml.Internal.RootScrollViewer | 
+[Tree] h=0x303CB058 p=0x17642888 Windows.UI.Xaml.Controls.ScrollContentPresenter | 
+[Tree] h=0x17A6AC28 p=0x303CB058 Windows.UI.Xaml.Controls.Border | 
+[Tree] h=0x1745CFE8 p=0x17A6AC28 Windows.UI.Xaml.Controls.Grid | 
+[Tree] h=0x1828BE78 p=0x1745CFE8 Taskbar.TaskbarFrame | TaskbarFrame
+[Tree] h=0x18154B98 p=0x1745CFE8 SystemTray.SystemTrayFrame | 
+[Tree] h=0x30630858 p=0x1828BE78 Windows.UI.Xaml.Controls.Grid | RootGrid
+[Tree] h=0x3086D678 p=0x18154B98 Windows.UI.Xaml.Controls.StackPanel | SystemTrayFrameGrid
+[Tree] h=0x307EC048 p=0x30630858 Taskbar.TaskbarBackground | BackgroundControl
+[Tree] h=0x304CC188 p=0x30630858 Microsoft.UI.Xaml.Controls.ItemsRepeater | TaskbarFrameRepeater
+[Tree] h=0x306738D8 p=0x30630858 Taskbar.Gripper | GripperControl
+[Tree] h=0x173F0718 p=0x30630858 Windows.UI.Xaml.Shapes.Rectangle | ScreenEdgeStroke
+[Tree] h=0x3089BC28 p=0x3086D678 SystemTray.Stack | NotifyIconStack
+[Tree] h=0x3091E658 p=0x3086D678 SystemTray.NotificationAreaIcons | NotificationAreaIcons
+[Tree] h=0x30899B58 p=0x3086D678 SystemTray.Stack | MainStack
+[Tree] h=0x3089A4B8 p=0x3086D678 SystemTray.Stack | NonActivatableStack
+[Tree] h=0x3089A1E8 p=0x3086D678 SystemTray.Stack | SecondaryClockStack
+[Tree] h=0x3089AB48 p=0x3086D678 SystemTray.OmniButton | ControlCenterButton
+[Tree] h=0x3089BA48 p=0x3086D678 SystemTray.OmniButton | NotificationCenterButton
+[Tree] h=0x3089AD28 p=0x3086D678 SystemTray.Stack | ShowDesktopStack
+[Tree] h=0x30630A88 p=0x307EC048 Windows.UI.Xaml.Controls.Grid | 
+[Tree] h=0x30467F58 p=0x304CC188 Taskbar.ExperienceToggleButton | LaunchListButton
+[Tree] h=0x304A0B18 p=0x304CC188 Taskbar.TaskListButton | TaskListButton
+[Tree] h=0x3049D158 p=0x304CC188 Taskbar.TaskListButton | TaskListButton
+[Tree] h=0x304A0FE8 p=0x304CC188 Taskbar.TaskListButton | TaskListButton
+[Tree] h=0x3049D628 p=0x304CC188 Taskbar.TaskListButton | TaskListButton
+[Tree] h=0x304A2CC8 p=0x304CC188 Taskbar.TaskListButton | TaskListButton
+[Tree] h=0x304A49A8 p=0x304CC188 Taskbar.TaskListButton | TaskListButton
+[Tree] h=0x304A3198 p=0x304CC188 Taskbar.TaskListButton | TaskListButton
+[Tree] h=0x304A27F8 p=0x304CC188 Taskbar.TaskListButton | TaskListButton
+[Tree] h=0x304A14B8 p=0x304CC188 Taskbar.TaskListButton | TaskListButton
+[Tree] h=0x17A6B7C8 p=0x306738D8 Windows.UI.Xaml.Shapes.Rectangle | Gripper
+[Tree] h=0x459DCB8 p=0x3089BC28 Windows.UI.Xaml.Controls.Grid | Content
+[Tree] h=0x3044E4C8 p=0x3091E658 Windows.UI.Xaml.Controls.ItemsPresenter | 
+[Tree] h=0x30841388 p=0x30899B58 Windows.UI.Xaml.Controls.Grid | Content
+[Tree] h=0x305364E8 p=0x3089A4B8 Windows.UI.Xaml.Controls.Grid | Content
+[Tree] h=0x3083F948 p=0x3089A1E8 Windows.UI.Xaml.Controls.Grid | Content
+[Tree] h=0x30A58A88 p=0x3089AB48 Windows.UI.Xaml.Controls.Grid | 
+[Tree] h=0x30A5BF08 p=0x3089BA48 Windows.UI.Xaml.Controls.Grid | 
+[Tree] h=0x3083FB78 p=0x3089AD28 Windows.UI.Xaml.Controls.Grid | Content
+[Tree] h=0x173F10C8 p=0x30630A88 Windows.UI.Xaml.Shapes.Rectangle | BackgroundFill
+[Tree] h=0x173F1698 p=0x30630A88 Windows.UI.Xaml.Shapes.Rectangle | BackgroundStroke
+[Tree] h=0x307D8918 p=0x30467F58 Taskbar.TaskListButtonPanel | ExperienceToggleButtonRootPanel
+[Tree] h=0x308D6638 p=0x304A0B18 Windows.UI.Xaml.Controls.Grid | IconPanel
+[Tree] h=0x308D6A98 p=0x3049D158 Windows.UI.Xaml.Controls.Grid | IconPanel
+[Tree] h=0x308D6CC8 p=0x304A0FE8 Windows.UI.Xaml.Controls.Grid | IconPanel
+[Tree] h=0x308FCF38 p=0x3049D628 Windows.UI.Xaml.Controls.Grid | IconPanel
+[Tree] h=0x308FD5C8 p=0x304A2CC8 Windows.UI.Xaml.Controls.Grid | IconPanel
+[Tree] h=0x308FDA28 p=0x304A49A8 Windows.UI.Xaml.Controls.Grid | IconPanel
+[Tree] h=0x308FC448 p=0x304A3198 Windows.UI.Xaml.Controls.Grid | IconPanel
+[Tree] h=0x30930F48 p=0x304A27F8 Windows.UI.Xaml.Controls.Grid | IconPanel
+[Tree] h=0x309308B8 p=0x304A14B8 Windows.UI.Xaml.Controls.Grid | IconPanel
+[Tree] h=0x3096DCF8 p=0x459DCB8 SystemTray.StackListView | IconStack
+[Tree] h=0x30456B68 p=0x3044E4C8 Windows.UI.Xaml.Controls.ContentControl | 
+[Tree] h=0x30457008 p=0x3044E4C8 Windows.UI.Xaml.Controls.StackPanel | 
+[Tree] h=0x30457948 p=0x3044E4C8 Windows.UI.Xaml.Controls.ContentControl | 
+[Tree] h=0x30A07728 p=0x30841388 SystemTray.StackListView | IconStack
+[Tree] h=0x30A06B28 p=0x305364E8 SystemTray.StackListView | IconStack
+[Tree] h=0x30A07A28 p=0x3083F948 SystemTray.StackListView | IconStack
+[Tree] h=0x30998888 p=0x30A58A88 Windows.UI.Xaml.Controls.Border | BackgroundBorder
+[Tree] h=0x309E7048 p=0x30A58A88 Windows.UI.Xaml.Controls.ContentPresenter | ContentPresenter
+[Tree] h=0x3099C2A8 p=0x30A5BF08 Windows.UI.Xaml.Controls.Border | BackgroundBorder
+[Tree] h=0x30A1DCD8 p=0x30A5BF08 Windows.UI.Xaml.Controls.ContentPresenter | ContentPresenter
+[Tree] h=0x30A27368 p=0x3083FB78 SystemTray.StackListView | IconStack
+[Tree] h=0x30A5BAA8 p=0x307D8918 Windows.UI.Xaml.Controls.Grid | 
+[Tree] h=0x173F0CE8 p=0x308D6638 Windows.UI.Xaml.Shapes.Rectangle | MostRecentlyUsedDivider
+[Tree] h=0x173EFD68 p=0x308D6638 Windows.UI.Xaml.Controls.Border | 
+[Tree] h=0x173F3F48 p=0x308D6638 Windows.UI.Xaml.Controls.Border | BackgroundElement
+[Tree] h=0x96243F8 p=0x308D6638 Windows.UI.Xaml.Controls.Image | Icon
+[Tree] h=0x173F4138 p=0x308D6638 Windows.UI.Xaml.Shapes.Rectangle | DefaultIcon
+[Tree] h=0x173F29F8 p=0x308D6A98 Windows.UI.Xaml.Shapes.Rectangle | MostRecentlyUsedDivider
+[Tree] h=0x173F0908 p=0x308D6A98 Windows.UI.Xaml.Controls.Border | 
+[Tree] h=0x173F0338 p=0x308D6A98 Windows.UI.Xaml.Controls.Border | BackgroundElement
+[Tree] h=0x173F2618 p=0x308D6A98 Windows.UI.Xaml.Controls.Border | MultiWindowElement
+[Tree] h=0x173F2DD8 p=0x308D6A98 Windows.UI.Xaml.Shapes.Rectangle | RunningIndicator
+[Tree] h=0x96245F8 p=0x308D6A98 Windows.UI.Xaml.Controls.Image | Icon
+[Tree] h=0x173F2048 p=0x308D6A98 Windows.UI.Xaml.Shapes.Rectangle | DefaultIcon
+[Tree] h=0x173F1C68 p=0x308D6CC8 Windows.UI.Xaml.Shapes.Rectangle | MostRecentlyUsedDivider
+[Tree] h=0x173F2808 p=0x308D6CC8 Windows.UI.Xaml.Controls.Border | 
+[Tree] h=0x173F0148 p=0x308D6CC8 Windows.UI.Xaml.Controls.Border | BackgroundElement
+[Tree] h=0x173F4328 p=0x308D6CC8 Windows.UI.Xaml.Shapes.Rectangle | RunningIndicator
+[Tree] h=0x17FF6E58 p=0x308D6CC8 Windows.UI.Xaml.Controls.Image | Icon
+[Tree] h=0x173F31B8 p=0x308D6CC8 Windows.UI.Xaml.Shapes.Rectangle | DefaultIcon
+[Tree] h=0x173F12B8 p=0x308FCF38 Windows.UI.Xaml.Shapes.Rectangle | MostRecentlyUsedDivider
+[Tree] h=0x173F2BE8 p=0x308FCF38 Windows.UI.Xaml.Controls.Border | 
+[Tree] h=0x173F4518 p=0x308FCF38 Windows.UI.Xaml.Controls.Border | BackgroundElement
+[Tree] h=0x17FF4258 p=0x308FCF38 Windows.UI.Xaml.Controls.Image | Icon
+[Tree] h=0x173F1E58 p=0x308FCF38 Windows.UI.Xaml.Shapes.Rectangle | DefaultIcon
+[Tree] h=0x173F4708 p=0x308FD5C8 Windows.UI.Xaml.Shapes.Rectangle | MostRecentlyUsedDivider
+[Tree] h=0x173F4EC8 p=0x308FD5C8 Windows.UI.Xaml.Controls.Border | 
+[Tree] h=0x173F2238 p=0x308FD5C8 Windows.UI.Xaml.Controls.Border | BackgroundElement
+[Tree] h=0x173F2428 p=0x308FD5C8 Windows.UI.Xaml.Shapes.Rectangle | RunningIndicator
+[Tree] h=0x96259F8 p=0x308FD5C8 Windows.UI.Xaml.Controls.Image | Icon
+[Tree] h=0x173F52A8 p=0x308FD5C8 Windows.UI.Xaml.Shapes.Rectangle | DefaultIcon
+[Tree] h=0x173F50B8 p=0x308FDA28 Windows.UI.Xaml.Shapes.Rectangle | MostRecentlyUsedDivider
+[Tree] h=0x173F48F8 p=0x308FDA28 Windows.UI.Xaml.Controls.Border | 
+[Tree] h=0x173F4CD8 p=0x308FDA28 Windows.UI.Xaml.Controls.Border | BackgroundElement
+[Tree] h=0x173F5498 p=0x308FDA28 Windows.UI.Xaml.Shapes.Rectangle | RunningIndicator
+[Tree] h=0x3091C208 p=0x308FDA28 Windows.UI.Xaml.Controls.Image | Icon
+[Tree] h=0x173F4AE8 p=0x308FDA28 Windows.UI.Xaml.Shapes.Rectangle | DefaultIcon
+[Tree] h=0x173F5688 p=0x308FC448 Windows.UI.Xaml.Shapes.Rectangle | MostRecentlyUsedDivider
+[Tree] h=0x173F14A8 p=0x308FC448 Windows.UI.Xaml.Controls.Border | 
+[Tree] h=0x173F5878 p=0x308FC448 Windows.UI.Xaml.Controls.Border | BackgroundElement
+[Tree] h=0x173F6DC8 p=0x308FC448 Windows.UI.Xaml.Shapes.Rectangle | RunningIndicator
+[Tree] h=0x3091B808 p=0x308FC448 Windows.UI.Xaml.Controls.Image | Icon
+[Tree] h=0x173F6418 p=0x308FC448 Windows.UI.Xaml.Shapes.Rectangle | DefaultIcon
+[Tree] h=0x173F7588 p=0x30930F48 Windows.UI.Xaml.Shapes.Rectangle | MostRecentlyUsedDivider
+[Tree] h=0x173F5A68 p=0x30930F48 Windows.UI.Xaml.Controls.Border | 
+[Tree] h=0x173F5C58 p=0x30930F48 Windows.UI.Xaml.Controls.Border | BackgroundElement
+[Tree] h=0x173F5E48 p=0x30930F48 Windows.UI.Xaml.Shapes.Rectangle | RunningIndicator
+[Tree] h=0x3091C408 p=0x30930F48 Windows.UI.Xaml.Controls.Image | Icon
+[Tree] h=0x173F6608 p=0x30930F48 Windows.UI.Xaml.Shapes.Rectangle | DefaultIcon
+[Tree] h=0x173F7968 p=0x309308B8 Windows.UI.Xaml.Shapes.Rectangle | MostRecentlyUsedDivider
+[Tree] h=0x173F67F8 p=0x309308B8 Windows.UI.Xaml.Controls.Border | 
+[Tree] h=0x173F6038 p=0x309308B8 Windows.UI.Xaml.Controls.Border | BackgroundElement
+[Tree] h=0x17A6B3E8 p=0x309308B8 Windows.UI.Xaml.Shapes.Rectangle | RunningIndicator
+[Tree] h=0x3091CA08 p=0x309308B8 Windows.UI.Xaml.Controls.Image | Icon
+[Tree] h=0x173F6228 p=0x309308B8 Windows.UI.Xaml.Shapes.Rectangle | DefaultIcon
+[Tree] h=0x17785FC8 p=0x3096DCF8 Windows.UI.Xaml.Controls.ItemsPresenter | 
+[Tree] h=0x30968878 p=0x30457008 Windows.UI.Xaml.Controls.ContentPresenter | 
+[Tree] h=0x309690B8 p=0x30457008 Windows.UI.Xaml.Controls.ContentPresenter | 
+[Tree] h=0x309698F8 p=0x30457008 Windows.UI.Xaml.Controls.ContentPresenter | 
+[Tree] h=0x17F3BAC8 p=0x30A07728 Windows.UI.Xaml.Controls.ItemsPresenter | 
+[Tree] h=0x30567128 p=0x30A06B28 Windows.UI.Xaml.Controls.ItemsPresenter | 
+[Tree] h=0x17680AE8 p=0x30A07A28 Windows.UI.Xaml.Controls.ItemsPresenter | 
+[Tree] h=0x3035ADA8 p=0x309E7048 Windows.UI.Xaml.Controls.ItemsPresenter | 
+[Tree] h=0x177CF388 p=0x30A1DCD8 Windows.UI.Xaml.Controls.ItemsPresenter | 
+[Tree] h=0x17C1B0C8 p=0x30A27368 Windows.UI.Xaml.Controls.ItemsPresenter | 
+[Tree] h=0x173F3B68 p=0x30A5BAA8 Windows.UI.Xaml.Controls.Border | BackgroundElement
+[Tree] h=0x307BCCA0 p=0x307DCB48 Windows.UI.Composition.SpriteVisual | 
+[Tree] h=0x307DC6A0 p=0x307BCCA0 Windows.UI.Composition.ContainerVisual | 
+[Tree] h=0x307DCC60 p=0x307DC6A0 Windows.UI.Composition.ContainerVisual | 
+[Tree] h=0x30817620 p=0x307DCC60 Windows.UI.Composition.ShapeVisual | 
+[Tree] h=0x30817B30 p=0x308A2DC0 Windows.UI.Composition.ShapeVisual | 
+[Tree] h=0x30817CE0 p=0x308A37D0 Windows.UI.Composition.ShapeVisual | 
+[Tree] h=0x308A2DC0 p=0x307DC6A0 Windows.UI.Composition.ContainerVisual | 
+[Tree] h=0x308A37D0 p=0x307DC6A0 Windows.UI.Composition.ContainerVisual | 
+[Tree] h=0x307DCB48 p=0x30A5BAA8 Microsoft.UI.Xaml.Controls.AnimatedVisualPlayer | Icon
+[Tree] h=0x1824D228 p=0x30A5BAA8 Windows.UI.Xaml.Controls.TextBlock | LabelControl
+[Tree] h=0x3086CD38 p=0x17785FC8 Windows.UI.Xaml.Controls.ContentControl | 
+[Tree] h=0x30A1BDE8 p=0x17785FC8 Windows.UI.Xaml.Controls.StackPanel | 
+[Tree] h=0x30459758 p=0x17785FC8 Windows.UI.Xaml.Controls.ContentControl | 
+[Tree] h=0x18031E58 p=0x30968878 SystemTray.NotifyIconView | NotifyItemIcon
+[Tree] h=0x180312D8 p=0x309690B8 SystemTray.NotifyIconView | NotifyItemIcon
+[Tree] h=0x180315B8 p=0x309698F8 SystemTray.NotifyIconView | NotifyItemIcon
+[Tree] h=0x17E6ADB8 p=0x17F3BAC8 Windows.UI.Xaml.Controls.ContentControl | 
+[Tree] h=0x30A1C4D8 p=0x17F3BAC8 Windows.UI.Xaml.Controls.StackPanel | 
+[Tree] h=0x17E6A6C8 p=0x17F3BAC8 Windows.UI.Xaml.Controls.ContentControl | 
+[Tree] h=0x92043A8 p=0x30567128 Windows.UI.Xaml.Controls.ContentControl | 
+[Tree] h=0x30A1A6C8 p=0x30567128 Windows.UI.Xaml.Controls.StackPanel | 
+[Tree] h=0x30A1B008 p=0x30567128 Windows.UI.Xaml.Controls.ContentControl | 
+[Tree] h=0x30A1ADB8 p=0x17680AE8 Windows.UI.Xaml.Controls.ContentControl | 
+[Tree] h=0x30A19FD8 p=0x17680AE8 Windows.UI.Xaml.Controls.StackPanel | 
+[Tree] h=0x30A1C728 p=0x17680AE8 Windows.UI.Xaml.Controls.ContentControl | 
+[Tree] h=0x30A1C038 p=0x3035ADA8 Windows.UI.Xaml.Controls.ContentControl | 
+[Tree] h=0x30A1B6F8 p=0x3035ADA8 Windows.UI.Xaml.Controls.StackPanel | 
+[Tree] h=0x30A1B258 p=0x3035ADA8 Windows.UI.Xaml.Controls.ContentControl | 
+[Tree] h=0x30A19698 p=0x177CF388 Windows.UI.Xaml.Controls.ContentControl | 
+[Tree] h=0x30A1BB98 p=0x177CF388 Windows.UI.Xaml.Controls.StackPanel | 
+[Tree] h=0x30A1B948 p=0x177CF388 Windows.UI.Xaml.Controls.ContentControl | 
+[Tree] h=0x30A1C288 p=0x17C1B0C8 Windows.UI.Xaml.Controls.ContentControl | 
+[Tree] h=0x30A19D88 p=0x17C1B0C8 Windows.UI.Xaml.Controls.StackPanel | 
+[Tree] h=0x30A1A478 p=0x17C1B0C8 Windows.UI.Xaml.Controls.ContentControl | 
+[Tree] h=0x309694D8 p=0x30A1BDE8 Windows.UI.Xaml.Controls.ContentPresenter | 
+[Tree] h=0x309DCB38 p=0x18031E58 Windows.UI.Xaml.Controls.Grid | ContainerGrid
+[Tree] h=0x309DC4A8 p=0x180312D8 Windows.UI.Xaml.Controls.Grid | ContainerGrid
+[Tree] h=0x309FE538 p=0x180315B8 Windows.UI.Xaml.Controls.Grid | ContainerGrid
+[Tree] h=0x30633D08 p=0x30A1C4D8 Windows.UI.Xaml.Controls.ContentPresenter | 
+[Tree] h=0x1829C6E8 p=0x30A1A6C8 Windows.UI.Xaml.Controls.ContentPresenter | 
+[Tree] h=0x30A1D6A8 p=0x30A1B6F8 Windows.UI.Xaml.Controls.ContentPresenter | 
+[Tree] h=0x30A1D8B8 p=0x30A1B6F8 Windows.UI.Xaml.Controls.ContentPresenter | 
+[Tree] h=0x30A1DEE8 p=0x30A1BB98 Windows.UI.Xaml.Controls.ContentPresenter | 
+[Tree] h=0x30A5C618 p=0x30A19D88 Windows.UI.Xaml.Controls.ContentPresenter | 
+[Tree] h=0x17780528 p=0x309694D8 SystemTray.ChevronIconView | 
+[Tree] h=0x309999F8 p=0x309DCB38 Windows.UI.Xaml.Controls.Border | BackgroundBorder
+[Tree] h=0x1824D438 p=0x309DCB38 Windows.UI.Xaml.Controls.ContentPresenter | ContentPresenter
+[Tree] h=0x30840898 p=0x309DCB38 Windows.UI.Xaml.Controls.Grid | InsertionMarkerContainer
+[Tree] h=0x30998E58 p=0x309DC4A8 Windows.UI.Xaml.Controls.Border | BackgroundBorder
+[Tree] h=0x309E6808 p=0x309DC4A8 Windows.UI.Xaml.Controls.ContentPresenter | ContentPresenter
+[Tree] h=0x30840AC8 p=0x309DC4A8 Windows.UI.Xaml.Controls.Grid | InsertionMarkerContainer
+[Tree] h=0x309980C8 p=0x309FE538 Windows.UI.Xaml.Controls.Border | BackgroundBorder
+[Tree] h=0x309E6C28 p=0x309FE538 Windows.UI.Xaml.Controls.ContentPresenter | ContentPresenter
+[Tree] h=0x3083FFD8 p=0x309FE538 Windows.UI.Xaml.Controls.Grid | InsertionMarkerContainer
+[Tree] h=0x30A361F8 p=0x30633D08 SystemTray.IconView | SystemTrayIcon
+[Tree] h=0x30A35B38 p=0x1829C6E8 SystemTray.IconView | SystemTrayIcon
+[Tree] h=0x309F60C8 p=0x30A1D6A8 SystemTray.IconView | SystemTrayIcon
+[Tree] h=0x309F7088 p=0x30A1D8B8 SystemTray.IconView | SystemTrayIcon
+[Tree] h=0x30A36D38 p=0x30A1DEE8 SystemTray.IconView | SystemTrayIcon
+[Tree] h=0x30A36F78 p=0x30A5C618 SystemTray.IconView | SystemTrayIcon
+[Tree] h=0x17F39538 p=0x17780528 Windows.UI.Xaml.Controls.Grid | ContainerGrid
+[Tree] h=0x309B2368 p=0x1824D438 Windows.UI.Xaml.Controls.Grid | ContentGrid
+[Tree] h=0x309984A8 p=0x30840898 Windows.UI.Xaml.Shapes.Rectangle | LeftDropInsertionMarker
+[Tree] h=0x3099AB68 p=0x30840898 Windows.UI.Xaml.Shapes.Rectangle | RightDropInsertionMarker
+[Tree] h=0x309DBE18 p=0x309E6808 Windows.UI.Xaml.Controls.Grid | ContentGrid
+[Tree] h=0x30999238 p=0x30840AC8 Windows.UI.Xaml.Shapes.Rectangle | LeftDropInsertionMarker
+[Tree] h=0x3099B138 p=0x30840AC8 Windows.UI.Xaml.Shapes.Rectangle | RightDropInsertionMarker
+[Tree] h=0x309FD5E8 p=0x309E6C28 Windows.UI.Xaml.Controls.Grid | ContentGrid
+[Tree] h=0x30999428 p=0x3083FFD8 Windows.UI.Xaml.Shapes.Rectangle | LeftDropInsertionMarker
+[Tree] h=0x3099A598 p=0x3083FFD8 Windows.UI.Xaml.Shapes.Rectangle | RightDropInsertionMarker
+[Tree] h=0x94C6148 p=0x30A361F8 Windows.UI.Xaml.Controls.Grid | ContainerGrid
+[Tree] h=0x3074CC68 p=0x30A35B38 Windows.UI.Xaml.Controls.Grid | ContainerGrid
+[Tree] h=0x30A185D8 p=0x309F60C8 Windows.UI.Xaml.Controls.Grid | ContainerGrid
+[Tree] h=0x30A239C8 p=0x309F7088 Windows.UI.Xaml.Controls.Grid | ContainerGrid
+[Tree] h=0x30A24918 p=0x30A36D38 Windows.UI.Xaml.Controls.Grid | ContainerGrid
+[Tree] h=0x30A5C138 p=0x30A36F78 Windows.UI.Xaml.Controls.Grid | ContainerGrid
+[Tree] h=0x30999808 p=0x17F39538 Windows.UI.Xaml.Controls.Border | BackgroundBorder
+[Tree] h=0x30968C98 p=0x17F39538 Windows.UI.Xaml.Controls.ContentPresenter | ContentPresenter
+[Tree] h=0x30840F28 p=0x17F39538 Windows.UI.Xaml.Controls.Grid | InsertionMarkerContainer
+[Tree] h=0x30967618 p=0x309B2368 SystemTray.ImageIconContent | 
+[Tree] h=0x30966578 p=0x309DBE18 SystemTray.ImageIconContent | 
+[Tree] h=0x309663B8 p=0x309FD5E8 SystemTray.ImageIconContent | 
+[Tree] h=0x3099AF48 p=0x94C6148 Windows.UI.Xaml.Controls.Border | BackgroundBorder
+[Tree] h=0x306351A8 p=0x94C6148 Windows.UI.Xaml.Controls.ContentPresenter | ContentPresenter
+[Tree] h=0x3099C498 p=0x3074CC68 Windows.UI.Xaml.Controls.Border | BackgroundBorder
+[Tree] h=0x1829CD18 p=0x3074CC68 Windows.UI.Xaml.Controls.ContentPresenter | ContentPresenter
+[Tree] h=0x308415B8 p=0x3074CC68 Windows.UI.Xaml.Controls.Grid | InsertionMarkerContainer
+[Tree] h=0x30A18A38 p=0x30A185D8 Windows.UI.Xaml.Controls.Grid | ContentGrid
+[Tree] h=0x30A24058 p=0x30A239C8 Windows.UI.Xaml.Controls.Grid | ContentGrid
+[Tree] h=0x30A24B48 p=0x30A24918 Windows.UI.Xaml.Controls.Grid | ContentGrid
+[Tree] h=0x3099BEC8 p=0x30A5C138 Windows.UI.Xaml.Controls.Border | 
+[Tree] h=0x30A58EE8 p=0x30A5C138 Windows.UI.Xaml.Controls.Grid | ContentGrid
+[Tree] h=0x3099BCD8 p=0x30A5C138 Windows.UI.Xaml.Shapes.Rectangle | ShowDesktopPipe
+[Tree] h=0x17F38818 p=0x30968C98 Windows.UI.Xaml.Controls.Grid | ContentGrid
+[Tree] h=0x3099A1B8 p=0x30840F28 Windows.UI.Xaml.Shapes.Rectangle | LeftDropInsertionMarker
+[Tree] h=0x3099A788 p=0x30840F28 Windows.UI.Xaml.Shapes.Rectangle | RightDropInsertionMarker
+[Tree] h=0x309DCD68 p=0x30967618 Windows.UI.Xaml.Controls.Grid | ContainerGrid
+[Tree] h=0x309FEBC8 p=0x30966578 Windows.UI.Xaml.Controls.Grid | ContainerGrid
+[Tree] h=0x309FDC78 p=0x309663B8 Windows.UI.Xaml.Controls.Grid | ContainerGrid
+[Tree] h=0x94C5F18 p=0x306351A8 Windows.UI.Xaml.Controls.Grid | ContentGrid
+[Tree] h=0x3074B8B8 p=0x1829CD18 Windows.UI.Xaml.Controls.Grid | ContentGrid
+[Tree] h=0x3099AD58 p=0x308415B8 Windows.UI.Xaml.Shapes.Rectangle | LeftDropInsertionMarker
+[Tree] h=0x30998C68 p=0x308415B8 Windows.UI.Xaml.Shapes.Rectangle | RightDropInsertionMarker
+[Tree] h=0x308118C8 p=0x30A18A38 SystemTray.TextIconContent | 
+[Tree] h=0x30812408 p=0x30A24058 SystemTray.TextIconContent | 
+[Tree] h=0x3089DFC8 p=0x30A24B48 SystemTray.DateTimeIconContent | 
+[Tree] h=0x308106C8 p=0x30A58EE8 SystemTray.TextIconContent | 
+[Tree] h=0x3080F828 p=0x17F38818 SystemTray.TextIconContent | 
+[Tree] h=0x3091CE08 p=0x309DCD68 Windows.UI.Xaml.Controls.Image | 
+[Tree] h=0x3091B408 p=0x309FEBC8 Windows.UI.Xaml.Controls.Image | 
+[Tree] h=0x3091B608 p=0x309FDC78 Windows.UI.Xaml.Controls.Image | 
+[Tree] h=0x30810B48 p=0x94C5F18 SystemTray.TextIconContent | 
+[Tree] h=0x30B05FA8 p=0x3074B8B8 SystemTray.ImageIconContent | 
+[Tree] h=0x30A23E28 p=0x308118C8 Windows.UI.Xaml.Controls.Grid | ContainerGrid
+[Tree] h=0x30A22A78 p=0x30812408 Windows.UI.Xaml.Controls.Grid | ContainerGrid
+[Tree] h=0x30A24FA8 p=0x3089DFC8 Windows.UI.Xaml.Controls.Grid | ContainerGrid
+[Tree] h=0x30A5A068 p=0x308106C8 Windows.UI.Xaml.Controls.Grid | ContainerGrid
+[Tree] h=0x17F38188 p=0x3080F828 Windows.UI.Xaml.Controls.Grid | ContainerGrid
+[Tree] h=0x94C65A8 p=0x30810B48 Windows.UI.Xaml.Controls.Grid | ContainerGrid
+[Tree] h=0x3074BF48 p=0x30B05FA8 Windows.UI.Xaml.Controls.Grid | ContainerGrid
+[Tree] h=0x30A21578 p=0x30A23E28 SystemTray.AdaptiveTextBlock | Underlay
+[Tree] h=0x30A205B8 p=0x30A23E28 SystemTray.AdaptiveTextBlock | Base
+[Tree] h=0x30A20DF8 p=0x30A23E28 SystemTray.AdaptiveTextBlock | AccentOverlay
+[Tree] h=0x30A20F78 p=0x30A22A78 SystemTray.AdaptiveTextBlock | Underlay
+[Tree] h=0x30A20678 p=0x30A22A78 SystemTray.AdaptiveTextBlock | Base
+[Tree] h=0x30A20978 p=0x30A22A78 SystemTray.AdaptiveTextBlock | AccentOverlay
+[Tree] h=0x30A19B38 p=0x30A24FA8 Windows.UI.Xaml.Controls.StackPanel | DateTimeStackPanel
+[Tree] h=0x30A6FE18 p=0x30A5A068 SystemTray.AdaptiveTextBlock | Underlay
+[Tree] h=0x30A70058 p=0x30A5A068 SystemTray.AdaptiveTextBlock | Base
+[Tree] h=0x30A70658 p=0x30A5A068 SystemTray.AdaptiveTextBlock | AccentOverlay
+[Tree] h=0x3091DF98 p=0x17F38188 SystemTray.AdaptiveTextBlock | Underlay
+[Tree] h=0x309AF688 p=0x17F38188 SystemTray.AdaptiveTextBlock | Base
+[Tree] h=0x309B0408 p=0x17F38188 SystemTray.AdaptiveTextBlock | AccentOverlay
+[Tree] h=0x30BC69E8 p=0x94C65A8 SystemTray.AdaptiveTextBlock | Underlay
+[Tree] h=0x30BC60E8 p=0x94C65A8 SystemTray.AdaptiveTextBlock | Base
+[Tree] h=0x30BC5C68 p=0x94C65A8 SystemTray.AdaptiveTextBlock | AccentOverlay
+[Tree] h=0x3091C608 p=0x3074BF48 Windows.UI.Xaml.Controls.Image | 
+[Tree] h=0x30A1F178 p=0x30A21578 Windows.UI.Xaml.Controls.TextBlock | InnerTextBlock
+[Tree] h=0x30A1E0F8 p=0x30A205B8 Windows.UI.Xaml.Controls.TextBlock | InnerTextBlock
+[Tree] h=0x30A1EF68 p=0x30A20DF8 Windows.UI.Xaml.Controls.TextBlock | InnerTextBlock
+[Tree] h=0x30A1DAC8 p=0x30A20F78 Windows.UI.Xaml.Controls.TextBlock | InnerTextBlock
+[Tree] h=0x30A1F388 p=0x30A20678 Windows.UI.Xaml.Controls.TextBlock | InnerTextBlock
+[Tree] h=0x30A1E938 p=0x30A20978 Windows.UI.Xaml.Controls.TextBlock | InnerTextBlock
+[Tree] h=0x30A1E518 p=0x30A19B38 Windows.UI.Xaml.Controls.TextBlock | TimeInnerTextBlock
+[Tree] h=0x30A1EB48 p=0x30A19B38 Windows.UI.Xaml.Controls.TextBlock | DateInnerTextBlock
+[Tree] h=0x30A5CC48 p=0x30A6FE18 Windows.UI.Xaml.Controls.TextBlock | InnerTextBlock
+[Tree] h=0x30A5C828 p=0x30A70058 Windows.UI.Xaml.Controls.TextBlock | InnerTextBlock
+[Tree] h=0x30A5CE58 p=0x30A70658 Windows.UI.Xaml.Controls.TextBlock | InnerTextBlock
+[Tree] h=0x30968668 p=0x3091DF98 Windows.UI.Xaml.Controls.TextBlock | InnerTextBlock
+[Tree] h=0x30968458 p=0x309AF688 Windows.UI.Xaml.Controls.TextBlock | InnerTextBlock
+[Tree] h=0x30969D18 p=0x309B0408 Windows.UI.Xaml.Controls.TextBlock | InnerTextBlock
+[Tree] h=0x306353B8 p=0x30BC69E8 Windows.UI.Xaml.Controls.TextBlock | InnerTextBlock
+[Tree] h=0x30633F18 p=0x30BC60E8 Windows.UI.Xaml.Controls.TextBlock | InnerTextBlock
+[Tree] h=0x30634338 p=0x30BC5C68 Windows.UI.Xaml.Controls.TextBlock | InnerTextBlock
+[UI] time=0x30A1E518 date=0x30A1EB48 base=0x30A205B8 underlay=0x30A21578 accent=0x30A20DF8
+[Read] Time h=0x30A1E518 chain hr=0x00000000 n=264
+[Read]   Opacity = 1
+[Read]   Visibility = 0
+[Read]   ActualHeight = 15.9609
+[Read]   ActualWidth = 22.0078
+[Read]   Height = Auto
+[Read]   Margin = 0,0,0,0
+[Read]   Width = Auto
+[Read]   FontSize = 12
+[Read]   FontSize = 14
+[Read]   FontSize = 11
+[Read]   Foreground = 405367672
+[Read]   Text = 7:41
+[Read]   Text = 0
+[Read] Date h=0x30A1EB48 chain hr=0x00000000 n=267
+[Read]   Opacity = 1
+[Read]   Visibility = 0
+[Read]   Visibility = 0
+[Read]   ActualHeight = 15.96
+[Read]   ActualWidth = 61.1133
+[Read]   Height = Auto
+[Read]   Margin = 0,0,0,0
+[Read]   Width = Auto
+[Read]   FontSize = 12
+[Read]   FontSize = 14
+[Read]   FontSize = 11
+[Read]   Foreground = 405367672
+[Read]   Text = ‎2026/‎11/‎18
+[Read]   Text = 0
+[Read] AdaptiveBase h=0x30A205B8 chain hr=0x00000000 n=262
+[Read]   Opacity = 1
+[Read]   Visibility = 0
+[Read]   ActualHeight = 16
+[Read]   ActualWidth = 16
+[Read]   Height = Auto
+[Read]   Margin = 0,0,0,0
+[Read]   Width = Auto
+[Read]   Background = 0
+[Read]   BorderThickness = 0,0,0,0
+[Read]   CornerRadius = 
+[Read]   FontSize = 12
+[Read]   FontSize = 11
+[Read]   Foreground = 556551560
+[Read]   Foreground = 405367672
+[UI] === 探测 RunningIndicator / BackgroundElement ===
+[Ind] #1 h=0x304A0B18 p=0x304CC188 type=Taskbar.TaskListButton name=TaskListButton
+[Read] Taskbar.TaskListButton h=0x304A0B18 chain hr=0x00000000 n=274
+[Read]   Opacity = 1
+[Read]   Visibility = 0
+[Read]   ActualHeight = 48
+[Read]   ActualWidth = 44
+[Read]   Height = Auto
+[Read]   Margin = 0,0,0,0
+[Read]   Width = Auto
+[Read]   Background = 0
+[Read]   BorderThickness = 0,0,0,0
+[Read]   CornerRadius = 
+[Read]   CornerRadius = 
+[Read]   FontSize = 14
+[Read]   Foreground = 405367672
+[Ind] #2 h=0x3049D158 p=0x304CC188 type=Taskbar.TaskListButton name=TaskListButton
+[Read] Taskbar.TaskListButton h=0x3049D158 chain hr=0x00000000 n=274
+[Read]   Opacity = 1
+[Read]   Visibility = 0
+[Read]   ActualHeight = 48
+[Read]   ActualWidth = 44
+[Read]   Height = Auto
+[Read]   Margin = 0,0,0,0
+[Read]   Width = Auto
+[Read]   Background = 0
+[Read]   BorderThickness = 0,0,0,0
+[Read]   CornerRadius = 
+[Read]   CornerRadius = 
+[Read]   FontSize = 14
+[Read]   Foreground = 405367672
+[Ind] #3 h=0x304A0FE8 p=0x304CC188 type=Taskbar.TaskListButton name=TaskListButton
+[Read] Taskbar.TaskListButton h=0x304A0FE8 chain hr=0x00000000 n=275
+[Read]   Opacity = 1
+[Read]   Visibility = 0
+[Read]   ActualHeight = 48
+[Read]   ActualWidth = 44
+[Read]   Height = Auto
+[Read]   Margin = 0,0,0,0
+[Read]   Width = Auto
+[Read]   Background = 0
+[Read]   BorderThickness = 0,0,0,0
+[Read]   CornerRadius = 
+[Read]   CornerRadius = 
+[Read]   FontSize = 14
+[Read]   Foreground = 405367672
+[Ind] #4 h=0x3049D628 p=0x304CC188 type=Taskbar.TaskListButton name=TaskListButton
+[Read] Taskbar.TaskListButton h=0x3049D628 chain hr=0x00000000 n=275
+[Read]   Opacity = 1
+[Read]   Visibility = 0
+[Read]   ActualHeight = 32
+[Read]   ActualWidth = 44
+[Read]   Height = Auto
+[Read]   Margin = 0,0,0,0
+[Read]   Width = Auto
+[Read]   Background = 0
+[Read]   BorderThickness = 0,0,0,0
+[Read]   CornerRadius = 
+[Read]   CornerRadius = 
+[Read]   FontSize = 14
+[Read]   Foreground = 405367672
+[Ind] #5 h=0x304A2CC8 p=0x304CC188 type=Taskbar.TaskListButton name=TaskListButton
+[Read] Taskbar.TaskListButton h=0x304A2CC8 chain hr=0x00000000 n=274
+[Read]   Opacity = 1
+[Read]   Visibility = 0
+[Read]   ActualHeight = 48
+[Read]   ActualWidth = 44
+[Read]   Height = Auto
+[Read]   Margin = 0,0,0,0
+[Read]   Width = Auto
+[Read]   Background = 0
+[Read]   BorderThickness = 0,0,0,0
+[Read]   CornerRadius = 
+[Read]   CornerRadius = 
+[Read]   FontSize = 14
+[Read]   Foreground = 405367672
+[Ind] #6 h=0x304A49A8 p=0x304CC188 type=Taskbar.TaskListButton name=TaskListButton
+[Read] Taskbar.TaskListButton h=0x304A49A8 chain hr=0x00000000 n=275
+[Read]   Opacity = 1
+[Read]   Visibility = 0
+[Read]   ActualHeight = 48
+[Read]   ActualWidth = 44
+[Read]   Height = Auto
+[Read]   Margin = 0,0,0,0
+[Read]   Width = Auto
+[Read]   Background = 0
+[Read]   BorderThickness = 0,0,0,0
+[Read]   CornerRadius = 
+[Read]   CornerRadius = 
+[Read]   FontSize = 14
+[Read]   Foreground = 405367672
+[Ind] #7 h=0x304A3198 p=0x304CC188 type=Taskbar.TaskListButton name=TaskListButton
+[Read] Taskbar.TaskListButton h=0x304A3198 chain hr=0x00000000 n=275
+[Read]   Opacity = 1
+[Read]   Visibility = 0
+[Read]   ActualHeight = 48
+[Read]   ActualWidth = 44
+[Read]   Height = Auto
+[Read]   Margin = 0,0,0,0
+[Read]   Width = Auto
+[Read]   Background = 0
+[Read]   BorderThickness = 0,0,0,0
+[Read]   CornerRadius = 
+[Read]   CornerRadius = 
+[Read]   FontSize = 14
+[Read]   Foreground = 405367672
+[Ind] #8 h=0x304A27F8 p=0x304CC188 type=Taskbar.TaskListButton name=TaskListButton
+[Read] Taskbar.TaskListButton h=0x304A27F8 chain hr=0x00000000 n=274
+[Read]   Opacity = 1
+[Read]   Visibility = 0
+[Read]   ActualHeight = 48
+[Read]   ActualWidth = 44
+[Read]   Height = Auto
+[Read]   Margin = 0,0,0,0
+[Read]   Width = Auto
+[Read]   Background = 0
+[Read]   BorderThickness = 0,0,0,0
+[Read]   CornerRadius = 
+[Read]   CornerRadius = 
+[Read]   FontSize = 14
+[Read]   Foreground = 405367672
+[Ind] #9 h=0x304A14B8 p=0x304CC188 type=Taskbar.TaskListButton name=TaskListButton
+[Read] Taskbar.TaskListButton h=0x304A14B8 chain hr=0x00000000 n=274
+[Read]   Opacity = 1
+[Read]   Visibility = 0
+[Read]   ActualHeight = 48
+[Read]   ActualWidth = 44
+[Read]   Height = Auto
+[Read]   Margin = 0,0,0,0
+[Read]   Width = Auto
+[Read]   Background = 0
+[Read]   BorderThickness = 0,0,0,0
+[Read]   CornerRadius = 
+[Read]   CornerRadius = 
+[Read]   FontSize = 14
+[Read]   Foreground = 405367672
+[Ind] #10 h=0x307D8918 p=0x30467F58 type=Taskbar.TaskListButtonPanel name=ExperienceToggleButtonRootPanel
+[Read] Taskbar.TaskListButtonPanel h=0x307D8918 chain hr=0x00000000 n=239
+[Read]   Opacity = 1
+[Read]   Visibility = 0
+[Read]   ActualHeight = 48
+[Read]   ActualWidth = 55
+[Read]   Height = Auto
+[Read]   Height = Auto
+[Read]   Margin = 0,0,0,0
+[Read]   Margin = 0,0,0,0
+[Read]   Width = 55
+[Read]   Width = Auto
+[Read]   Background = 814341128
+[Read]   Background = 0
+[Read]   BorderThickness = 0,0,0,0
+[Read]   CornerRadius = 
+[Ind] #11 h=0x30998888 p=0x30A58A88 type=Windows.UI.Xaml.Controls.Border name=BackgroundBorder
+[Read] Windows.UI.Xaml.Controls.Border h=0x30998888 chain hr=0x00000000 n=233
+[Read]   Opacity = 1
+[Read]   Visibility = 0
+[Read]   ActualHeight = 40
+[Read]   ActualWidth = 60
+[Read]   Height = Auto
+[Read]   Margin = 0
+[Read]   Margin = 0,0,0,0
+[Read]   Width = Auto
+[Read]   Background = 0
+[Read]   Background = 0
+[Read]   BorderThickness = 0
+[Read]   BorderThickness = 0,0,0,0
+[Read]   CornerRadius = 
+[Read]   CornerRadius = 
+[Ind] #12 h=0x3099C2A8 p=0x30A5BF08 type=Windows.UI.Xaml.Controls.Border name=BackgroundBorder
+[Read] Windows.UI.Xaml.Controls.Border h=0x3099C2A8 chain hr=0x00000000 n=233
+[Read]   Opacity = 1
+[Read]   Visibility = 0
+[Read]   ActualHeight = 40
+[Read]   ActualWidth = 77
+[Read]   Height = Auto
+[Read]   Margin = 0
+[Read]   Margin = 0,0,0,0
+[Read]   Width = Auto
+[Read]   Background = 0
+[Read]   Background = 0
+[Read]   BorderThickness = 0
+[Read]   BorderThickness = 0,0,0,0
+[Read]   CornerRadius = 
+[Read]   CornerRadius = 
+[Ind] #13 h=0x173F3F48 p=0x308D6638 type=Windows.UI.Xaml.Controls.Border name=BackgroundElement
+[Read] Windows.UI.Xaml.Controls.Border h=0x173F3F48 chain hr=0x00000000 n=235
+[Read]   Opacity = 1
+[Read]   Visibility = 0
+[Read]   ActualHeight = 40
+[Read]   ActualWidth = 40
+[Read]   Height = Auto
+[Read]   Margin = 0,0,0,0
+[Read]   Margin = 0,0,0,0
+[Read]   Width = Auto
+[Read]   Background = 405388072
+[Read]   Background = 0
+[Read]   BorderThickness = 1,1,1,1
+[Read]   BorderThickness = 0,0,0,0
+[Read]   CornerRadius = 
+[Read]   CornerRadius = 
+[Ind] #14 h=0x173F0338 p=0x308D6A98 type=Windows.UI.Xaml.Controls.Border name=BackgroundElement
+[Read] Windows.UI.Xaml.Controls.Border h=0x173F0338 chain hr=0x00000000 n=236
+[Read]   Opacity = 1
+[Read]   Visibility = 0
+[Read]   ActualHeight = 40
+[Read]   ActualWidth = 36
+[Read]   Height = Auto
+[Read]   Margin = 0,0,4,0
+[Read]   Margin = 0,0,0,0
+[Read]   Margin = 0,0,0,0
+[Read]   Width = Auto
+[Read]   Background = 405388072
+[Read]   Background = 0
+[Read]   BorderThickness = 1,1,1,1
+[Read]   BorderThickness = 0,0,0,0
+[Read]   CornerRadius = 
+[Read]   CornerRadius = 
+[Ind] #15 h=0x173F2DD8 p=0x308D6A98 type=Windows.UI.Xaml.Shapes.Rectangle name=RunningIndicator
+[Read] Windows.UI.Xaml.Shapes.Rectangle h=0x173F2DD8 chain hr=0x00000000 n=241
+[Read]   Opacity = 1
+[Read]   Opacity = 1
+[Read]   Visibility = 0
+[Read]   ActualHeight = 3
+[Read]   ActualWidth = 6
+[Read]   Height = 3
+[Read]   Height = Auto
+[Read]   Margin = 1,1,1,1
+[Read]   Margin = 0,0,0,0
+[Read]   Width = 6
+[Read]   Width = Auto
+[Read]   Fill = 0
+[Read]   Stroke = 0
+[Read]   RadiusX = 1.5
+[Read]   RadiusX = 0
+[Read]   RadiusY = 1.5
+[Read]   RadiusY = 0
+[Ind] #16 h=0x173F0148 p=0x308D6CC8 type=Windows.UI.Xaml.Controls.Border name=BackgroundElement
+[Read] Windows.UI.Xaml.Controls.Border h=0x173F0148 chain hr=0x00000000 n=237
+[Read]   Opacity = 1
+[Read]   Visibility = 0
+[Read]   ActualHeight = 40
+[Read]   ActualWidth = 40
+[Read]   Height = Auto
+[Read]   Margin = 0,0,0,0
+[Read]   Margin = 0,0,0,0
+[Read]   Width = Auto
+[Read]   Background = 152310904
+[Read]   Background = 405388072
+[Read]   Background = 0
+[Read]   BorderThickness = 1,1,1,1
+[Read]   BorderThickness = 0,0,0,0
+[Read]   CornerRadius = 
+[Read]   CornerRadius = 
+[Ind] #17 h=0x173F4328 p=0x308D6CC8 type=Windows.UI.Xaml.Shapes.Rectangle name=RunningIndicator
+[Read] Windows.UI.Xaml.Shapes.Rectangle h=0x173F4328 chain hr=0x00000000 n=242
+[Read]   Opacity = 1
+[Read]   Opacity = 1
+[Read]   Visibility = 0
+[Read]   ActualHeight = 3
+[Read]   ActualWidth = 16
+[Read]   Height = 3
+[Read]   Height = Auto
+[Read]   Margin = 1,1,1,1
+[Read]   Margin = 0,0,0,0
+[Read]   Width = 16
+[Read]   Width = Auto
+[Read]   Fill = 556522520
+[Read]   Fill = 556522520
+[Read]   Stroke = 0
+[Read]   RadiusX = 1.5
+[Read]   RadiusX = 0
+[Read]   RadiusY = 1.5
+[Read]   RadiusY = 0
+[Ind] #18 h=0x173F4518 p=0x308FCF38 type=Windows.UI.Xaml.Controls.Border name=BackgroundElement
+[Read] Windows.UI.Xaml.Controls.Border h=0x173F4518 chain hr=0x00000000 n=235
+[Read]   Opacity = 1
+[Read]   Opacity = 1
+[Read]   Visibility = 0
+[Read]   ActualHeight = 24
+[Read]   ActualWidth = 40
+[Read]   Height = Auto
+[Read]   Margin = 0,0,0,0
+[Read]   Margin = 0,0,0,0
+[Read]   Width = Auto
+[Read]   Background = 405388072
+[Read]   Background = 0
+[Read]   BorderThickness = 1,1,1,1
+[Read]   BorderThickness = 0,0,0,0
+[Read]   CornerRadius = 
+[Read]   CornerRadius = 
+[Ind] #19 h=0x173F2238 p=0x308FD5C8 type=Windows.UI.Xaml.Controls.Border name=BackgroundElement
+[Read] Windows.UI.Xaml.Controls.Border h=0x173F2238 chain hr=0x00000000 n=235
+[Read]   Opacity = 1
+[Read]   Visibility = 0
+[Read]   ActualHeight = 40
+[Read]   ActualWidth = 40
+[Read]   Height = Auto
+[Read]   Margin = 0,0,0,0
+[Read]   Margin = 0,0,0,0
+[Read]   Width = Auto
+[Read]   Background = 405388072
+[Read]   Background = 0
+[Read]   BorderThickness = 1,1,1,1
+[Read]   BorderThickness = 0,0,0,0
+[Read]   CornerRadius = 
+[Read]   CornerRadius = 
+[Ind] #20 h=0x173F2428 p=0x308FD5C8 type=Windows.UI.Xaml.Shapes.Rectangle name=RunningIndicator
+[Read] Windows.UI.Xaml.Shapes.Rectangle h=0x173F2428 chain hr=0x00000000 n=241
+[Read]   Opacity = 1
+[Read]   Opacity = 1
+[Read]   Visibility = 0
+[Read]   ActualHeight = 3
+[Read]   ActualWidth = 6
+[Read]   Height = 3
+[Read]   Height = Auto
+[Read]   Margin = 1,1,1,1
+[Read]   Margin = 0,0,0,0
+[Read]   Width = 6
+[Read]   Width = Auto
+[Read]   Fill = 0
+[Read]   Stroke = 0
+[Read]   RadiusX = 1.5
+[Read]   RadiusX = 0
+[Read]   RadiusY = 1.5
+[Read]   RadiusY = 0
+[Ind] #21 h=0x173F4CD8 p=0x308FDA28 type=Windows.UI.Xaml.Controls.Border name=BackgroundElement
+[Read] Windows.UI.Xaml.Controls.Border h=0x173F4CD8 chain hr=0x00000000 n=235
+[Read]   Opacity = 1
+[Read]   Visibility = 0
+[Read]   ActualHeight = 40
+[Read]   ActualWidth = 40
+[Read]   Height = Auto
+[Read]   Margin = 0,0,0,0
+[Read]   Margin = 0,0,0,0
+[Read]   Width = Auto
+[Read]   Background = 405388072
+[Read]   Background = 0
+[Read]   BorderThickness = 1,1,1,1
+[Read]   BorderThickness = 0,0,0,0
+[Read]   CornerRadius = 
+[Read]   CornerRadius = 
+[Ind] #22 h=0x173F5498 p=0x308FDA28 type=Windows.UI.Xaml.Shapes.Rectangle name=RunningIndicator
+[Read] Windows.UI.Xaml.Shapes.Rectangle h=0x173F5498 chain hr=0x00000000 n=241
+[Read]   Opacity = 1
+[Read]   Opacity = 1
+[Read]   Visibility = 0
+[Read]   ActualHeight = 3
+[Read]   ActualWidth = 6
+[Read]   Height = 3
+[Read]   Height = Auto
+[Read]   Margin = 1,1,1,1
+[Read]   Margin = 0,0,0,0
+[Read]   Width = 6
+[Read]   Width = Auto
+[Read]   Fill = 0
+[Read]   Stroke = 0
+[Read]   RadiusX = 1.5
+[Read]   RadiusX = 0
+[Read]   RadiusY = 1.5
+[Read]   RadiusY = 0
+[Ind] #23 h=0x173F5878 p=0x308FC448 type=Windows.UI.Xaml.Controls.Border name=BackgroundElement
+[Read] Windows.UI.Xaml.Controls.Border h=0x173F5878 chain hr=0x00000000 n=235
+[Read]   Opacity = 1
+[Read]   Visibility = 0
+[Read]   ActualHeight = 40
+[Read]   ActualWidth = 40
+[Read]   Height = Auto
+[Read]   Margin = 0,0,0,0
+[Read]   Margin = 0,0,0,0
+[Read]   Width = Auto
+[Read]   Background = 405388072
+[Read]   Background = 0
+[Read]   BorderThickness = 1,1,1,1
+[Read]   BorderThickness = 0,0,0,0
+[Read]   CornerRadius = 
+[Read]   CornerRadius = 
+[Ind] #24 h=0x173F6DC8 p=0x308FC448 type=Windows.UI.Xaml.Shapes.Rectangle name=RunningIndicator
+[Read] Windows.UI.Xaml.Shapes.Rectangle h=0x173F6DC8 chain hr=0x00000000 n=241
+[Read]   Opacity = 1
+[Read]   Opacity = 1
+[Read]   Visibility = 0
+[Read]   ActualHeight = 3
+[Read]   ActualWidth = 6
+[Read]   Height = 3
+[Read]   Height = Auto
+[Read]   Margin = 1,1,1,1
+[Read]   Margin = 0,0,0,0
+[Read]   Width = 6
+[Read]   Width = Auto
+[Read]   Fill = 0
+[Read]   Stroke = 0
+[Read]   RadiusX = 1.5
+[Read]   RadiusX = 0
+[Read]   RadiusY = 1.5
+[Read]   RadiusY = 0
+[Ind] #25 h=0x173F5C58 p=0x30930F48 type=Windows.UI.Xaml.Controls.Border name=BackgroundElement
+[Read] Windows.UI.Xaml.Controls.Border h=0x173F5C58 chain hr=0x00000000 n=235
+[Read]   Opacity = 1
+[Read]   Visibility = 0
+[Read]   ActualHeight = 40
+[Read]   ActualWidth = 40
+[Read]   Height = Auto
+[Read]   Margin = 0,0,0,0
+[Read]   Margin = 0,0,0,0
+[Read]   Width = Auto
+[Read]   Background = 405388072
+[Read]   Background = 0
+[Read]   BorderThickness = 1,1,1,1
+[Read]   BorderThickness = 0,0,0,0
+[Read]   CornerRadius = 
+[Read]   CornerRadius = 
+[Ind] #26 h=0x173F5E48 p=0x30930F48 type=Windows.UI.Xaml.Shapes.Rectangle name=RunningIndicator
+[Read] Windows.UI.Xaml.Shapes.Rectangle h=0x173F5E48 chain hr=0x00000000 n=241
+[Read]   Opacity = 1
+[Read]   Opacity = 1
+[Read]   Visibility = 0
+[Read]   ActualHeight = 3
+[Read]   ActualWidth = 6
+[Read]   Height = 3
+[Read]   Height = Auto
+[Read]   Margin = 1,1,1,1
+[Read]   Margin = 0,0,0,0
+[Read]   Width = 6
+[Read]   Width = Auto
+[Read]   Fill = 0
+[Read]   Stroke = 0
+[Read]   RadiusX = 1.5
+[Read]   RadiusX = 0
+[Read]   RadiusY = 1.5
+[Read]   RadiusY = 0
+[Ind] #27 h=0x173F6038 p=0x309308B8 type=Windows.UI.Xaml.Controls.Border name=BackgroundElement
+[Read] Windows.UI.Xaml.Controls.Border h=0x173F6038 chain hr=0x00000000 n=235
+[Read]   Opacity = 1
+[Read]   Visibility = 0
+[Read]   ActualHeight = 40
+[Read]   ActualWidth = 40
+[Read]   Height = Auto
+[Read]   Margin = 0,0,0,0
+[Read]   Margin = 0,0,0,0
+[Read]   Width = Auto
+[Read]   Background = 405388072
+[Read]   Background = 0
+[Read]   BorderThickness = 1,1,1,1
+[Read]   BorderThickness = 0,0,0,0
+[Read]   CornerRadius = 
+[Read]   CornerRadius = 
+[Ind] #28 h=0x17A6B3E8 p=0x309308B8 type=Windows.UI.Xaml.Shapes.Rectangle name=RunningIndicator
+[Read] Windows.UI.Xaml.Shapes.Rectangle h=0x17A6B3E8 chain hr=0x00000000 n=241
+[Read]   Opacity = 1
+[Read]   Opacity = 1
+[Read]   Visibility = 0
+[Read]   ActualHeight = 3
+[Read]   ActualWidth = 6
+[Read]   Height = 3
+[Read]   Height = Auto
+[Read]   Margin = 1,1,1,1
+[Read]   Margin = 0,0,0,0
+[Read]   Width = 6
+[Read]   Width = Auto
+[Read]   Fill = 0
+[Read]   Stroke = 0
+[Read]   RadiusX = 1.5
+[Read]   RadiusX = 0
+[Read]   RadiusY = 1.5
+[Read]   RadiusY = 0
+[Ind] #29 h=0x173F3B68 p=0x30A5BAA8 type=Windows.UI.Xaml.Controls.Border name=BackgroundElement
+[Read] Windows.UI.Xaml.Controls.Border h=0x173F3B68 chain hr=0x00000000 n=235
+[Read]   Opacity = 1
+[Read]   Visibility = 0
+[Read]   ActualHeight = 40
+[Read]   ActualWidth = 41
+[Read]   Height = Auto
+[Read]   Margin = 0,0,0,0
+[Read]   Width = Auto
+[Read]   Background = 405388072
+[Read]   Background = 0
+[Read]   BorderThickness = 1,1,1,1
+[Read]   BorderThickness = 0,0,0,0
+[Read]   CornerRadius = 
+[Read]   CornerRadius = 
+[Ind] #30 h=0x309999F8 p=0x309DCB38 type=Windows.UI.Xaml.Controls.Border name=BackgroundBorder
+[Read] Windows.UI.Xaml.Controls.Border h=0x309999F8 chain hr=0x00000000 n=234
+[Read]   Opacity = 1
+[Read]   Visibility = 0
+[Read]   ActualHeight = 40
+[Read]   ActualWidth = 32
+[Read]   Height = Auto
+[Read]   Margin = 0
+[Read]   Margin = 0,0,0,0
+[Read]   Width = Auto
+[Read]   Background = 0
+[Read]   Background = 0
+[Read]   BorderThickness = 0
+[Read]   BorderThickness = 0,0,0,0
+[Read]   CornerRadius = 
+[Read]   CornerRadius = 
+[Ind] #31 h=0x30998E58 p=0x309DC4A8 type=Windows.UI.Xaml.Controls.Border name=BackgroundBorder
+[Read] Windows.UI.Xaml.Controls.Border h=0x30998E58 chain hr=0x00000000 n=234
+[Read]   Opacity = 1
+[Read]   Visibility = 0
+[Read]   ActualHeight = 40
+[Read]   ActualWidth = 32
+[Read]   Height = Auto
+[Read]   Margin = 0
+[Read]   Margin = 0,0,0,0
+[Read]   Width = Auto
+[Read]   Background = 0
+[Read]   Background = 0
+[Read]   BorderThickness = 0
+[Read]   BorderThickness = 0,0,0,0
+[Read]   CornerRadius = 
+[Read]   CornerRadius = 
+[Ind] #32 h=0x309980C8 p=0x309FE538 type=Windows.UI.Xaml.Controls.Border name=BackgroundBorder
+[Read] Windows.UI.Xaml.Controls.Border h=0x309980C8 chain hr=0x00000000 n=234
+[Read]   Opacity = 1
+[Read]   Visibility = 0
+[Read]   ActualHeight = 40
+[Read]   ActualWidth = 32
+[Read]   Height = Auto
+[Read]   Margin = 0
+[Read]   Margin = 0,0,0,0
+[Read]   Width = Auto
+[Read]   Background = 0
+[Read]   Background = 0
+[Read]   BorderThickness = 0
+[Read]   BorderThickness = 0,0,0,0
+[Read]   CornerRadius = 
+[Read]   CornerRadius = 
+[Ind] #33 h=0x30999808 p=0x17F39538 type=Windows.UI.Xaml.Controls.Border name=BackgroundBorder
+[Read] Windows.UI.Xaml.Controls.Border h=0x30999808 chain hr=0x00000000 n=234
+[Read]   Opacity = 1
+[Read]   Visibility = 0
+[Read]   ActualHeight = 40
+[Read]   ActualWidth = 32
+[Read]   Height = Auto
+[Read]   Margin = 0
+[Read]   Margin = 0,0,0,0
+[Read]   Width = Auto
+[Read]   Background = 0
+[Read]   Background = 0
+[Read]   BorderThickness = 0
+[Read]   BorderThickness = 0,0,0,0
+[Read]   CornerRadius = 
+[Read]   CornerRadius = 
+[Ind] #34 h=0x3099AF48 p=0x94C6148 type=Windows.UI.Xaml.Controls.Border name=BackgroundBorder
+[Read] Windows.UI.Xaml.Controls.Border h=0x3099AF48 chain hr=0x00000000 n=234
+[Read]   Opacity = 1
+[Read]   Visibility = 0
+[Read]   ActualHeight = 40
+[Read]   ActualWidth = 32
+[Read]   Height = Auto
+[Read]   Margin = 0
+[Read]   Margin = 0,0,0,0
+[Read]   Width = Auto
+[Read]   Background = 0
+[Read]   Background = 0
+[Read]   BorderThickness = 0
+[Read]   BorderThickness = 0,0,0,0
+[Read]   CornerRadius = 
+[Read]   CornerRadius = 
+[Ind] #35 h=0x3099C498 p=0x3074CC68 type=Windows.UI.Xaml.Controls.Border name=BackgroundBorder
+[Read] Windows.UI.Xaml.Controls.Border h=0x3099C498 chain hr=0x00000000 n=234
+[Read]   Opacity = 1
+[Read]   Visibility = 0
+[Read]   ActualHeight = 40
+[Read]   ActualWidth = 32
+[Read]   Height = Auto
+[Read]   Margin = 0
+[Read]   Margin = 0,0,0,0
+[Read]   Width = Auto
+[Read]   Background = 0
+[Read]   Background = 0
+[Read]   BorderThickness = 0
+[Read]   BorderThickness = 0,0,0,0
+[Read]   CornerRadius = 
+[Read]   CornerRadius = 
+[Ind] 命中 35 个
+[UI] === 清除本地值（还原系统默认） ===
+[Set] IndexFromChain(Foreground) h=0x30A1E518 hr=0x00000000 ok=1 idx=1167
+[UI] ClearProperty(h=0x30A1E518, idx=1167) hr=0x00000000
+[Set] IndexFromChain(Foreground) h=0x30A1EB48 hr=0x00000000 ok=1 idx=1167
+[UI] ClearProperty(h=0x30A1EB48, idx=1167) hr=0x00000000
+[Set] IndexFromChain(Foreground) h=0x30A205B8 hr=0x00000000 ok=1 idx=876
+[UI] ClearProperty(h=0x30A205B8, idx=876) hr=0x00000000
+[Set] IndexFromChain(Foreground) h=0x30A21578 hr=0x00000000 ok=1 idx=876
+[Set] IndexFromChain(Foreground) h=0x30A205B8 hr=0x00000000 ok=1 idx=876
+[Set] IndexFromChain(Foreground) h=0x30A20DF8 hr=0x00000000 ok=1 idx=876
+[Set] IndexFromChain(Foreground) h=0x30A20F78 hr=0x00000000 ok=1 idx=876
+[Set] IndexFromChain(Foreground) h=0x30A20678 hr=0x00000000 ok=1 idx=876
+[Set] IndexFromChain(Foreground) h=0x30A20978 hr=0x00000000 ok=1 idx=876
+[Set] IndexFromChain(Foreground) h=0x30A6FE18 hr=0x00000000 ok=1 idx=876
+[Set] IndexFromChain(Foreground) h=0x30A70058 hr=0x00000000 ok=1 idx=876
+[Set] IndexFromChain(Foreground) h=0x30A70658 hr=0x00000000 ok=1 idx=876
+[Set] IndexFromChain(Foreground) h=0x3091DF98 hr=0x00000000 ok=1 idx=876
+[Set] IndexFromChain(Foreground) h=0x309AF688 hr=0x00000000 ok=1 idx=876
+[Set] IndexFromChain(Foreground) h=0x309B0408 hr=0x00000000 ok=1 idx=876
+[Set] IndexFromChain(Foreground) h=0x30BC69E8 hr=0x00000000 ok=1 idx=876
+[Set] IndexFromChain(Foreground) h=0x30BC60E8 hr=0x00000000 ok=1 idx=876
+[Set] IndexFromChain(Foreground) h=0x30BC5C68 hr=0x00000000 ok=1 idx=876
+[Set] IndexFromChain(Fill) h=0x173F2DD8 hr=0x00000000 ok=1 idx=1106
+[UI] ClearProperty(indicator h=0x173F2DD8, idx=1106) hr=0x00000000
+[Set] IndexFromChain(Fill) h=0x173F4328 hr=0x00000000 ok=1 idx=1106
+[UI] ClearProperty(indicator h=0x173F4328, idx=1106) hr=0x00000000
+[Set] IndexFromChain(Fill) h=0x173F2428 hr=0x00000000 ok=1 idx=1106
+[UI] ClearProperty(indicator h=0x173F2428, idx=1106) hr=0x00000000
+[Set] IndexFromChain(Fill) h=0x173F5498 hr=0x00000000 ok=1 idx=1106
+[UI] ClearProperty(indicator h=0x173F5498, idx=1106) hr=0x00000000
+[Set] IndexFromChain(Fill) h=0x173F6DC8 hr=0x00000000 ok=1 idx=1106
+[UI] ClearProperty(indicator h=0x173F6DC8, idx=1106) hr=0x00000000
+[Set] IndexFromChain(Fill) h=0x173F5E48 hr=0x00000000 ok=1 idx=1106
+[UI] ClearProperty(indicator h=0x173F5E48, idx=1106) hr=0x00000000
+[Set] IndexFromChain(Fill) h=0x17A6B3E8 hr=0x00000000 ok=1 idx=1106
+[UI] ClearProperty(indicator h=0x17A6B3E8, idx=1106) hr=0x00000000
+[UI] 退出 UI 线程
+==== TAP probe run done ====

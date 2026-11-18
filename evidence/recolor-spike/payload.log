@@ -1,0 +1,8 @@
+==== ShadeBar 载荷启动 pid=31752 ====
+[Init] IPC 就绪 magic=0x53425231 ver=1
+[Init] 席位 VisualDiagConnection1 ok
+[Tap] SetSite tid=26684
+[Tap] Advise hr=0x00000000
+[Init] 就绪 diag=0000000030BB1E20 vts3=0000000030BB1E28
+[Apply] seq=1 time=1 date=1 tray=15 ind=7
+[Restore] restored=24 (cache t=E4000000 d=E4000000 g=E4000000 n=72000000 s=FF0078D4)

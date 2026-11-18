@@ -1,0 +1,47 @@
+========================================================================
+ARTIFACT: formal E:\AI工作空间\随影ShadeBar\dist\随影_ShadeBar_v1.0.0.exe
+  size          : 408064 B = 398.5 KB
+  sha256        : d4eaec0ad91802b59f3a1244dc2b8a8c8848021c5ce528912a40253e61f44221
+  machine / PE  : 0x8664 PE32+
+  sections      : .text, .rdata, .data, .pdata, .fptable, .tls, _RDATA, .rsrc, .reloc
+  imports       : api-ms-win-core-synch-l1-2-0.dll, kernel32.dll, user32.dll, gdi32.dll, d2d1.dll, dwrite.dll, dwmapi.dll, oleaut32.dll, ntdll.dll, advapi32.dll, shell32.dll
+  forbidden CRT : NONE
+  resource types: 14, 16, 24, 3
+  manifest      : count=1 asInvoker=True requestedExecutionLevel=True PerMonitorV2=True UTF8=True runas_comment=True
+  version       : {'FileVersion': '1.0.0.0', 'ProductVersion': '1.0.0.0', 'ProductName': '随影 ShadeBar', 'FileDescription': '随影 ShadeBar - 任务栏文字自适应着色', 'OriginalFilename': '随影_ShadeBar_v1.0.0.exe', 'CompanyName': 'Yi-One1', 'InternalName': 'shadebar-app'} VS_VERSION_INFO= True
+  icons         : entries= [(16, 16, 32), (24, 24, 32), (32, 32, 32), (48, 48, 32), (256, 256, 32)] RT_ICON blobs= 5
+  strings       : UI_Xaml=False ShellExecuteExW=True runas=True
+========================================================================
+ARTIFACT: verify E:\AI工作空间\随影ShadeBar\dist\verify\随影_ShadeBar_v1.0.0_verify.exe
+  size          : 498688 B = 487.0 KB
+  sha256        : 51c033ae3534024bd2bafd9aeb62283b8cbc1781c0e4fdf71cb1f227e01ef9c3
+  machine / PE  : 0x8664 PE32+
+  sections      : .text, .rdata, .data, .pdata, .fptable, .tls, _RDATA, .rsrc, .reloc
+  imports       : api-ms-win-core-synch-l1-2-0.dll, kernel32.dll, user32.dll, gdi32.dll, ole32.dll, d2d1.dll, dwrite.dll, dwmapi.dll, oleaut32.dll, ntdll.dll, advapi32.dll, shell32.dll
+  forbidden CRT : NONE
+  resource types: 14, 16, 24, 3
+  manifest      : count=1 asInvoker=True requestedExecutionLevel=True PerMonitorV2=True UTF8=True runas_comment=True
+  version       : {'FileVersion': '1.0.0.0', 'ProductVersion': '1.0.0.0', 'ProductName': '随影 ShadeBar', 'FileDescription': '随影 ShadeBar - 任务栏文字自适应着色', 'OriginalFilename': '随影_ShadeBar_v1.0.0.exe', 'CompanyName': 'Yi-One1', 'InternalName': 'shadebar-app'} VS_VERSION_INFO= True
+  icons         : entries= [(16, 16, 32), (24, 24, 32), (32, 32, 32), (48, 48, 32), (256, 256, 32)] RT_ICON blobs= 5
+  strings       : UI_Xaml=False ShellExecuteExW=True runas=True
+========================================================================
+ARTIFACT: no-en E:\AI工作空间\随影ShadeBar\dist\compare\随影_ShadeBar_v1.0.0_no-en.exe
+  size          : 401920 B = 392.5 KB
+  sha256        : 573ee5045ab1e71fb16e14d9b200b44b69fec53974ec6cf6af3597078c50e15d
+  machine / PE  : 0x8664 PE32+
+  sections      : .text, .rdata, .data, .pdata, .fptable, .tls, _RDATA, .rsrc, .reloc
+  imports       : api-ms-win-core-synch-l1-2-0.dll, kernel32.dll, user32.dll, gdi32.dll, d2d1.dll, dwrite.dll, dwmapi.dll, oleaut32.dll, ntdll.dll, advapi32.dll, shell32.dll
+  forbidden CRT : NONE
+  resource types: 14, 16, 24, 3
+  manifest      : count=1 asInvoker=True requestedExecutionLevel=True PerMonitorV2=True UTF8=True runas_comment=True
+  version       : {'FileVersion': '1.0.0.0', 'ProductVersion': '1.0.0.0', 'ProductName': '随影 ShadeBar', 'FileDescription': '随影 ShadeBar - 任务栏文字自适应着色', 'OriginalFilename': '随影_ShadeBar_v1.0.0.exe', 'CompanyName': 'Yi-One1', 'InternalName': 'shadebar-app'} VS_VERSION_INFO= True
+  icons         : entries= [(16, 16, 32), (24, 24, 32), (32, 32, 32), (48, 48, 32), (256, 256, 32)] RT_ICON blobs= 5
+  strings       : UI_Xaml=False ShellExecuteExW=True runas=True
+========================================================================
+CROSS CHECKS
+  A-26 delta formal - no-en = 6144 B = 6.0 KB (<= 40 KB)
+  dist root exe files: ['随影_ShadeBar_v1.0.0.exe'] count= 1
+  dist root lang sidecars: []
+  GATE SUMMARY formal : PASS
+  GATE SUMMARY verify : PASS
+  GATE SUMMARY no-en : PASS

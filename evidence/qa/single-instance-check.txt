@@ -1,0 +1,10 @@
+pre-check: no ShadeBar process
+launched 1st instance pid=21072
+1st alive=True  shadebar_pids=[21072]
+2nd: exit=0 elapsed=0.026s timed_out=False  shadebar_pids=[21072]
+FindWindowW(ShadeBar.MainWindow) hwnd=1182786
+posted MENU_EXIT=True
+1st exit code=0 (None means still alive)
+remaining ShadeBar pids after cleanup: []
+
+A-01 SINGLE INSTANCE: PASS

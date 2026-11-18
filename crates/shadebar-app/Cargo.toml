@@ -1,0 +1,80 @@
+[package]
+name = "shadebar-app"
+description = "随影 ShadeBar 主程序（Windows 11 任务栏自适应着色）"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+publish.workspace = true
+# 构建脚本负责编译 resources/app.rc（图标 + 清单 + 版本资源）。
+build = "build.rs"
+
+[[bin]]
+name = "shadebar-app"
+path = "src/main.rs"
+
+# ---------------------------------------------------------------------------
+# 特性开关（T04.1 / #9 体积收口，需求基线 v1.4 §7 K-07 / NFR-01）
+#
+# 默认（正式发布版）**两个特性都不开**：
+#   * 不编译 evidence.rs / visual.rs / png.rs 与 main.rs 的 `--verify` 分支；
+#   * 双语资源两套完整内嵌，发布产物只有单个 exe。
+#
+# `verify` 只给取证档用：`cargo build --release --features verify`。
+# 取证代码不删（A-29 与后续版本仍要用），只是不进正式产物（§8 任务 #9）。
+#
+# `no-en` 只给 A-26 对照构建用：`--profile release-no-en --features no-en`
+# 移除英文文案表，与正式版比较体积差（NFR-19 ≤ 40 KB）。
+# ---------------------------------------------------------------------------
+[features]
+default = []
+verify = []
+no-en = []
+
+[dependencies]
+shadebar-core = { path = "../shadebar-core" }
+
+# 版本锁定 =0.58.0（升级须单独 PR + 回归体积，§9.1）。
+# 本组 feature 是 T03.1 渲染骨架的最小集合：
+#   Direct2D/DirectWrite/Dxgi_Common —— 自绘；
+#   Gdi                              —— 复用 DIB 与 BitBlt 上屏；
+#   Dwm                              —— background=4 + 圆角；
+#   HiDpi                            —— PerMonitorV2 下取 DPI；
+#   Registry                         —— 读 AppsUseLightTheme 决定深浅色；
+#   Foundation_Numerics              —— ID2D1RenderTarget::CreateSolidColorBrush 的 feature 前置；
+#   Com / LibraryLoader              —— 后续 COM 与模块句柄。
+# T04 新增（真实 Win32/COM 适配，均为 §9.1 允许清单内的同一 windows crate feature）：
+#   UI_Accessibility —— IUIAutomation2 取时钟/日期矩形 + SetConnectionTimeout
+#   UI_Shell         —— SHAppBarMessage(ABM_GETSTATE) 判任务栏自动隐藏
+#   System_Threading —— CreateWaitableTimerW / CreateEventW / GetProcessTimes
+#   Security         —— CreateWaitableTimerW 的 cfg(feature) 前置
+#   System_Power     —— GetSystemPowerStatus（电池模式 EX-15）
+# 注意：`windows` 0.58 **没有** `UI_Xaml` 投影（实测），XAML 侧接口须手写 vtable，
+# 见 docs/spike-report.md §2.4 与架构 v1.2 §2.2 D4。**禁止**添加任何 UI_Xaml* feature。
+windows = { version = "=0.58.0", features = [
+    "Foundation_Numerics",
+    "Win32_Foundation",
+    # GetUserDefaultUILanguage（S-04「跟随系统」主语言 ID 2052 → zh-CN）
+    "Win32_Globalization",
+    "Win32_Graphics_Direct2D",
+    "Win32_Graphics_Direct2D_Common",
+    "Win32_Graphics_DirectWrite",
+    "Win32_Graphics_Dwm",
+    "Win32_Graphics_Dxgi_Common",
+    "Win32_Graphics_Gdi",
+    "Win32_Security",
+    "Win32_System_Com",
+    # S-05「点击可复制」：剪贴板（CF_UNICODETEXT）
+    "Win32_System_DataExchange",
+    "Win32_System_LibraryLoader",
+    "Win32_System_Memory",
+    "Win32_System_Power",
+    "Win32_System_Registry",
+    "Win32_System_Threading",
+    "Win32_UI_Accessibility",
+    "Win32_UI_HiDpi",
+    "Win32_UI_Shell",
+    "Win32_UI_WindowsAndMessaging",
+] }

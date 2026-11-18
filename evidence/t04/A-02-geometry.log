@@ -1,0 +1,27 @@
+=== A-02: real TrayNotifyWnd geometry ===
+probe: Shell_TrayWnd hwnd=0x000000000050223C
+probe: Shell_TrayWnd rect=(0,1392)-(2560,1440) w=2560 h=48
+probe: dpi=96
+probe: TrayNotifyWnd: direct FindWindowExW hit
+probe: TrayNotifyWnd hwnd=0x000000000046052A class=TrayNotifyWnd found_real=true rect=(2155,1392)-(2560,1440) w=405 h=48
+probe: monitor[0]: id=0x0000000000010001 bounds=(0,0)-(2560,1440) work=(0,0)-(2560,1392) dpi=96 primary=true
+probe: auto_hide=false source=SHAppBarMessage + geometry (both negative)
+sample_rect=(2155,1396)-(2560,1436) contained=true error_px=0 tolerance_px=4
+screenshot: evidence/t04\A-02-tray-annotated.png
+panel hwnd=0x00000000009719CE
+panel screenshot NOT obtained: captured area was uniform blank (window not composited)
+metric: found_real_tray=true
+metric: bar_hwnd=0x000000000050223C
+metric: tray_hwnd=0x000000000046052A
+metric: tray_class=TrayNotifyWnd
+metric: dpi=96
+metric: monitor_count=1
+metric: auto_hide=false
+metric: auto_hide_source=SHAppBarMessage + geometry (both negative)
+metric: tray_rect=(2155,1392)-(2560,1440)
+metric: sample_rect=(2155,1396)-(2560,1436)
+metric: contained_in_tray=true
+metric: error_px=0
+metric: tolerance_px=4
+metric: usable=true
+result: obtained=true reason=ok

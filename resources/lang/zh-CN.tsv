@@ -1,0 +1,145 @@
+﻿# 随影 ShadeBar 简体中文文案表（NFR-19 / A-25）
+# 格式：key<TAB>value；# 开头为注释。由 ui/i18n.rs 以 include_str! 内嵌。
+# 增删 key 必须同步修改 en-US.tsv，否则单测 both_tables_have_identical_key_sets 失败。
+group.general	通用
+group.color	配色与采样
+group.region	采样区域微调
+group.elements	着色元素
+group.tray	托盘与行为
+group.behavior	行为
+group.diagnostics	诊断
+s01	总开关（启用随影）
+s01.help	关闭后停止采样与着色，恢复系统原始外观，配置保留
+s02	开机自启动
+s02.help	开启后写入注册表启动项（HKCU\Run），不弹 UAC；默认关，可在任务管理器里停用
+s03	启动时最小化到托盘
+s03.help	关闭则启动时同时弹出设置窗口
+s04	界面语言 / Language
+s04.help	跟随系统按主语言 ID 判定：2052 → 简体中文，其余 → English；切换即时生效
+s05	版本号
+s05.help	点击可复制，用于问题反馈
+s06	恢复默认设置
+s06.help	二次确认后写回全部默认值
+s10	自适应模式
+s10.help	自动按亮度判定；强制端色用于固定输出排查问题
+s11	跟随壁纸实时采样
+s11.help	关闭后不再采样，沿用当前判定色
+s12	亮度判定阈值
+s12.help	感知亮度低于阈值用亮端色，高于阈值用暗端色；默认 0.50
+s13	颜色策略
+s13.help	纯黑纯白或自定义；选自定义后才启用亮端色 / 暗端色
+s14	亮端色（背景偏暗时）
+s14.help	任意 sRGB，禁用全透明；默认白色
+s15	暗端色（背景偏亮时）
+s15.help	任意 sRGB，禁用全透明；默认黑色
+s16	采样间隔
+s16.help	默认约每秒 1 次；调大为省电
+s17	变化触发阈值
+s17.help	与上次采样亮度差小于阈值则不触发重着色，防抖
+s18	平滑强度（EWMA α）
+s18.help	α 越小越平滑、响应越慢；1.00 为不平滑
+s19	主题联动（跟随系统浅色 / 深色）
+s19.help	开启会连动开始菜单与控制中心配色；仅作降级兜底，不作为默认行为
+s20	图标区采样起点
+s20.help	相对任务栏宽度的百分比，用来避开壁纸上的强色块；只影响中部图标区
+s21	图标区采样宽度
+s21.help	图标区采样段占任务栏宽度的比例；默认 100% 覆盖整条任务栏
+s22	采样带垂直偏移
+s22.help	采样带相对任务栏顶边向下偏移的像素数，用于躲开任务栏顶部描边
+s23	采样区预览
+s23.help	实时显示采样框位置与框内缩略图，随上方三项同步变化
+s30	时间
+s30.help	时间文字随所在区域背景亮度自动变深或变浅
+s31	日期
+s31.help	日期文字随所在区域背景亮度自动变深或变浅
+s32	系统托盘图标
+s32.help	网络 / 音量 / 电池等系统字形图标；微信、QQ 等程序自绘图标保持原样
+s33	运行中指示条（正常态）
+s33.help	任务栏运行图标下方的短横条；选中态使用系统强调色，不参与着色
+s34	指示条配色来源
+s34.help	与悬停块独立配置，互不影响
+s35	指示条固定色
+s35.help	仅「独立固定色」时可用；含内置 alpha 控制
+s36	悬停块配色来源
+s36.help	与指示条独立配置，互不影响
+s37	悬停块固定色
+s37.help	仅「独立固定色」时可用；含内置 alpha 控制
+s40	左键单击托盘图标
+s40.help	打开设置 / 打开托盘菜单 / 无操作
+s41	关闭设置窗口时
+s41.help	最小化到托盘或直接退出；默认不退出进程
+s42	暂停自适应
+s42.help	选中后停止采样并还原系统外观
+s43	托盘图标显示当前判定色
+s43.help	图标一角显示判定色小圆点，直观反映工作状态
+s44	注入失败时
+s44.help	控制打扰程度：静默降级并提示一次 / 不提示 / 每次都提示
+s45	日志级别
+s45.help	排查问题时可调为调试
+s46	导出诊断包
+s46.help	生成 zip 并打开所在文件夹
+opt.lang.system	跟随系统
+opt.lang.zh	简体中文
+opt.lang.en	English
+opt.adaptive.auto	自动（按亮度判定）
+opt.adaptive.light	强制亮端色
+opt.adaptive.dark	强制暗端色
+opt.strategy.bw	纯黑纯白
+opt.strategy.custom	自定义
+opt.source.adaptive	跟随自适应
+opt.source.fixed	独立固定色
+opt.left.settings	打开设置
+opt.left.menu	打开托盘菜单
+opt.left.none	无操作
+opt.close.tray	最小化到托盘
+opt.close.exit	直接退出
+opt.inject.once	静默降级并提示一次
+opt.inject.silent	静默降级不提示
+opt.inject.always	每次失败都提示
+opt.log.error	错误
+opt.log.warn	警告
+opt.log.info	信息
+opt.log.debug	调试
+tray.open	打开设置
+tray.pause	暂停自适应
+tray.autostart	开机自启动
+tray.export	导出诊断包
+tray.about	关于（版本号）
+tray.exit	退出
+tray.balloon.first_run	随影已驻留托盘。可在设置中开启开机自启动。
+tray.restricted	受限（降级模式）
+banner.degraded.title	当前为降级模式（仅 L1）
+banner.degraded.body	任务栏着色能力暂不可用；核心采样与设置仍可使用，无需管理员权限。
+banner.inject_fail	注入失败，已自动降级为 L1 模式。
+banner.s19_warning	会连动开始菜单与控制中心配色
+banner.region_small	采样区过小，可能影响判定
+diag.title	诊断面板
+diag.rep_color	代表色 HEX
+diag.decision_color	判定色
+diag.y	亮度 Y
+diag.contrast	对比度
+diag.valid_px	有效像素
+diag.cost_us	单拍耗时 (µs)
+diag.samples	采样次数
+diag.trend	最近 10 次采样折线
+diag.contrast_low	对比度不足 3:1
+diag.region_suspect	采样区疑似不在任务栏内
+diag.no_data	尚无采样数据
+diag.timestamp	时间戳
+dlg.restore.title	恢复默认设置？
+dlg.restore.body	全部 35 项设置将写回默认值，此操作不可撤销。
+dlg.confirm	确认恢复
+dlg.cancel	取消
+about.title	关于随影 ShadeBar
+about.version	版本
+about.license	MIT License
+about.known_limits	已知限制详见 README.md
+about.copy_version	复制版本号
+common.on	开
+common.off	关
+common.enabled	已启用
+common.disabled	已停用
+common.copy_ok	版本号已复制
+common.export_ok	诊断包已生成
+common.version_value	v1.1.0
+common.region_preview	采样框随上方滑块实时更新

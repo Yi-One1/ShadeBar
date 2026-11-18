@@ -1,0 +1,4 @@
+LIBRARY ShadeBarTap
+EXPORTS
+    DllGetClassObject   PRIVATE
+    DllCanUnloadNow     PRIVATE

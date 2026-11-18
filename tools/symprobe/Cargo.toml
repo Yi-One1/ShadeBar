@@ -1,0 +1,15 @@
+[workspace]
+
+[package]
+name = "symprobe"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "构建期工具：从 Microsoft 公开符号服务器取 PDB，枚举符号并导出 (build, TimeDateStamp, SizeOfImage) 偏移表"
+
+[[bin]]
+name = "symprobe"
+path = "src/main.rs"
+
+# 纯 Win32 FFI，无第三方依赖：符号枚举用系统自带的 dbghelp.dll。
+[dependencies]

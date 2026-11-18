@@ -1,0 +1,26 @@
+[PASS] formal --version
+    exit=0 (want 0)  stdout='随影 ShadeBar v1.0.0'
+[PASS] formal -V
+    exit=0 (want 0)  stdout='随影 ShadeBar v1.0.0'
+[PASS] formal --help
+    exit=0 (want 0)  stdout='随影 ShadeBar v1.0.0\nUsage:\n  --version, -V              print version and exit\n  --ui                       open settings window (stage check)\n  --verify fast|full|endpoints [dir]   evidence capture (verify build only)\n  '
+[PASS] formal -h
+    exit=0 (want 0)  stdout='随影 ShadeBar v1.0.0\nUsage:\n  --version, -V              print version and exit\n  --ui                       open settings window (stage check)\n  --verify fast|full|endpoints [dir]   evidence capture (verify build only)\n  '
+[PASS] formal /?
+    exit=0 (want 0)  stdout='随影 ShadeBar v1.0.0\nUsage:\n  --version, -V              print version and exit\n  --ui                       open settings window (stage check)\n  --verify fast|full|endpoints [dir]   evidence capture (verify build only)\n  '
+[PASS] formal --verify fast (branch NOT compiled)
+    exit=2 (want 2)  stdout=''
+[PASS] formal --bogus (unknown arg)
+    exit=2 (want 2)  stdout=''
+[PASS] verify --version
+    exit=0 (want 0)  stdout='随影 ShadeBar v1.0.0'
+[PASS] verify --help
+    exit=0 (want 0)  stdout='随影 ShadeBar v1.0.0\nUsage:\n  --version, -V              print version and exit\n  --ui                       open settings window (stage check)\n  --verify fast|full|endpoints [dir]   evidence capture (verify build only)\n  '
+[PASS] verify --verify <bad profile>
+    exit=2 (want 2)  stdout=''
+[PASS] verify --verify <no profile>
+    exit=2 (want 2)  stdout=''
+[PASS] no-en --version
+    exit=0 (want 0)  stdout='随影 ShadeBar v1.0.0'
+
+BEHAVIOR RESULT: 12/12 passed

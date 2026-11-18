@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<!-- 随影 ShadeBar — 应用程序清单（§4 #7 / §10.1）
+
+     要点：
+       1. PerMonitorV2：DPI 变化必须收到 WM_DPICHANGED（NFR-08 / FR-42）。
+       2. asInvoker：正常启动绝不触发 UAC；需要提权的动作（注册计划任务）由
+          ShellExecuteExW(runas) 重新拉起自身完成，而非把整个进程提权（NFR-11）。
+       3. supportedOS 只声明 Win10/11 与 8.1：声明更老的 OS 会让
+          GetVersionEx / 部分 shell 行为回退到兼容层。
+       4. activeCodePage=UTF-8：日志与 JSON 配置全 UTF-8，避免代码页转换丢字。
+       5. 依赖 comctl32 v6：即使当前自绘 GUI，后续若用到 TaskDialog 也需要它。
+-->
+<assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
+  <assemblyIdentity
+      type="win32"
+      name="Yi-One1.ShadeBar"
+      version="1.0.0.0"
+      processorArchitecture="amd64"/>
+
+  <trustInfo xmlns="urn:schemas-microsoft-com:asm.v3">
+    <security>
+      <requestedPrivileges>
+        <requestedExecutionLevel level="asInvoker" uiAccess="false"/>
+      </requestedPrivileges>
+    </security>
+  </trustInfo>
+
+  <compatibility xmlns="urn:schemas-microsoft-com:compatibility.v1">
+    <application>
+      <!-- Windows 10 / Windows 11 -->
+      <supportedOS Id="{8e0f7a12-bfb3-4fe8-b9a5-48fd50a15a9a}"/>
+      <!-- Windows 8.1 -->
+      <supportedOS Id="{1f676c76-80e1-4239-95bb-83d0f6d0da78}"/>
+    </application>
+  </compatibility>
+
+  <application xmlns="urn:schemas-microsoft-com:asm.v3">
+    <windowsSettings>
+      <dpiAware xmlns="http://schemas.microsoft.com/SMI/2005/WindowsSettings">true/pm</dpiAware>
+      <dpiAwareness xmlns="http://schemas.microsoft.com/SMI/2016/WindowsSettings">PerMonitorV2</dpiAwareness>
+      <longPathAware xmlns="http://schemas.microsoft.com/SMI/2016/WindowsSettings">true</longPathAware>
+      <activeCodePage xmlns="http://schemas.microsoft.com/SMI/2019/WindowsSettings">UTF-8</activeCodePage>
+    </windowsSettings>
+  </application>
+
+  <dependency>
+    <dependentAssembly>
+      <assemblyIdentity
+          type="win32"
+          name="Microsoft.Windows.Common-Controls"
+          version="6.0.0.0"
+          processorArchitecture="amd64"
+          publicKeyToken="6595b64144ccf1df"
+          language="*"/>
+    </dependentAssembly>
+  </dependency>
+</assembly>

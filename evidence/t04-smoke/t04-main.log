@@ -1,0 +1,2 @@
+T04 verification start: profile=fast endpoint_ms=5000 cpu_ms=20000
+T04 verification done: obtained=4/5 summary=evidence/t04-fast4\t04-summary.md

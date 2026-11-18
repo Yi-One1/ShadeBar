@@ -1,0 +1,26 @@
+=== A-20 / NFR-03: real CPU & per-sample cost ===
+profile=full duration_ms=600000
+metric: wall_ms=600184
+metric: cpu_delta_100ns=1875000
+metric: logical_cpus=12
+metric: cpu_core_pct=0.0312
+metric: cpu_machine_pct=0.0026
+metric: samples=592
+metric: ticks=592
+metric: bad_frames=0
+metric: cost_avg_us=4546
+metric: cost_p95_us=6725
+metric: cost_max_us=11721
+metric: budget_us=5000
+metric: over_budget=241
+metric: cost_sample_scope=this segment only
+metric: nfr03_budget_met=false
+metric: sleeper_waits=727
+metric: dib_rebuilds=1
+metric: full_10min=true
+cumulative_all_session (NOT used for NFR-03 verdict): avg=4477us p95=6702us max=11721us
+summary_this_segment: ok=592 skip=0 bad=0 flips=0 y_milli=920 cost_avg_us=4546 cost_p95_us=6725 cost_max_us=11721
+result: evidence_obtained=true nfr03_budget_met=false
+result_detail: 600s full profile measured; NFR-03 single-sample budget NOT met: p95=6725us max=11721us over_budget=241/592 (budget=5000us)
+real screen screenshot: evidence/t04\A-20-real-screen.png
+panel screenshot NOT obtained: uniform blank area (window not composited)

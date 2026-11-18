@@ -1,0 +1,33 @@
+# 随影 ShadeBar — cargo 构建配置（§4 #2 / §10.1）
+#
+# 只放"必须对所有构建一致"的东西：目标三元组、静态 CRT、链接器、库搜索路径。
+# 业务相关的 cfg / feature 不放这里。
+
+[build]
+# 固定目标三元组，产物路径恒为 target/x86_64-pc-windows-msvc/<profile>/。
+# 好处：build.ps1 与 CI 不必判断当前 host，路径不会随机器漂移。
+target = "x86_64-pc-windows-msvc"
+
+[target.x86_64-pc-windows-msvc]
+# 静态 CRT：产物不得依赖 VCRUNTIME140.dll / MSVCP140.dll（FR-15 / A-15）。
+rustflags = [
+    "-C", "target-feature=+crt-static",
+    # 折叠相同函数（/OPT:ICF）。rustc 默认传 /OPT:REF,NOICF，这里追加 ICF。
+    "-C", "link-arg=/OPT:ICF",
+]
+
+# 链接器用 Rust 工具链自带的 rust-lld，而不是 PATH 里的 link.exe。
+# 原因（本项目实测踩到）：在 Git Bash / MSYS2 环境里 /usr/bin/link.exe 是 coreutils
+# 的 link 命令，会抢占 MSVC 的 link.exe，报 "link: extra operand"。
+# rust-lld 随 rustc 一起分发、版本跟随工具链、无需 VS 路径硬编码，且对 COFF 完整支持。
+linker = "rust-lld.exe"
+
+[env]
+# 未进入 "x64 Native Tools Command Prompt" 时，rust-lld 找不到 kernel32.lib 等 SDK 库，
+# 因为本机 shell 的 LIB 为空。下面这段是**开发机便利回退**：cargo 只在环境变量缺失时
+# 才注入（force = false），因此
+#   · 从 VS 开发者命令提示符构建 → 使用你自己的 LIB，本段不生效；
+#   · build.ps1 构建 → 脚本会用 vswhere 动态探测并设置真正的 LIB，本段不生效；
+#   · 直接 `cargo build` → 用本段兜底，保证一条命令也能构建。
+# 换机器时若 MSVC/SDK 版本不同，请改这两行或用 build.ps1（推荐）。
+LIB = { value = 'C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Tools\MSVC\14.44.35207\lib\x64;C:\Program Files (x86)\Windows Kits\10\Lib\10.0.26100.0\ucrt\x64;C:\Program Files (x86)\Windows Kits\10\Lib\10.0.26100.0\um\x64', force = false }

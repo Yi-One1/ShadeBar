@@ -1,0 +1,5 @@
+T04 verification start: profile=endpoints endpoint_ms=60000 cpu_ms=0
+A-13/A-14 orchestration: one INDEPENDENT EngineSession per endpoint (v1.4 9.1)
+flips verdict scope: steady segment, first tick after background switch excluded
+NFR-03: dual criteria (GetProcessTimes CPU <0.1% + cost_us p95<=10ms/max<=15ms)
+T04 verification done: obtained=2/2 summary=evidence/t04-rerun\t04-summary.md
