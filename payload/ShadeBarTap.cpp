@@ -205,6 +205,9 @@ public:
         return S_OK;
     }
     HRESULT STDMETHODCALLTYPE OnElementStateChanged(InstanceHandle, VisualElementState, LPCWSTR) override {
+        // 正常态 ↔ 选中态 的切换**不产生 Add 事件**，只会走到这里。
+        // 不置脏的话载荷永远不会重扫，表现就是"切到选中后指示条退回系统色"。
+        InterlockedExchange(&g_dirty, 1);
         return S_OK;
     }
 
@@ -499,6 +502,35 @@ static bool SetBrushColorOfProp(InstanceHandle elem, const wchar_t* propName, un
     return bh ? SetBrushColorDirect(bh, argb) : false;
 }
 
+// 把某一属性**所有层**引用的画刷都染成同一色。
+// 只在"选中态"用：选中态 Fill 有 3 层，属性链首层未必是渲染实际取用的那一层；
+// 选中态画刷引用计数为 1，逐层染色无副作用。正常态画刷被数十处共享，禁止用本函数。
+static int SetAllBrushColorsOfProp(InstanceHandle elem, const wchar_t* propName, unsigned argb) {
+    IVisualTreeService* svc = VtsBase();
+    if (!svc) return 0;
+    unsigned int sc = 0, pc = 0;
+    PropertyChainSource* src = nullptr;
+    PropertyChainValue* pr = nullptr;
+    int n = 0;
+    if (SUCCEEDED(svc->GetPropertyValuesChain(elem, &sc, &src, &pc, &pr))) {
+        for (unsigned int i = 0; i < pc; ++i) {
+            if (pr[i].PropertyName && wcscmp(pr[i].PropertyName, propName) == 0 && pr[i].Value) {
+                InstanceHandle cand = (InstanceHandle)_wtoi64(pr[i].Value);
+                if (cand && SetBrushColorDirect(cand, argb)) ++n;
+            }
+        }
+        for (unsigned int i = 0; i < pc; ++i) {
+            SysFreeString(pr[i].Type); SysFreeString(pr[i].DeclaringType);
+            SysFreeString(pr[i].ValueType); SysFreeString(pr[i].ItemType);
+            SysFreeString(pr[i].Value); SysFreeString(pr[i].PropertyName);
+        }
+        for (unsigned int i = 0; i < sc; ++i) { SysFreeString(src[i].TargetType); SysFreeString(src[i].Name); }
+        if (pr) CoTaskMemFree(pr);
+        if (src) CoTaskMemFree(src);
+    }
+    return n;
+}
+
 // ---------------------------------------------------------------- UI 线程工作
 
 /* 元素掩码位，必须与宿主 recolor::elem_mask 一致 */
@@ -572,12 +604,26 @@ static void ApplyColors() {
                 // 任何一条成功都算改到了，避免因 ActualWidth 判定偏差导致整条漏改。
                 bool wroteElem = SetColorProp(e.handle, L"Fill", cmd.indicatorNormalColor);
                 bool wroteBrush = SetBrushColorOfProp(e.handle, L"Fill", cmd.indicatorNormalColor);
-                if (wroteElem || wroteBrush) {
+
+                // 写完必须回读。SetProperty 返回 S_OK 只代表"写进去了"，
+                // 不代表渲染层取的是这个值（v1.1.3 的根因就是写进被压住的层）。
+                InstanceHandle bhNow = BrushHandleOfProp(e.handle, L"Fill");
+                unsigned nowCol = 0;
+                bool rbOk = bhNow && ReadColorOfBrush(bhNow, &nowCol);
+                int nAll = 0;
+                if (selected && (!rbOk || nowCol != cmd.indicatorNormalColor)) {
+                    // 选中态 Fill 有 3 层，首层不一定是渲染取用的那层：逐层都染。
+                    // 只对选中态做——正常态画刷被数十处共享，逐层染会波及别的元素。
+                    nAll = SetAllBrushColorsOfProp(e.handle, L"Fill", cmd.indicatorNormalColor);
+                    rbOk = bhNow && ReadColorOfBrush(bhNow, &nowCol);
+                }
+                if (wroteElem || wroteBrush || nAll) {
                     ++nInd;
-                    LogW(L"[Ind] h=0x%llX w=%.1f %s -> %08X (elem=%d brush=%d)",
+                    LogW(L"[Ind] h=0x%llX w=%.1f %s -> %08X (elem=%d brush=%d all=%d rb=%08X ok=%d)",
                          (unsigned long long)e.handle, w,
                          selected ? L"选中" : L"正常",
-                         cmd.indicatorNormalColor, (int)wroteElem, (int)wroteBrush);
+                         cmd.indicatorNormalColor, (int)wroteElem, (int)wroteBrush, nAll,
+                         nowCol, (int)rbOk);
                 }
             } else if (g_activeMask & kMaskIndicator) {
                 if (selected) {
@@ -621,8 +667,9 @@ static void RestoreAll() {
             // 与 ApplyColors 保持同一判据：`Width` 实测是 "Auto"，只有 `ActualWidth` 可用。
             bool selected = ReadNumber(e.handle, L"ActualWidth", &w) && w >= 10.0;
             if (selected && g_restore.indSelected) {
-                // 选中态必须改回画刷自身的 Color：写元素 Fill 会被 VisualState 压住
-                if (SetBrushColorOfProp(e.handle, L"Fill", g_restore.indSelected)) ++n;
+                // 选中态必须改回画刷自身的 Color：写元素 Fill 会被 VisualState 压住。
+                // 应用时是"逐层染色"，还原也必须逐层改回，否则没被取用的那层会留色。
+                if (SetAllBrushColorsOfProp(e.handle, L"Fill", g_restore.indSelected) > 0) ++n;
             } else if (!selected && g_restore.indNormal) {
                 if (SetColorProp(e.handle, L"Fill", g_restore.indNormal)) ++n;
             }
@@ -849,10 +896,15 @@ static DWORD WINAPI Worker(LPVOID) {
         const bool enabled = g_ipc->enabled != 0;
 
         if (enabled) {
-            if (seq != g_applied || g_dirty) {
+            // 状态事件（悬停/选中切换）可能很密，全量应用会打满 UI 线程。
+            // 决策序号变化 → 立刻应用；仅"置脏" → 限制 250 ms 一次。
+            static ULONGLONG lastApplyTick = 0;
+            const ULONGLONG nowTick = GetTickCount64();
+            if (seq != g_applied || (g_dirty && nowTick - lastApplyTick >= 250)) {
                 if (SUCCEEDED(PostToUi(false)) && g_uiDoneEvent) {
                     WaitForSingleObject(g_uiDoneEvent, 3000);
                 }
+                lastApplyTick = GetTickCount64();
             }
             wasEnabled = true;
         } else if (wasEnabled || g_applied != 0) {
