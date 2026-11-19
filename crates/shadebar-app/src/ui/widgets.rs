@@ -206,7 +206,9 @@ impl SettingWidget {
             ControlKind::Button => String::new(),
             ControlKind::ReadOnly => {
                 if self.key == SettingKey::S05 {
-                    i18n::text("common.version_value", lang).to_string()
+                    // FR-16：版本号以 `Cargo.toml` 为唯一来源，不能写死在语言表里
+                    // （v1.2.0 之前这里读 `common.version_value`，一直停在 v1.1.1）。
+                    format!("v{}", shadebar_core::VERSION)
                 } else {
                     i18n::text("common.region_preview", lang).to_string()
                 }

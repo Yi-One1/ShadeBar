@@ -2,7 +2,7 @@
 //!
 //! 页面本身只是「该分组有哪些 [`SettingKey`]」的静态表；真正的控件树、
 //! 布局、命中测试与重绘统一由 `ui::View` 驱动，避免 6 份重复实现。
-//! 每个页面单测核对项数与分组归属，防止 35 项在绑定时漏项/串组。
+//! 每个页面单测核对项数与分组归属，防止设置项在绑定时漏项/串组。
 
 pub mod behavior;
 pub mod color;
@@ -39,7 +39,7 @@ mod tests {
 
     #[test]
     fn pages_cover_every_visible_setting_exactly_once() {
-        let mut seen = [false; 35];
+        let mut seen = [false; crate::config::SETTING_COUNT];
         let mut total = 0usize;
         for g in SETTING_GROUPS {
             for k in keys_of(g) {

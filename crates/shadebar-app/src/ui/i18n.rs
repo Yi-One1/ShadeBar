@@ -43,6 +43,8 @@ pub const OPT_CLOSE: &[&str] = &["opt.close.tray", "opt.close.exit"];
 pub const OPT_INJECT_FAIL: &[&str] = &["opt.inject.once", "opt.inject.silent", "opt.inject.always"];
 /// S-45 日志级别。
 pub const OPT_LOG_LEVEL: &[&str] = &["opt.log.error", "opt.log.warn", "opt.log.info", "opt.log.debug"];
+/// S-47 判定粒度。
+pub const OPT_JUDGE_MODE: &[&str] = &["opt.judge.region", "opt.judge.global"];
 /// ARGB 颜色控件的预设色板（Hex 字面量，不是待翻译文案）。
 pub const OPT_COLOR_PRESETS: &[&str] = &[
     "#FFFFFF", "#000000", "#38FFFFFF", "#FF3860", "#38D996", "#FFC857",
@@ -64,14 +66,14 @@ pub const UI_KEYS: &[&str] = &[
     // 诊断面板
     "diag.title", "diag.rep_color", "diag.decision_color", "diag.y", "diag.contrast",
     "diag.valid_px", "diag.cost_us", "diag.samples", "diag.trend", "diag.contrast_low",
-    "diag.region_suspect", "diag.no_data", "diag.timestamp",
+    "diag.region_suspect", "diag.no_data", "diag.timestamp", "diag.expand", "diag.collapse",
     // 恢复默认二次确认（A-12）
     "dlg.restore.title", "dlg.restore.body", "dlg.confirm", "dlg.cancel",
     // 关于页
     "about.title", "about.version", "about.license", "about.known_limits", "about.copy_version",
     // 通用
     "common.on", "common.off", "common.enabled", "common.disabled",
-    "common.copy_ok", "common.export_ok", "common.version_value", "common.region_preview",
+    "common.copy_ok", "common.export_ok", "common.region_preview",
 ];
 
 /// 在一份 TSV 里按键查值。行格式 `key\tvalue`，`#` 开头为注释。

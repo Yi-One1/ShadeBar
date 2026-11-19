@@ -88,6 +88,10 @@ opt.strategy.bw	Pure black / white
 opt.strategy.custom	Custom
 opt.source.adaptive	Follow adaptive
 opt.source.fixed	Independent fixed color
+s47	Judgement granularity
+s47.help	Per region: judged separately; Global: one average shared by all elements
+opt.judge.region	Per region
+opt.judge.global	Global
 opt.left.settings	Open settings
 opt.left.menu	Open tray menu
 opt.left.none	Do nothing
@@ -126,6 +130,8 @@ diag.contrast_low	Contrast below 3:1
 diag.region_suspect	Sample region may be outside the taskbar
 diag.no_data	No samples yet
 diag.timestamp	Timestamp
+diag.expand	Show details
+diag.collapse	Hide details
 dlg.restore.title	Restore defaults?
 dlg.restore.body	All 35 settings will be reset to their defaults. This cannot be undone.
 dlg.confirm	Restore
@@ -141,5 +147,4 @@ common.enabled	Enabled
 common.disabled	Disabled
 common.copy_ok	Version copied
 common.export_ok	Diagnostic bundle created
-common.version_value	v1.1.1
 common.region_preview	Sample frame updates with the sliders above

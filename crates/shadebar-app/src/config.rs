@@ -23,7 +23,7 @@ use shadebar_core::{SbError, SbResult};
 use crate::ui::i18n;
 
 /// 设置项总数（§6 口径，S-35/S-37 的 ARGB alpha 滑块是控件内置能力，不另计数）。
-pub const SETTING_COUNT: usize = 35;
+pub const SETTING_COUNT: usize = 36;
 
 /// 设置项编号。顺序与 §6 表格一致，`as usize` 即值表下标。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -35,7 +35,7 @@ pub enum SettingKey {
     S04,
     S05,
     S06,
-    // 6.2 配色与采样（10）
+    // 6.2 配色与采样（11）
     S10,
     S11,
     S12,
@@ -68,10 +68,13 @@ pub enum SettingKey {
     S44,
     S45,
     S46,
+    // 6.6 判定粒度（1）—— 新增项一律追加在末尾，
+    // 保证 `as usize` 的既有下标不漂移，旧 config.json 仍能按原位置读回。
+    S47,
 }
 
 impl SettingKey {
-    /// 全部 35 项，按 §6 顺序。
+    /// 全部 36 项，按 §6 顺序。
     pub const ALL: [Self; SETTING_COUNT] = [
         Self::S01, Self::S02, Self::S03, Self::S04, Self::S05, Self::S06,
         Self::S10, Self::S11, Self::S12, Self::S13, Self::S14, Self::S15, Self::S16,
@@ -80,6 +83,7 @@ impl SettingKey {
         Self::S30, Self::S31, Self::S32, Self::S33, Self::S34, Self::S35,
         Self::S36, Self::S37,
         Self::S40, Self::S41, Self::S42, Self::S43, Self::S44, Self::S45, Self::S46,
+        Self::S47,
     ];
 
     /// 值表下标。
@@ -103,7 +107,7 @@ impl SettingKey {
             Self::S34 => "S-34", Self::S35 => "S-35", Self::S36 => "S-36",
             Self::S37 => "S-37", Self::S40 => "S-40", Self::S41 => "S-41",
             Self::S42 => "S-42", Self::S43 => "S-43", Self::S44 => "S-44",
-            Self::S45 => "S-45", Self::S46 => "S-46",
+            Self::S45 => "S-45", Self::S46 => "S-46", Self::S47 => "S-47",
         }
     }
 
@@ -128,6 +132,8 @@ impl SettingKey {
             Self::S17 => SettingMeta::slider(G::Color, "s17", "s17.help", 3, 1, 20, 1),
             Self::S18 => SettingMeta::slider(G::Color, "s18", "s18.help", 300, 50, 1000, 50),
             Self::S19 => SettingMeta::toggle(G::Color, "s19", "s19.help", 0),
+            // 判定粒度：0 = 分区独立（默认），1 = 全任务栏统一
+            Self::S47 => SettingMeta::dropdown(G::Color, "s47", "s47.help", 0, 2, i18n::OPT_JUDGE_MODE),
             Self::S20 => SettingMeta::slider(G::Region, "s20", "s20.help", 0, 0, 50, 1),
             Self::S21 => SettingMeta::slider(G::Region, "s21", "s21.help", 100, 10, 100, 1),
             Self::S22 => SettingMeta::slider(G::Region, "s22", "s22.help", 0, 0, 45, 1),
@@ -348,12 +354,19 @@ impl Lang {
 
 }
 
-/// 35 项配置快照。
+/// 36 项配置快照。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Config {
     values: [i64; SETTING_COUNT],
     version: u64,
 }
+
+/// 兼容读取的下限项数。
+///
+/// 新增配置项一律追加在 `SettingKey` 末尾，旧 `config.json` 的数组会短于
+/// 当前 `SETTING_COUNT`；缺失的尾部按默认值补齐即可，不能因此判定文件损坏
+/// （否则升级一次就把用户设置全清）。过短的数组仍按损坏处理，保留 NFR-16 兜底。
+const MIN_LEGACY_COUNT: usize = 30;
 
 impl Default for Config {
     fn default() -> Self {
@@ -462,7 +475,7 @@ impl Config {
         s
     }
 
-    /// 解析本模块自己写出的 JSON。任何结构/数值异常返回 `None`（调用方回退默认）。
+    /// 从 JSON 文本解析。缺失的尾部配置项按默认值补齐；结构/数值异常返回 `None`。
     #[must_use]
     pub fn from_json(text: &str) -> Option<Self> {
         let marker = "\"values\"";
@@ -472,7 +485,8 @@ impl Config {
         let body_start = &rest[open + 1..];
         let close = body_start.find(']')?;
         let body = &body_start[..close];
-        let mut values = [0i64; SETTING_COUNT];
+        // 以默认值为底：旧版本的 config.json 缺 S-47 等新增项时，尾部取默认值。
+        let mut cfg = Self::default();
         let mut count = 0usize;
         for token in body.split(',') {
             let t = token.trim();
@@ -483,13 +497,13 @@ impl Config {
             if count >= SETTING_COUNT {
                 return None;
             }
-            values[count] = v;
+            cfg.values[count] = v;
             count += 1;
         }
-        if count != SETTING_COUNT {
+        if count < MIN_LEGACY_COUNT || count > SETTING_COUNT {
             return None;
         }
-        let mut cfg = Self { values, version: 1 };
+        cfg.version = 1;
         cfg.sanitize();
         Some(cfg)
     }

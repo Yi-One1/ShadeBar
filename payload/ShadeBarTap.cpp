@@ -549,12 +549,9 @@ static void ApplyColors() {
 
             if (mask & kMaskIndicator) {
                 g_appliedIndColor = cmd.indicatorNormalColor;
+
+                // 先缓存原色（必须在任何写入之前，否则读到的是刚写的值）
                 if (selected) {
-                    // 选中态：VisualState 在 Local 层插了一个更高优先级的 Fill 槽，
-                    // 写元素的 Fill 永远排在它后面（实测：6 条正常态全生效，唯独这条不动，
-                    // 且回读能读到我们写的值 —— 因为诊断接口读属性链、渲染取有效值）。
-                    // 改 Fill 当前指向的画刷自身的 Color，不经过属性优先级，可以穿透。
-                    // 首次遇到时缓存原色与画刷句柄，供退出还原（v1.1.1 曾因未缓存而写回暗灰）。
                     if (g_restore.indSelected == 0) {
                         InstanceHandle bh = BrushHandleOfProp(e.handle, L"Fill");
                         unsigned a = 0;
@@ -563,29 +560,34 @@ static void ApplyColors() {
                             g_restore.indSelectedBrush = bh;
                         }
                     }
-                    if (SetBrushColorOfProp(e.handle, L"Fill", cmd.indicatorNormalColor)) {
-                        ++nInd;
-                        LogW(L"[Ind] h=0x%llX w=%.1f 选中(改画刷) -> %08X",
-                             (unsigned long long)e.handle, w, cmd.indicatorNormalColor);
-                    }
-                } else {
-                    if (g_restore.indNormal == 0) {
-                        unsigned a = 0;
-                        if (ReadBrushColor(e.handle, L"Fill", &a)) g_restore.indNormal = a;
-                    }
-                    if (SetColorProp(e.handle, L"Fill", cmd.indicatorNormalColor)) {
-                        ++nInd;
-                        LogW(L"[Ind] h=0x%llX w=%.1f 正常 -> %08X",
-                             (unsigned long long)e.handle, w, cmd.indicatorNormalColor);
-                    }
+                } else if (g_restore.indNormal == 0) {
+                    unsigned a = 0;
+                    if (ReadBrushColor(e.handle, L"Fill", &a)) g_restore.indNormal = a;
+                }
+
+                // 两条路一起走，**不依赖状态判定**：
+                //   写元素 Fill      -> 正常态生效（选中态会被 VisualState 的更高优先级槽压住）
+                //   改 Fill 指向画刷 -> 选中态生效（正常态写入无视觉影响，但把共享画刷预染成
+                //                       目标色，使「选中→正常」切换的瞬间不再闪系统色）
+                // 任何一条成功都算改到了，避免因 ActualWidth 判定偏差导致整条漏改。
+                bool wroteElem = SetColorProp(e.handle, L"Fill", cmd.indicatorNormalColor);
+                bool wroteBrush = SetBrushColorOfProp(e.handle, L"Fill", cmd.indicatorNormalColor);
+                if (wroteElem || wroteBrush) {
+                    ++nInd;
+                    LogW(L"[Ind] h=0x%llX w=%.1f %s -> %08X (elem=%d brush=%d)",
+                         (unsigned long long)e.handle, w,
+                         selected ? L"选中" : L"正常",
+                         cmd.indicatorNormalColor, (int)wroteElem, (int)wroteBrush);
                 }
             } else if (g_activeMask & kMaskIndicator) {
                 if (selected) {
                     if (g_restore.indSelected &&
                         SetBrushColorOfProp(e.handle, L"Fill", g_restore.indSelected)) ++nUndo;
-                } else if (g_restore.indNormal &&
-                           SetColorProp(e.handle, L"Fill", g_restore.indNormal)) {
-                    ++nUndo;
+                } else if (g_restore.indNormal) {
+                    if (SetColorProp(e.handle, L"Fill", g_restore.indNormal)) ++nUndo;
+                    // 正常态也要把共享画刷改回原色：它可能被上面的双写染过，
+                    // 不还原的话「下次选中→取消选中」会闪一下目标色。
+                    if (SetBrushColorOfProp(e.handle, L"Fill", g_restore.indNormal)) ++nUndo;
                 }
             }
         }

@@ -4,6 +4,33 @@ All notable changes to 随影 ShadeBar are documented here. The version is a sin
 source of truth in `Cargo.toml` (`[workspace.package] version`), also used for the
 artifact filename, the About page and the exe VERSIONINFO (FR-16 / A-16).
 
+## [1.2.0]
+
+### Added
+
+- **S-47 判定粒度**（配色与采样页新增下拉）：`分区独立`（默认）/ `全任务栏统一`。
+  分区独立时时钟、托盘、图标区各自按亮度判定，三区背景不同时更准；全任务栏统一时
+  三区亮度取平均后统一判定，所有元素同色。此前 `JudgeMode::Global` 分支代码存在
+  但未被接线（`from_config` 硬编码 `PerRegion` 且枚举挂着 `allow(dead_code)`），
+  用户无法切换。
+- **诊断卡片改为可折叠**：默认收起成一行抬头（显示实时 `Y` 与对比度），点击展开
+  320 dip 正文，再点收回；抬头有手型光标与 `▸ / ▾` 指示。此前诊断卡固定 320 dip
+  常驻，在 600 dip 高的客户区里占掉一半以上。
+
+### Changed
+
+- 设置项 35 → 36 项（可见 28 → 29）。新增项**追加在 `SettingKey` 末尾**，
+  既有下标不漂移；旧 `config.json` 的 35 项数组按默认值补齐尾部读取，
+  不再因项数不符被判损坏而重置全部设置（低于 30 项仍按损坏处理，保留 NFR-16 兜底）。
+
+### Fixed
+
+- **指示条改色改为"双路写入"，不再依赖 `ActualWidth` 状态判定**：
+  每条指示条同时写元素 `Fill`（正常态生效）与它指向的画刷 `Color`（选中态生效，
+  可穿透 VisualState 的更高优先级槽），任一成功即算改到。此举消除了
+  "部分图标正常态没改色"的现象——判据偏差不再导致整条漏改。
+  正常态还原时也会把共享画刷改回原色，避免下次切换选中态时闪一下目标色。
+
 ## [1.1.3]
 
 ### Fixed

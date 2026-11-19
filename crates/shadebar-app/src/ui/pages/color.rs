@@ -13,6 +13,7 @@ pub const KEYS: &[SettingKey] = &[
     SettingKey::S16,
     SettingKey::S17,
     SettingKey::S18,
+    SettingKey::S47,
 ];
 
 #[cfg(test)]
@@ -22,7 +23,7 @@ mod tests {
 
     #[test]
     fn color_page_has_9_items_in_color_group() {
-        assert_eq!(KEYS.len(), 9);
+        assert_eq!(KEYS.len(), 10);
         for k in KEYS {
             assert_eq!(k.meta().group, Group::Color);
         }

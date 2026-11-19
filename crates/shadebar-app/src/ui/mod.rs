@@ -34,8 +34,10 @@ const MSG_MOUSEWHEEL: u32 = 0x020A;
 const MSG_KEYDOWN: u32 = 0x0100;
 const MSG_CHAR: u32 = 0x0102;
 
-/// 诊断卡片高度（dip）。
+/// 诊断卡片展开后的正文高度（dip）。
 const DIAG_CARD_H: f32 = 320.0;
+/// 诊断卡片标题行高度（dip）。收起态只占这一行，点它展开。
+const DIAG_HEAD_H: f32 = 44.0;
 /// 下拉单项高度（dip）。
 const POPUP_ITEM_H: f32 = 28.0;
 /// 弹层宽度（dip）。
@@ -81,8 +83,10 @@ pub struct View {
     cards: Vec<Rect>,
     /// 降级横幅。
     banner: Banner,
-    /// 诊断卡片内容矩形。
+    /// 诊断卡片矩形（含标题行）。
     diag_rect: Rect,
+    /// 诊断卡片是否展开（默认收起：诊断是排查工具，不该占主页面）。
+    diag_expanded: bool,
     /// 滚动视口。
     scroll: Scroll,
     /// 布局度量。
@@ -153,6 +157,8 @@ impl View {
             cards: Vec::new(),
             banner: Banner::new(degraded),
             diag_rect: Rect::new(0.0, 0.0, 0.0, 0.0),
+            // 默认收起：诊断只服务排查，常驻展开会吃掉主页面一半高度。
+            diag_expanded: false,
             scroll: Scroll::default(),
             metrics: Metrics::default(),
             lang,
@@ -289,8 +295,13 @@ impl View {
                 y += size.h;
             }
             if gi == groups_len {
-                self.diag_rect = Rect::new(inner_x, y, inner_w, DIAG_CARD_H);
-                y += DIAG_CARD_H;
+                let dh = if self.diag_expanded {
+                    DIAG_HEAD_H + DIAG_CARD_H
+                } else {
+                    DIAG_HEAD_H
+                };
+                self.diag_rect = Rect::new(inner_x, y, inner_w, dh);
+                y += dh;
             }
             self.cards.push(Rect::new(outer_x, card_y, outer_w, y - card_y + m.card_pad));
             y += m.group_gap;
@@ -342,21 +353,24 @@ impl View {
         let dr = self.diag_rect;
         let dtop = dr.y + dy;
         if dtop < ch && dtop + dr.h > self.metrics.heading_h {
-            paint_diagnostics(
-                ctx,
-                palette,
-                self.lang,
-                RectDip::new(dr.x, dtop, dr.w, dr.h),
-                &self.diag,
-            );
-            // 采样区过小预警叠加在诊断卡片底部（T03.4 判据⑥，红色）。
-            if self.diag.region_small() {
-                ctx.draw_text(
-                    i18n::text("banner.region_small", self.lang),
-                    RectDip::new(dr.x + 16.0, dtop + dr.h - 24.0, dr.w - 32.0, 20.0),
-                    TextRole::Body,
-                    palette.danger,
+            self.paint_diag_head(ctx, palette, RectDip::new(dr.x, dtop, dr.w, DIAG_HEAD_H));
+            if self.diag_expanded {
+                paint_diagnostics(
+                    ctx,
+                    palette,
+                    self.lang,
+                    RectDip::new(dr.x, dtop + DIAG_HEAD_H, dr.w, dr.h - DIAG_HEAD_H),
+                    &self.diag,
                 );
+                // 采样区过小预警叠加在诊断卡片底部（T03.4 判据⑥，红色）。
+                if self.diag.region_small() {
+                    ctx.draw_text(
+                        i18n::text("banner.region_small", self.lang),
+                        RectDip::new(dr.x + 16.0, dtop + dr.h - 24.0, dr.w - 32.0, 20.0),
+                        TextRole::Body,
+                        palette.danger,
+                    );
+                }
             }
         }
 
@@ -365,6 +379,39 @@ impl View {
             self.paint_about(ctx, palette);
         }
         self.paint_tooltip_and_toast(ctx, palette);
+    }
+
+    /// 画诊断卡片的标题行（收起态的全部内容，展开态的可点击抬头）。
+    fn paint_diag_head(&self, ctx: &RenderCtx, palette: &Palette, r: RectDip) {
+        // 左侧：一行实时摘要，收起时也能确认采样在跑。
+        let summary = if self.diag.has_data {
+            format!(
+                "Y {:.3}   {:.1}:1",
+                self.diag.y_milli as f32 / 1000.0,
+                self.diag.contrast_milli as f32 / 1000.0
+            )
+        } else {
+            i18n::text("diag.no_data", self.lang).to_string()
+        };
+        ctx.draw_text(
+            &summary,
+            RectDip::new(r.x + 16.0, r.y + 12.0, (r.w - 160.0).max(60.0), 20.0),
+            TextRole::Body,
+            palette.text_secondary,
+        );
+        // 右侧：展开 / 收起。
+        let hint = if self.diag_expanded {
+            i18n::text("diag.collapse", self.lang)
+        } else {
+            i18n::text("diag.expand", self.lang)
+        };
+        let arrow = if self.diag_expanded { "  ▾" } else { "  ▸" };
+        ctx.draw_text(
+            &format!("{hint}{arrow}"),
+            RectDip::new(r.x + r.w - 136.0, r.y + 12.0, 120.0, 20.0),
+            TextRole::Body,
+            palette.accent,
+        );
     }
 
     fn paint_popup(&self, ctx: &RenderCtx, palette: &Palette, dy: f32) {
@@ -535,6 +582,9 @@ impl View {
             }
         }
         interactive || !matches!(self.popup, PopupState::None) || self.about_visible
+            // 诊断抬头可点：给了手型光标用户才知道能展开。
+            || Rect::new(self.diag_rect.x, self.diag_rect.y, self.diag_rect.w, DIAG_HEAD_H)
+                .contains(x, y)
     }
 
     fn set_focus(&mut self, idx: Option<usize>) {
@@ -645,6 +695,22 @@ impl View {
     }
 
     fn handle_row_event(&mut self, ev: &UiEvent, x: f32, y: f32) -> bool {
+        // 诊断卡片抬头：只响应标题行的按下，展开/收起切换后立即重排。
+        if let UiEvent::LButtonDown { .. } = *ev {
+            let head = Rect::new(self.diag_rect.x, self.diag_rect.y, self.diag_rect.w, DIAG_HEAD_H);
+            if head.contains(x, y) {
+                self.diag_expanded = !self.diag_expanded;
+                self.rebuild_layout();
+                // 展开后正文会伸到视口下方：直接滚到底，让用户立刻看到面板，
+                // 而不是点开一个"看起来没反应"的卡片。
+                if self.diag_expanded {
+                    self.scroll.offset = self.scroll.max_offset();
+                } else {
+                    self.scroll.clamp();
+                }
+                return true;
+            }
+        }
         for idx in 0..self.rows.len() {
             let result = self.rows[idx].event(ev);
             match result {
@@ -817,6 +883,30 @@ mod tests {
         assert_eq!(v.cards.len(), 7);
         assert!(v.scroll.content_h > 560.0, "全部可见项必然需要滚动");
         assert!(v.scroll.max_offset() > 0.0);
+    }
+
+    #[test]
+    fn diag_card_is_collapsed_by_default_and_toggles_on_head_click() {
+        let mut v = view();
+        v.set_client(720.0, 560.0);
+        assert!(!v.diag_expanded, "诊断默认必须收起");
+        assert_eq!(v.diag_rect.h, DIAG_HEAD_H, "收起态只占标题行");
+        let collapsed_h = v.scroll.content_h;
+
+        let (x, y) = (v.diag_rect.x + 12.0, v.diag_rect.y + 8.0);
+        assert!(v.handle_row_event(&UiEvent::LButtonDown { x, y }, x, y), "抬头应消费点击");
+        assert!(v.diag_expanded);
+        assert_eq!(v.diag_rect.h, DIAG_HEAD_H + DIAG_CARD_H);
+        assert!(
+            v.scroll.content_h > collapsed_h + DIAG_CARD_H - 1.0,
+            "展开后内容高度必须增加一整块正文"
+        );
+        assert_eq!(v.scroll.offset, v.scroll.max_offset(), "展开后应自动滚到底，露出正文");
+
+        let (x2, y2) = (v.diag_rect.x + 12.0, v.diag_rect.y + 8.0);
+        assert!(v.handle_row_event(&UiEvent::LButtonDown { x: x2, y: y2 }, x2, y2));
+        assert!(!v.diag_expanded, "再点一次应收回");
+        assert_eq!(v.scroll.content_h, collapsed_h);
     }
 
     #[test]

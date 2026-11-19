@@ -750,9 +750,8 @@ impl RegionSampler {
 // 服务
 // ---------------------------------------------------------------------------
 
-/// 配色是否分区独立判定。
+/// 配色是否分区独立判定（S-47）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[allow(dead_code)]
 pub enum JudgeMode {
     /// 每个分区各自判定（默认）。
     PerRegion,
@@ -814,7 +813,8 @@ impl RuntimeCfg {
             enabled: c.get(SettingKey::S01) != 0,
             follow: c.get(SettingKey::S11) != 0,
             interval_ms: (c.get(SettingKey::S16) as u32).clamp(200, 5000),
-            mode: JudgeMode::PerRegion,
+            // S-47：0 = 分区独立（默认），1 = 全任务栏统一。
+            mode: if c.get(SettingKey::S47) == 0 { JudgeMode::PerRegion } else { JudgeMode::Global },
             policy: PolicyCfg::from_config(c),
             region: RegionCfg::from_config(c),
             mask,
@@ -1009,6 +1009,27 @@ mod tests {
         // 与 C 结构体保持 80 字节
         assert_eq!(std::mem::size_of::<ShadeBarIpc>(), 80);
         assert_eq!(std::mem::align_of::<ShadeBarIpc>(), 4);
+    }
+
+    #[test]
+    fn s47_selects_judge_mode() {
+        let mut c = Config::default();
+        assert_eq!(RuntimeCfg::from_config(&c).mode, JudgeMode::PerRegion, "默认必须是分区独立");
+        assert!(c.set(SettingKey::S47, 1));
+        assert_eq!(RuntimeCfg::from_config(&c).mode, JudgeMode::Global);
+        assert!(c.set(SettingKey::S47, 0));
+        assert_eq!(RuntimeCfg::from_config(&c).mode, JudgeMode::PerRegion);
+    }
+
+    #[test]
+    fn legacy_config_without_s47_loads_with_defaults() {
+        // 旧版本写出的 35 项数组：不能判损坏（否则升级即清空用户设置），
+        // 且 S-47 必须取默认值 0（分区独立）。
+        let old = format!("{{\"version\":1,\"values\":[{}]}}", vec!["0"; 35].join(","));
+        let parsed = Config::from_json(&old).expect("旧配置必须可读");
+        assert_eq!(parsed.get(SettingKey::S47), 0);
+        // 过短的数组仍按损坏处理（NFR-16）。
+        assert!(Config::from_json("{\"values\":[1,2,3]}").is_none());
     }
 
     #[test]
