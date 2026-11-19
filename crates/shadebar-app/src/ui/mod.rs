@@ -13,6 +13,7 @@ pub mod widgets;
 use std::time::Instant;
 
 use shadebar_core::PRODUCT_NAME;
+use shadebar_core::color::Rgba;
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
 
 use crate::config::{Config, Group, Lang, SettingKey};
@@ -22,8 +23,8 @@ use crate::ui::pages::diagnostics::{DiagView, paint as paint_diagnostics};
 use crate::ui::pages::{SETTING_GROUPS, keys_of};
 use crate::ui::theme::{Palette, ThemeMode, CARD_RADIUS_DIP};
 use crate::ui::widgets::{
-    Banner, GroupHeader, PopupKind, SettingWidget, UiEvent, VK_ESCAPE, VK_NEXT, VK_PRIOR,
-    VK_RETURN, VK_TAB, Widget, WidgetResult,
+    Banner, GroupHeader, PopupKind, SettingWidget, UiEvent, VK_DOWN, VK_ESCAPE, VK_LEFT, VK_NEXT,
+    VK_PRIOR, VK_RETURN, VK_RIGHT, VK_SPACE, VK_TAB, VK_UP, Widget, WidgetResult,
 };
 
 // Win32 消息号（避免为几个常量再开 windows feature）。
@@ -43,6 +44,123 @@ const DIAG_HEAD_H: f32 = 44.0;
 const POPUP_ITEM_H: f32 = 28.0;
 /// 弹层宽度（dip）。
 const POPUP_W: f32 = 220.0;
+
+// ---- 颜色弹层几何 ----------------------------------------------------------
+//
+// 渲染与命中测试共用下面几个函数，不允许两边各写一份公式：
+// 历史事故里"按钮显示区域与交互区域不一致"就是这么来的。
+//
+// 宽度验算：12 + 6×32 + 5×8 + 12 = 256
+// 高度验算（两组）：12 +(16+6+32) +12 +(16+6+32) +10 +32 +8 +32 +12 = 226
+// 高度验算（一组）：12 +(16+6+32) +10 +32 +8 +32 +12 = 160
+/// 弹层宽度：内边距 + 6 列色块 + 5 个间距 + 内边距。
+const PICKER_W: f32 = 256.0;
+/// 内边距。
+const PICKER_PAD: f32 = 12.0;
+/// 单个色块边长（圆角 [`SWATCH_RADIUS`]）。
+const SWATCH: f32 = 32.0;
+/// 色块间距，横竖同一个值。
+const SWATCH_GAP: f32 = 8.0;
+/// 色块圆角。
+const SWATCH_RADIUS: f32 = 4.0;
+/// 焦点环半径（36×36、外扩 2、圆角 8，与色块本身区分开）。
+const SWATCH_FOCUS_RADIUS: f32 = 8.0;
+/// 焦点环外扩量（32 + 2×2 = 36）。
+const SWATCH_FOCUS_OUT: f32 = 2.0;
+/// 组标题高度（正文 12 px 那一档）。
+const SWATCH_LABEL_H: f32 = 16.0;
+/// 组标题 ↔ 色块。
+const SWATCH_LABEL_GAP: f32 = 6.0;
+/// 组间距。
+const SWATCH_GROUP_GAP: f32 = 12.0;
+/// 一组占的纵向高度：标题 + 间隙 + 色块。
+const SWATCH_ROW_H: f32 = SWATCH_LABEL_H + SWATCH_LABEL_GAP + SWATCH;
+/// 色板 ↔ HEX 输入框。
+const PICKER_HEX_GAP: f32 = 10.0;
+/// HEX 输入框高度。
+const PICKER_HEX_H: f32 = 32.0;
+/// HEX 标签列宽。
+const PICKER_HEX_LABEL_W: f32 = 36.0;
+/// HEX ↔「更多颜色…」。
+const PICKER_MORE_GAP: f32 = 8.0;
+/// 「更多颜色…」按钮高度。
+const PICKER_MORE_H: f32 = 32.0;
+
+/// 某组在弹层内的纵向起点。
+fn group_top(group: usize) -> f32 {
+    PICKER_PAD + group as f32 * (SWATCH_ROW_H + SWATCH_GROUP_GAP)
+}
+
+/// 某组某个色块的矩形（内容坐标）。
+fn swatch_rect(frame: Rect, group: usize, idx: usize) -> Rect {
+    Rect::new(
+        frame.x + PICKER_PAD + idx as f32 * (SWATCH + SWATCH_GAP),
+        frame.y + group_top(group) + SWATCH_LABEL_H + SWATCH_LABEL_GAP,
+        SWATCH,
+        SWATCH,
+    )
+}
+
+/// 某组标题的矩形。
+fn swatch_label_rect(frame: Rect, group: usize) -> Rect {
+    Rect::new(
+        frame.x + PICKER_PAD,
+        frame.y + group_top(group),
+        frame.w - 2.0 * PICKER_PAD,
+        SWATCH_LABEL_H,
+    )
+}
+
+/// 色板最下沿（最后一组色块的下边），HEX 行从这里往下排。
+fn swatches_bottom(groups: usize) -> f32 {
+    PICKER_PAD
+        + groups as f32 * SWATCH_ROW_H
+        + groups.saturating_sub(1) as f32 * SWATCH_GROUP_GAP
+}
+
+/// HEX 输入框矩形。`groups` 是当前 key 显示的色板组数（1 或 2）。
+fn picker_hex_rect(frame: Rect, groups: usize) -> Rect {
+    Rect::new(
+        frame.x + PICKER_PAD,
+        frame.y + swatches_bottom(groups) + PICKER_HEX_GAP,
+        frame.w - 2.0 * PICKER_PAD,
+        PICKER_HEX_H,
+    )
+}
+
+/// "更多颜色"按钮矩形。
+fn picker_more_rect(frame: Rect, groups: usize) -> Rect {
+    let hr = picker_hex_rect(frame, groups);
+    Rect::new(
+        frame.x + PICKER_PAD,
+        hr.y + PICKER_HEX_H + PICKER_MORE_GAP,
+        frame.w - 2.0 * PICKER_PAD,
+        PICKER_MORE_H,
+    )
+}
+
+/// 弹层总高：由上面同一组常量推出来，改一个数整体跟着走（不再手写魔数和）。
+fn picker_height(groups: usize) -> f32 {
+    let frame = Rect::new(0.0, 0.0, PICKER_W, 0.0);
+    picker_more_rect(frame, groups).y + PICKER_MORE_H + PICKER_PAD
+}
+
+/// 某个颜色项该看哪几组色板。
+///
+/// **按 key 分流是这张卡的核心**：端色（S-14/S-15）要的是"文字色"（A 组浅色 +
+/// B 组深色），填充色（S-35/S-37）要的是"叠在任务栏上的填充/描边色"（C 组）。
+/// 混用会直接出事故：深色背景上的文字拿到 `#FFC857` 对比度只有 1.39:1，
+/// 用户根本看不见自己选的文字色。
+///
+/// 渲染与命中测试都调这一个函数，不许两处各写一份。
+#[must_use]
+pub fn swatch_groups_for(key: SettingKey) -> &'static [(&'static str, [&'static str; 6])] {
+    match key {
+        SettingKey::S14 | SettingKey::S15 => &i18n::COLOR_SWATCH_GROUPS[..2],
+        _ => &i18n::COLOR_SWATCH_GROUPS[2..],
+    }
+}
+
 /// 提示条显示时长（毫秒）。
 const TOAST_MS: u64 = 2200;
 
@@ -57,6 +175,8 @@ pub enum ViewAction {
     ExportDiagnostics,
     /// 复制版本号（S-05）。
     CopyVersion,
+    /// 打开系统调色板挑任意颜色（由窗口层执行，因为它需要 HWND）。
+    PickColor(SettingKey),
 }
 
 /// 弹层状态。
@@ -66,8 +186,17 @@ enum PopupState {
     None,
     /// 下拉选项。
     Dropdown { key: SettingKey, rect: Rect },
-    /// ARGB 颜色选择（Hex 输入 + 预设色板 + 内置 alpha）。
-    ColorPicker { key: SettingKey, rect: Rect, hex: String },
+    /// 颜色选择（Hex 输入 + 按 key 分流的预设色板）。
+    ColorPicker {
+        /// 正在编辑的配置项。
+        key: SettingKey,
+        /// 弹层矩形（内容坐标）。
+        rect: Rect,
+        /// 用户已敲入的 HEX 文本（初值留空，空时显示当前值灰字提示）。
+        hex: String,
+        /// 键盘焦点所在色格（`组×6 + 列` 的线性下标）。
+        focus: Option<usize>,
+    },
     /// 恢复默认二次确认。
     Confirm { rect: Rect },
 }
@@ -108,6 +237,11 @@ pub struct View {
     actions: Vec<ViewAction>,
     /// 瞬时提示（key, 到期毫秒）。
     toast: Option<(&'static str, u64)>,
+    /// 颜色策略（S-13）当前是否已是「自定义」。
+    ///
+    /// 端色改动会由 `Config::set` 自动把 S-13 切到自定义；这里留一份镜像，
+    /// 只用于决定"要不要弹一次 `picker.switched` 提示"，不参与任何判定。
+    s13_custom: bool,
     /// 悬浮提示（全文 + 内容坐标）。
     tooltip: Option<(String, f32, f32)>,
     /// 诊断数据。
@@ -170,6 +304,7 @@ impl View {
             about_visible: false,
             actions: Vec::new(),
             toast: None,
+            s13_custom: cfg.get(SettingKey::S13) != 0,
             tooltip: None,
             diag: DiagView::default(),
             client: (720.0, 560.0),
@@ -241,6 +376,7 @@ impl View {
             );
         }
         self.diag = diag.clone();
+        self.s13_custom = cfg.get(SettingKey::S13) != 0;
         self.rebuild_layout();
     }
 
@@ -262,6 +398,103 @@ impl View {
 
     fn now_ms(&self) -> u64 {
         u64::try_from(self.clock.elapsed().as_millis()).unwrap_or(u64::MAX)
+    }
+
+    /// 某个颜色项当前的值（`0xAARRGGBB`）。
+    ///
+    /// 行被 UI 收起时（S-35/S-37 目前就收着）回退到该键的默认值，不能用白色兜底：
+    /// 那样会把"22% 不透明"的 alpha 语义悄悄换成全不透明。
+    fn current_color(&self, key: SettingKey) -> u32 {
+        self.rows
+            .iter()
+            .find(|r| r.key == key)
+            .map_or(key.meta().default_value as u32, |r| r.value as u32)
+    }
+
+    /// 写回一个颜色值；端色第一次落到「自定义」策略时提示一次。
+    fn write_color(&mut self, key: SettingKey, argb: i64) {
+        if matches!(key, SettingKey::S14 | SettingKey::S15)
+            && !self.s13_custom
+            && argb != i64::from(self.current_color(key))
+        {
+            self.show_toast("picker.switched");
+        }
+        self.actions.push(ViewAction::Set(key, argb));
+    }
+
+    /// 点色块：**只换 RGB**，alpha 取该 key 当前值。
+    ///
+    /// 色块只有 RGB；若直接当 `0xFFRRGGBB` 写回去，S-35（默认 `0x38FFFFFF`，22%）
+    /// 会被一次点击突变成全不透明——指示条瞬间从"淡淡的"变成"糊住任务栏"。
+    fn apply_swatch(&mut self, key: SettingKey, hex: &str) {
+        let Some(c) = Rgba::parse_hex(hex) else {
+            return;
+        };
+        let alpha = self.current_color(key) & 0xFF00_0000;
+        let argb = i64::from(alpha | rgb_of(c));
+        self.write_color(key, argb);
+    }
+
+    /// 提交 HEX 输入。非法 → 不写配置，弹 `picker.invalid`。
+    ///
+    /// 6 位输入对填充色同样保留当前 alpha（与点色块一致）；8 位输入以用户写的为准。
+    fn submit_hex(&mut self, key: SettingKey, hex: &str) {
+        let Some(c) = Rgba::parse_hex(hex) else {
+            self.show_toast("picker.invalid");
+            return;
+        };
+        let digits = hex.strip_prefix('#').unwrap_or(hex).len();
+        let c = if digits == 6 {
+            Rgba::new(c.r, c.g, c.b, hex_alpha(self.current_color(key)))
+        } else {
+            c
+        };
+        let argb = rgba_to_argb(c);
+        self.write_color(key, argb);
+    }
+
+    /// 颜色弹层内的按键。返回是否消费。
+    fn handle_picker_key(&mut self, vk: u16) -> bool {
+        let PopupState::ColorPicker { key, rect, hex, focus } = self.popup.clone() else {
+            return false;
+        };
+        let groups = swatch_groups_for(key);
+        let cells = groups.len() * 6;
+        match vk {
+            VK_LEFT | VK_RIGHT | VK_UP | VK_DOWN => {
+                let cur = focus.unwrap_or(0).min(cells.saturating_sub(1));
+                let col = cur % 6;
+                let next = match vk {
+                    VK_LEFT => cur.saturating_sub(1).max(cur - col),
+                    VK_RIGHT => (cur + 1).min(cur - col + 5),
+                    // 已在第一排就不动，别把焦点弹回左上角。
+                    VK_UP => {
+                        if cur < 6 {
+                            cur
+                        } else {
+                            cur - 6
+                        }
+                    }
+                    _ => (cur + 6).min(cells - 1),
+                };
+                self.popup = PopupState::ColorPicker { key, rect, hex, focus: Some(next) };
+                true
+            }
+            VK_RETURN | VK_SPACE => {
+                if !hex.is_empty() {
+                    self.submit_hex(key, &hex);
+                } else if let Some(idx) = focus {
+                    if let Some((_, colors)) = groups.get(idx / 6) {
+                        if let Some(p) = colors.get(idx % 6) {
+                            self.apply_swatch(key, p);
+                        }
+                    }
+                }
+                self.popup = PopupState::None;
+                true
+            }
+            _ => false,
+        }
     }
 
     /// 重新计算所有卡片/行/诊断区的内容坐标与内容总高。
@@ -427,29 +660,117 @@ impl View {
                     );
                 }
             }
-            PopupState::ColorPicker { rect, hex, .. } => {
-                let r = RectDip::new(rect.x, rect.y + dy, POPUP_W + 40.0, 150.0);
-                ctx.fill_rounded_rect(r, 6.0, palette.card_bg);
-                ctx.stroke_rounded_rect(r, 6.0, palette.accent, 1.0);
-                ctx.draw_text(
-                    hex,
-                    RectDip::new(r.x + 8.0, r.y + 8.0, r.w - 16.0, 24.0),
-                    TextRole::Body,
-                    palette.text_primary,
-                );
-                for (i, p) in i18n::OPT_COLOR_PRESETS.iter().enumerate() {
-                    let col = i % 3;
-                    let row = i / 3;
-                    let sw = RectDip::new(
-                        r.x + 8.0 + col as f32 * 78.0,
-                        r.y + 40.0 + row as f32 * 40.0,
-                        70.0,
-                        32.0,
+            PopupState::ColorPicker { key, rect, hex, focus } => {
+                let groups = swatch_groups_for(*key);
+                let n = groups.len();
+                let f = Rect::new(rect.x, rect.y + dy, PICKER_W, picker_height(n));
+                let rd = |q: Rect| RectDip::new(q.x, q.y, q.w, q.h);
+                ctx.fill_rounded_rect(rd(f), 8.0, palette.card_bg);
+                ctx.stroke_rounded_rect(rd(f), 8.0, palette.accent, 1.0);
+
+                let current = self.current_color(*key);
+                let cur_rgb = current & 0x00FF_FFFF;
+
+                // HEX 输入框：标签列 36 宽 + 等宽值列。
+                // 当前色不在板内时，标签列改画 16×16 当前色块——用户得看见
+                // "我现在是什么色"，否则只能靠猜。位置固定，两种状态零跳动。
+                let hr = picker_hex_rect(f, n);
+                ctx.stroke_rounded_rect(rd(hr), 4.0, palette.card_border, 1.0);
+                let label_x = hr.x + 8.0;
+                if in_palette(groups, cur_rgb) {
+                    ctx.draw_text(
+                        i18n::text("picker.hex", self.lang),
+                        RectDip::new(label_x, hr.y + 7.0, PICKER_HEX_LABEL_W, 18.0),
+                        TextRole::Body,
+                        palette.text_secondary,
                     );
-                    let c = parse_hex_color(p).unwrap_or(palette.accent);
-                    ctx.fill_rounded_rect(sw, 3.0, c);
-                    ctx.draw_text(p, RectDip::new(sw.x + 2.0, sw.y + 8.0, sw.w, 18.0), TextRole::Body, palette.text_primary);
+                } else {
+                    let chip = RectDip::new(label_x + 10.0, hr.y + 8.0, 16.0, 16.0);
+                    ctx.fill_rounded_rect(chip, 2.0, Rgba::from_rgb(cur_rgb));
+                    ctx.stroke_rounded_rect(chip, 1.0, palette.card_border, 1.0);
                 }
+                let value_x = hr.x + 8.0 + PICKER_HEX_LABEL_W;
+                let value_w = hr.w - PICKER_HEX_LABEL_W - 16.0;
+                // 预填 `#FFFFFFFF` 要退格 9 次才能重输，所以初值留空、
+                // 当前值只做灰字提示；第一次敲键提示自然消失。
+                if hex.is_empty() {
+                    ctx.draw_text(
+                        &format!("#{current:08X}"),
+                        RectDip::new(value_x + 10.0, hr.y + 7.0, value_w - 10.0, 18.0),
+                        TextRole::Body,
+                        palette.text_secondary,
+                    );
+                } else {
+                    ctx.draw_text(
+                        hex,
+                        RectDip::new(value_x, hr.y + 7.0, value_w, 18.0),
+                        TextRole::Body,
+                        palette.text_primary,
+                    );
+                }
+                ctx.draw_text(
+                    "|",
+                    RectDip::new(value_x + hex.chars().count() as f32 * 7.4, hr.y + 7.0, 8.0, 18.0),
+                    TextRole::Body,
+                    palette.accent,
+                );
+
+                for (gi, (label_key, colors)) in groups.iter().enumerate() {
+                    // 组标题行按施工单是 16 高；正文 14 dip 的行盒约 18.6，
+                    // 画在 16 高的框里会把 g/p 的下沿裁掉，所以绘制框放到 20
+                    // （只吃 6 dip 的标题↔色块间隙，不占布局高度）。
+                    let lr = swatch_label_rect(f, gi);
+                    ctx.draw_text(
+                        i18n::text(label_key, self.lang),
+                        RectDip::new(lr.x, lr.y, lr.w, 20.0),
+                        TextRole::Body,
+                        palette.text_secondary,
+                    );
+                    for (i, p) in colors.iter().enumerate() {
+                        let sr = swatch_rect(f, gi, i);
+                        let Some(c) = Rgba::parse_hex(p) else {
+                            continue;
+                        };
+                        ctx.fill_rounded_rect(rd(sr), SWATCH_RADIUS, c);
+                        // 白色块在白卡片上必须描边，否则看不出边界。
+                        ctx.stroke_rounded_rect(rd(sr), SWATCH_RADIUS, palette.card_border, 1.0);
+                        // 选中态：中心画 12×12 圆角矩形填 ink，再嵌 8×8 原色圆点，
+                        // 形成 2 px 环。必须画图形——任何字符（含 U+2713）都可能
+                        // 落在 emoji 区段，禁作功能图标。ink 按色块自身亮度取黑/白。
+                        if rgb_of(c) == cur_rgb {
+                            let ink = if c.relative_luminance() > 0.5 {
+                                Rgba::opaque(0, 0, 0)
+                            } else {
+                                Rgba::opaque(0xFF, 0xFF, 0xFF)
+                            };
+                            ctx.fill_rounded_rect(
+                                RectDip::new(sr.x + 10.0, sr.y + 10.0, 12.0, 12.0),
+                                6.0,
+                                ink,
+                            );
+                            ctx.fill_rounded_rect(
+                                RectDip::new(sr.x + 12.0, sr.y + 12.0, 8.0, 8.0),
+                                4.0,
+                                c,
+                            );
+                        }
+                        // 键盘焦点环：2 px accent、外扩 2（36×36、圆角 8）。
+                        // 形状与对勾完全不同，两者叠加也分得清。
+                        if *focus == Some(gi * 6 + i) {
+                            let fr = sr.inset(-SWATCH_FOCUS_OUT);
+                            ctx.stroke_rounded_rect(rd(fr), SWATCH_FOCUS_RADIUS, palette.accent, 2.0);
+                        }
+                    }
+                }
+
+                let mr = picker_more_rect(f, n);
+                ctx.stroke_rounded_rect(rd(mr), 4.0, palette.card_border, 1.0);
+                ctx.draw_text(
+                    i18n::text("picker.more", self.lang),
+                    RectDip::new(mr.x + 8.0, mr.y + 7.0, mr.w - 16.0, 18.0),
+                    TextRole::Body,
+                    palette.accent,
+                );
             }
             PopupState::Confirm { rect } => {
                 let r = RectDip::new(rect.x, rect.y + dy, rect.w, 120.0);
@@ -601,11 +922,36 @@ impl View {
                 self.popup = PopupState::Dropdown { key, rect: Rect::new(x, y, POPUP_W, 0.0) };
             }
             PopupKind::ColorPicker(key) => {
-                let current = self.rows.iter().find(|r| r.key == key).map_or(0xFFFF_FFFF, |r| r.value);
+                let groups = swatch_groups_for(key);
+                let n = groups.len();
+                let (w, h) = (PICKER_W, picker_height(n));
+                // 初始焦点：当前色在板内就落在那一格，否则落在左上角第一格。
+                let focus = groups
+                    .iter()
+                    .enumerate()
+                    .flat_map(|(gi, (_, colors))| {
+                        colors.iter().enumerate().map(move |(i, p)| (gi * 6 + i, *p))
+                    })
+                    .find(|(_, p)| {
+                        Rgba::parse_hex(p)
+                            .is_some_and(|c| rgb_of(c) == self.current_color(key) & 0x00FF_FFFF)
+                    })
+                    .map_or(0, |(idx, _)| idx);
+                // 吸附在窗口内：右侧越界就左移，下方放不下就翻到锚点上方。
+                let left = x.min(self.client.0 - w - 12.0).max(8.0);
+                let below_ok = (y - self.scroll.offset) + h + 12.0 <= self.client.1;
+                let top = if below_ok {
+                    y + 6.0
+                } else {
+                    (y - h - 6.0).max(self.scroll.offset + 8.0)
+                };
                 self.popup = PopupState::ColorPicker {
                     key,
-                    rect: Rect::new(x, y, POPUP_W + 40.0, 0.0),
-                    hex: format!("#{:08X}", current as u32),
+                    rect: Rect::new(left, top, w, h),
+                    // 初值留空：预填 `#FFFFFFFF` 要退格 9 次才能重输，
+                    // 当前值只做灰字提示（见 `paint_popup`）。
+                    hex: String::new(),
+                    focus: Some(focus),
                 };
             }
             PopupKind::ConfirmRestore => {
@@ -647,28 +993,31 @@ impl View {
                 self.popup = PopupState::None;
                 true
             }
-            PopupState::ColorPicker { key, rect, hex } => {
-                let rx = x - rect.x;
-                let ry = y - rect.y;
-                if (8.0..=8.0 + 3.0 * 78.0).contains(&rx)
-                    && (40.0..=40.0 + 2.0 * 40.0).contains(&ry)
-                {
-                    let col = ((rx - 8.0) / 78.0).floor() as usize;
-                    let row = ((ry - 40.0) / 40.0).floor() as usize;
-                    let idx = row * 3 + col;
-                    if let Some(p) = i18n::OPT_COLOR_PRESETS.get(idx) {
-                        if let Some(v) = parse_hex_color(p) {
-                            self.actions.push(ViewAction::Set(key, rgba_to_argb(v)));
+            PopupState::ColorPicker { key, rect, hex, focus } => {
+                // 命中与渲染共用同一组几何函数：色块走 swatch_rect、按钮走
+                // picker_more_rect，绝不另写一份坐标公式（否则就会出现
+                // "看到的位置点不中、点中的地方没按钮"这类问题）。
+                let groups = swatch_groups_for(key);
+                let n = groups.len();
+                for (gi, (_, colors)) in groups.iter().enumerate() {
+                    for (i, p) in colors.iter().enumerate() {
+                        if swatch_rect(rect, gi, i).contains(x, y) {
+                            self.apply_swatch(key, p);
+                            self.popup = PopupState::None;
+                            return true;
                         }
-                        self.popup = PopupState::None;
-                        return true;
                     }
                 }
-                if !(0.0..=POPUP_W + 40.0).contains(&rx) || !(0.0..=150.0).contains(&ry) {
+                if picker_more_rect(rect, n).contains(x, y) {
+                    self.actions.push(ViewAction::PickColor(key));
+                    self.popup = PopupState::None;
+                    return true;
+                }
+                // 点弹层内部（HEX 输入区）保持打开，等键盘输入；点外面关闭。
+                if !Rect::new(rect.x, rect.y, PICKER_W, picker_height(n)).contains(x, y) {
                     self.popup = PopupState::None;
                 } else {
-                    // Hex 输入区：保留弹层，等 WM_CHAR / Enter。
-                    self.popup = PopupState::ColorPicker { key, rect, hex };
+                    self.popup = PopupState::ColorPicker { key, rect, hex, focus };
                 }
                 true
             }
@@ -771,6 +1120,13 @@ impl View {
                     self.about_visible = false;
                     return Some(LRESULT(0));
                 }
+                // 颜色弹层优先吃掉方向键 / Enter / Space：打开弹层时这四类键
+                // 属于弹层，不能再往下走给页面控件。
+                if matches!(self.popup, PopupState::ColorPicker { .. })
+                    && self.handle_picker_key(vk)
+                {
+                    return Some(LRESULT(0));
+                }
                 if vk == VK_TAB {
                     let next = match self.focus_index {
                         None => Some(0usize),
@@ -783,17 +1139,6 @@ impl View {
                     let _ = self.scroll.page(if vk == VK_NEXT { 1.0 } else { -1.0 });
                     return Some(LRESULT(0));
                 }
-                // 颜色弹层的 Hex 输入回退（Enter 提交）。
-                if vk == VK_RETURN {
-                    let state = self.popup.clone();
-                    if let PopupState::ColorPicker { key, hex, .. } = state {
-                        if let Some(v) = parse_hex_color(&hex) {
-                            self.actions.push(ViewAction::Set(key, rgba_to_argb(v)));
-                        }
-                        self.popup = PopupState::None;
-                        return Some(LRESULT(0));
-                    }
-                }
                 let consumed = self.handle_row_event(&UiEvent::Key { vk }, 0.0, 0.0);
                 if consumed { Some(LRESULT(0)) } else { None }
             }
@@ -803,13 +1148,14 @@ impl View {
                     return None;
                 }
                 let state = self.popup.clone();
-                if let PopupState::ColorPicker { key, rect, mut hex } = state {
+                if let PopupState::ColorPicker { key, rect, mut hex, focus } = state {
                     if ch == '\u{0008}' {
                         hex.pop();
-                    } else if (ch == '#' || ch.is_ascii_hexdigit()) && hex.chars().count() < 10 {
+                    } else if (ch == '#' || ch.is_ascii_hexdigit()) && hex.chars().count() < 9 {
+                        // `#` + 8 位 = 9；3 位简写不支持（§11.5 只认 6/8 位）。
                         hex.push(ch.to_ascii_uppercase());
                     }
-                    self.popup = PopupState::ColorPicker { key, rect, hex };
+                    self.popup = PopupState::ColorPicker { key, rect, hex, focus };
                     return Some(LRESULT(0));
                 }
                 let consumed = self.handle_row_event(&UiEvent::Char { ch }, 0.0, 0.0);
@@ -820,33 +1166,27 @@ impl View {
     }
 }
 
-/// `#RRGGBB` / `#AARRGGBB` → Rgba；非法输入返回 `None`（T03.3 判据④）。
-#[must_use]
-pub fn parse_hex_color(text: &str) -> Option<shadebar_core::color::Rgba> {
-    let t = text.trim().trim_start_matches('#');
-    let (a, rgb) = match t.len() {
-        6 => (255u8, t),
-        8 => (u8::from_str_radix(&t[..2], 16).ok()?, &t[2..]),
-        _ => return None,
-    };
-    if rgb.len() != 6 {
-        return None;
-    }
-    let r = u8::from_str_radix(&rgb[..2], 16).ok()?;
-    let g = u8::from_str_radix(&rgb[2..4], 16).ok()?;
-    let b = u8::from_str_radix(&rgb[4..6], 16).ok()?;
-    // alpha=0 视为非法（§6 禁用全透明）；a 存进值表但不用于判定色。
-    let a = a.max(1);
-    Some(shadebar_core::color::Rgba { r, g, b, a })
+/// `Rgba` → `0xAARRGGBB`（配置值口径）。
+fn rgba_to_argb(c: Rgba) -> i64 {
+    i64::from((u32::from(c.a) << 24) | rgb_of(c))
 }
 
-fn rgba_to_argb(c: shadebar_core::color::Rgba) -> i64 {
-    i64::from(
-        (u32::from(c.a) << 24)
-            | (u32::from(c.r) << 16)
-            | (u32::from(c.g) << 8)
-            | u32::from(c.b),
-    )
+/// `Rgba` → `0x00RRGGBB`（丢 alpha，用于"当前色是否在板内"与命中比较）。
+fn rgb_of(c: Rgba) -> u32 {
+    (u32::from(c.r) << 16) | (u32::from(c.g) << 8) | u32::from(c.b)
+}
+
+/// 取 `0xAARRGGBB` 的 alpha 字节。
+fn hex_alpha(argb: u32) -> u8 {
+    (argb >> 24) as u8
+}
+
+/// 某个 RGB 是否出现在给定色板里（决定 HEX 行左侧画「HEX」标签还是当前色块）。
+fn in_palette(groups: &[(&'static str, [&'static str; 6])], rgb: u32) -> bool {
+    groups
+        .iter()
+        .flat_map(|(_, colors)| colors.iter())
+        .any(|p| Rgba::parse_hex(p).is_some_and(|c| rgb_of(c) == rgb))
 }
 
 #[cfg(test)]
@@ -946,17 +1286,235 @@ mod tests {
 
     #[test]
     fn hex_parser_accepts_rgb_and_argb_and_rejects_garbage() {
+        let argb = |s: &str| Rgba::parse_hex(s).map(rgba_to_argb);
+        // 6 位 → a = 255
+        assert_eq!(argb("#FFFFFF"), Some(0x00FF_FFFF | 0xFF00_0000));
+        assert_eq!(Rgba::parse_hex("112233").map(|c| c.a), Some(255));
+        // 8 位 → 自带 alpha
+        assert_eq!(argb("#80112233"), Some(0x8011_2233));
+        assert_eq!(Rgba::parse_hex("38FFFFFF").map(|c| c.a), Some(0x38));
+        // 非法：3 位简写 / 7 位 / 空串 / 非十六进制
+        assert_eq!(argb("#FFF"), None);
+        assert_eq!(argb("#FFFFFFF"), None);
+        assert_eq!(argb(""), None);
+        assert_eq!(argb("#GGGGGG"), None);
+        // 非 ASCII 不得 panic（本地副本曾无守卫，切字符串时会崩）
+        assert_eq!(argb("颜颜"), None);
+        assert_eq!(argb("#颜色颜色"), None);
+    }
+
+    #[test]
+    fn picker_groups_are_selected_by_key_not_shared() {
+        // 端色 → 文字色两组（A 深底 / B 浅底）
+        assert_eq!(swatch_groups_for(SettingKey::S14).len(), 2);
+        assert_eq!(swatch_groups_for(SettingKey::S15).len(), 2);
+        // 填充色 → 一组
+        assert_eq!(swatch_groups_for(SettingKey::S35).len(), 1);
+        assert_eq!(swatch_groups_for(SettingKey::S37).len(), 1);
+        // 两组必须真的是 A + B，且不能混进填充色（C 组的 #E5484D 等）
+        let text_keys: Vec<&str> = swatch_groups_for(SettingKey::S14).iter().map(|(k, _)| *k).collect();
+        assert_eq!(text_keys, vec!["picker.on_dark", "picker.on_light"]);
+        assert_eq!(swatch_groups_for(SettingKey::S35)[0].0, "picker.fill");
+        assert!(!swatch_groups_for(SettingKey::S14)
+            .iter()
+            .any(|(_, cs)| cs.contains(&"#E5484D")));
+        // C 组必须是设计师定稿的 6 个具体色值，且一个都不能漏进文字色板
+        let fill: Vec<&str> = swatch_groups_for(SettingKey::S35)[0].1.to_vec();
         assert_eq!(
-            parse_hex_color("#FFFFFF"),
-            Some(shadebar_core::color::Rgba::opaque(255, 255, 255))
+            fill,
+            vec!["#E5484D", "#C96A00", "#12855A", "#0E8D8D", "#3B82F6", "#8B5CF6"]
         );
-        assert_eq!(parse_hex_color("38FFFFFF").map(|c| c.a), Some(0x38));
-        assert!(parse_hex_color("#GGGGGG").is_none());
-        assert!(parse_hex_color("#FFF").is_none());
+        let text: Vec<&str> = swatch_groups_for(SettingKey::S14)
+            .iter()
+            .flat_map(|(_, cs)| cs.iter().copied())
+            .collect();
+        for c in fill {
+            assert!(!text.contains(&c), "填充色 {c} 混进了文字色板");
+        }
+    }
+
+    #[test]
+    fn picker_geometry_fits_inside_and_never_overlaps() {
+        let check = |frame: Rect, groups: usize| {
+            let mut rects: Vec<Rect> = Vec::new();
+            for gi in 0..groups {
+                for i in 0..6 {
+                    let r = swatch_rect(frame, gi, i);
+                    assert!(
+                        r.x >= frame.x && r.y >= frame.y
+                            && r.x + r.w <= frame.x + frame.w
+                            && r.y + r.h <= frame.y + frame.h,
+                        "色块越出弹层: {r:?}"
+                    );
+                    for other in &rects {
+                        let overlap_x = r.x < other.x + other.w && other.x < r.x + r.w;
+                        let overlap_y = r.y < other.y + other.h && other.y < r.y + r.h;
+                        assert!(!(overlap_x && overlap_y), "色块重叠: {r:?} / {other:?}");
+                    }
+                    rects.push(r);
+                }
+            }
+            // 一行 6 列刚好铺满内容宽度：12 + 6×32 + 5×8 + 12 = 256
+            let last = swatch_rect(frame, 0, 5);
+            assert!((last.x + last.w - (frame.x + frame.w - PICKER_PAD)).abs() < 1e-3);
+            let bottom = rects.iter().map(|r| r.y + r.h).fold(0.0_f32, f32::max);
+            let hr = picker_hex_rect(frame, groups);
+            let mr = picker_more_rect(frame, groups);
+            assert!((hr.y - bottom - PICKER_HEX_GAP).abs() < 1e-3, "色板↔HEX 必须是 10");
+            assert!((mr.y - hr.y - PICKER_HEX_H - PICKER_MORE_GAP).abs() < 1e-3);
+            assert!(mr.y >= bottom, "「更多颜色…」必须在色块下方");
+            assert!(mr.y + mr.h <= frame.y + frame.h, "底部按钮越出弹层");
+        };
+        // frame 用规格常量，不能用 picker_height() 自己当期望值（那是自我证明）
+        check(Rect::new(0.0, 0.0, 256.0, 226.0), 2);
+        check(Rect::new(0.0, 0.0, 256.0, 160.0), 1);
+        assert!((picker_height(2) - 226.0).abs() < 1e-3);
+        assert!((picker_height(1) - 160.0).abs() < 1e-3);
+    }
+
+    #[test]
+    fn every_swatch_click_writes_that_exact_colour_and_keeps_alpha() {
+        for key in [SettingKey::S14, SettingKey::S35] {
+            let mut v = view();
+            v.set_client(720.0, 560.0);
+            // 规格常量，不取运行时值：端色恒 0xFF，填充色默认 0x38
+            let alpha = if key == SettingKey::S14 {
+                0xFF00_0000_u32
+            } else {
+                0x3800_0000_u32
+            };
+            assert_eq!(v.current_color(key) & 0xFF00_0000, alpha);
+            let groups = swatch_groups_for(key);
+            for (gi, (_, colors)) in groups.iter().enumerate() {
+                for (i, p) in colors.iter().enumerate() {
+                    v.open_popup(PopupKind::ColorPicker(key), 80.0, 120.0);
+                    let rect = match &v.popup {
+                        PopupState::ColorPicker { rect, .. } => *rect,
+                        other => panic!("弹层没打开: {other:?}"),
+                    };
+                    let r = swatch_rect(rect, gi, i);
+                    let (cx, cy) = (r.x + r.w / 2.0, r.y + r.h / 2.0);
+                    assert!(v.handle_popup_click(cx, cy), "色块中心必须命中");
+                    let acts = v.take_actions();
+                    assert_eq!(acts.len(), 1, "点一格只产生一个动作");
+                    let want = i64::from(
+                        alpha | rgb_of(Rgba::parse_hex(p).unwrap_or(Rgba::opaque(0, 0, 0))),
+                    );
+                    assert_eq!(acts[0], ViewAction::Set(key, want), "{key:?} 的第 {gi}/{i} 格");
+                    let got = match acts[0] {
+                        ViewAction::Set(_, v) => v as u32,
+                        _ => 0,
+                    };
+                    assert_eq!(
+                        (got >> 24) as u8,
+                        if key == SettingKey::S14 { 0xFF } else { 0x38 },
+                        "点击后 alpha 不能被写成 0xFF"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn picker_keys_move_focus_and_apply() {
+        let mut v = view();
+        v.set_client(720.0, 560.0);
+        v.open_popup(PopupKind::ColorPicker(SettingKey::S14), 80.0, 120.0);
+        // 默认焦点落在 #FFFFFF（A 组第 1 格），右移一格到 #FFB4AB
+        let wp = |vk: u16| WPARAM(vk as usize);
+        assert!(v.on_message(HWND::default(), MSG_KEYDOWN, wp(VK_RIGHT), LPARAM(0)).is_some());
+        assert!(matches!(v.popup, PopupState::ColorPicker { focus: Some(1), .. }));
+        // 下移到 B 组同一列
+        assert!(v.on_message(HWND::default(), MSG_KEYDOWN, wp(VK_DOWN), LPARAM(0)).is_some());
+        assert!(matches!(v.popup, PopupState::ColorPicker { focus: Some(7), .. }));
+        assert!(v.on_message(HWND::default(), MSG_KEYDOWN, wp(VK_RETURN), LPARAM(0)).is_some());
+        assert!(matches!(v.popup, PopupState::None), "应用后必须关闭");
         assert_eq!(
-            rgba_to_argb(parse_hex_color("#38FFFFFF").unwrap_or(shadebar_core::color::Rgba::opaque(0, 0, 0))),
-            0x38FF_FFFF
+            v.take_actions(),
+            vec![ViewAction::Set(SettingKey::S14, 0xFF00_0000 | 0x007A_1F2B)]
         );
+    }
+
+    #[test]
+    fn invalid_hex_closes_popup_with_toast_and_writes_nothing() {
+        let mut v = view();
+        v.set_client(720.0, 560.0);
+        v.open_popup(PopupKind::ColorPicker(SettingKey::S14), 80.0, 120.0);
+        // 敲 3 位（不支持简写）后回车
+        for ch in ['F', 'F', 'F'] {
+            let _ = v.on_message(HWND::default(), MSG_CHAR, WPARAM(ch as usize), LPARAM(0));
+        }
+        let _ = v.on_message(
+            HWND::default(),
+            MSG_KEYDOWN,
+            WPARAM(VK_RETURN as usize),
+            LPARAM(0),
+        );
+        assert!(matches!(v.popup, PopupState::None));
+        assert!(v.take_actions().is_empty(), "非法输入绝不写配置");
+        assert_eq!(v.toast.map(|t| t.0), Some("picker.invalid"));
+    }
+
+    #[test]
+    fn valid_hex_submits_and_keeps_fill_alpha() {
+        let mut v = view();
+        v.set_client(720.0, 560.0);
+        // S-35 当前是 0x38FFFFFF（22%），输入 6 位后 alpha 必须还是 0x38
+        v.open_popup(PopupKind::ColorPicker(SettingKey::S35), 80.0, 120.0);
+        for ch in "#E5484D".chars() {
+            let _ = v.on_message(HWND::default(), MSG_CHAR, WPARAM(ch as usize), LPARAM(0));
+        }
+        let _ = v.on_message(
+            HWND::default(),
+            MSG_KEYDOWN,
+            WPARAM(VK_RETURN as usize),
+            LPARAM(0),
+        );
+        assert_eq!(
+            v.take_actions(),
+            vec![ViewAction::Set(SettingKey::S35, 0x38E5_484D)]
+        );
+        // 8 位则完全以用户输入为准
+        v.open_popup(PopupKind::ColorPicker(SettingKey::S35), 80.0, 120.0);
+        for ch in "80E5484D".chars() {
+            let _ = v.on_message(HWND::default(), MSG_CHAR, WPARAM(ch as usize), LPARAM(0));
+        }
+        let _ = v.on_message(
+            HWND::default(),
+            MSG_KEYDOWN,
+            WPARAM(VK_RETURN as usize),
+            LPARAM(0),
+        );
+        assert_eq!(
+            v.take_actions(),
+            vec![ViewAction::Set(SettingKey::S35, 0x80E5_484D)]
+        );
+    }
+
+    #[test]
+    fn end_colour_change_prompts_once_for_strategy_switch() {
+        let mut v = view();
+        v.set_client(720.0, 560.0);
+        v.open_popup(PopupKind::ColorPicker(SettingKey::S14), 80.0, 120.0);
+        let rect = match &v.popup {
+            PopupState::ColorPicker { rect, .. } => *rect,
+            other => panic!("弹层没打开: {other:?}"),
+        };
+        let r = swatch_rect(rect, 0, 1); // #FFB4AB
+        assert!(v.handle_popup_click(r.x + r.w / 2.0, r.y + r.h / 2.0));
+        assert_eq!(v.take_actions().len(), 1);
+        assert_eq!(v.toast.map(|t| t.0), Some("picker.switched"), "策略自动切换时提示一次");
+        // 已是自定义之后不再提示
+        v.toast = None;
+        v.s13_custom = true;
+        v.open_popup(PopupKind::ColorPicker(SettingKey::S14), 80.0, 120.0);
+        let rect = match &v.popup {
+            PopupState::ColorPicker { rect, .. } => *rect,
+            other => panic!("弹层没打开: {other:?}"),
+        };
+        let r = swatch_rect(rect, 1, 1); // #7A1F2B
+        assert!(v.handle_popup_click(r.x + r.w / 2.0, r.y + r.h / 2.0));
+        assert_ne!(v.toast.map(|t| t.0), Some("picker.switched"));
     }
 
     #[test]

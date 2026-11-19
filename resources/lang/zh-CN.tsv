@@ -154,3 +154,10 @@ common.disabled	已停用
 common.copy_ok	版本号已复制
 common.export_ok	诊断包已生成
 common.region_preview	采样框随上方滑块实时更新
+picker.hex	HEX
+picker.on_dark	深色背景上使用
+picker.on_light	浅色背景上使用
+picker.fill	填充与描边色
+picker.more	更多颜色…
+picker.invalid	颜色格式不对：需要 6 位或 8 位十六进制
+picker.switched	已切换为自定义配色

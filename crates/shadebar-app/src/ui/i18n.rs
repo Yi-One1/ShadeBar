@@ -45,9 +45,38 @@ pub const OPT_INJECT_FAIL: &[&str] = &["opt.inject.once", "opt.inject.silent", "
 pub const OPT_LOG_LEVEL: &[&str] = &["opt.log.error", "opt.log.warn", "opt.log.info", "opt.log.debug"];
 /// S-47 判定粒度。
 pub const OPT_JUDGE_MODE: &[&str] = &["opt.judge.region", "opt.judge.global"];
-/// ARGB 颜色控件的预设色板（Hex 字面量，不是待翻译文案）。
-pub const OPT_COLOR_PRESETS: &[&str] = &[
-    "#FFFFFF", "#000000", "#38FFFFFF", "#FF3860", "#38D996", "#FFC857",
+/// 颜色弹层的预设色板：**按用途分三组**，每组 6 色排成一行。
+///
+/// # 分工（这是"按 key 选组"的依据，见 `ui::swatch_groups_for`）
+///
+/// | 组 | key | 用在哪 | 是什么 |
+/// |---|---|---|---|
+/// | A | `picker.on_dark` | S-14 亮端色 | **文字色**：深色背景上用 |
+/// | B | `picker.on_light` | S-15 暗端色 | **文字色**：浅色背景上用 |
+/// | C | `picker.fill` | S-35 / S-37 | **填充/描边色**：半透明叠在任务栏上 |
+///
+/// 三组不能混：文字色要保证对比度（A 组每个值在深背景 ≥9.5:1、B 组在浅背景
+/// ≥8.0:1），填充色要保证两种背景上都看得见（每个值双背景 ≥3.31:1）。
+/// 曾经三组共用一份模板，结果是"调文字色看到 6 个饱和强调色、调指示条看到
+/// 6 个近白色"——每一格都不能用。
+///
+/// # 排序轴（三组一致）
+///
+/// 位置 1 固定默认色（`#FFFFFF` / `#000000` / 首选项），2–6 按色相
+/// 红→琥珀→绿→蓝→紫；组内明度极差 ≤1.3，扫一眼就能定位。
+pub const COLOR_SWATCH_GROUPS: &[(&str, [&str; 6])] = &[
+    (
+        "picker.on_dark",
+        ["#FFFFFF", "#FFB4AB", "#FFD08A", "#A6E3A1", "#9CCBFF", "#D9B8FF"],
+    ),
+    (
+        "picker.on_light",
+        ["#000000", "#7A1F2B", "#663C00", "#0F5132", "#1B4A82", "#5B2A85"],
+    ),
+    (
+        "picker.fill",
+        ["#E5484D", "#C96A00", "#12855A", "#0E8D8D", "#3B82F6", "#8B5CF6"],
+    ),
 ];
 
 /// 除设置项标签/说明/选项与分组标题之外的 UI 文案 key（A-25 逐项核对用）。
@@ -71,6 +100,9 @@ pub const UI_KEYS: &[&str] = &[
     "dlg.restore.title", "dlg.restore.body", "dlg.confirm", "dlg.cancel",
     // 关于页
     "about.title", "about.version", "about.license", "about.known_limits", "about.copy_version",
+    // 颜色弹层（色板组标题 / HEX / 更多颜色 / 非法输入 / 策略自动切换）
+    "picker.hex", "picker.more", "picker.on_dark", "picker.on_light", "picker.fill",
+    "picker.invalid", "picker.switched",
     // 通用
     "common.on", "common.off", "common.enabled", "common.disabled",
     "common.copy_ok", "common.export_ok", "common.region_preview",
@@ -205,7 +237,26 @@ mod tests {
         assert_eq!(OPT_CLOSE.len(), 2);
         assert_eq!(OPT_INJECT_FAIL.len(), 3);
         assert_eq!(OPT_LOG_LEVEL.len(), 4);
-        assert_eq!(OPT_COLOR_PRESETS.len(), 6);
+        assert_eq!(COLOR_SWATCH_GROUPS.len(), 3);
+        for (key, colors) in COLOR_SWATCH_GROUPS {
+            assert!(!key.is_empty());
+            assert_eq!(colors.len(), 6, "每组必须 6 色，渲染按 6 列排");
+        }
+    }
+
+    #[test]
+    fn swatch_colours_are_parseable_and_globally_unique() {
+        let mut seen: Vec<shadebar_core::color::Rgba> = Vec::new();
+        for (key, colors) in COLOR_SWATCH_GROUPS {
+            for hex in colors {
+                let c = shadebar_core::color::Rgba::parse_hex(hex)
+                    .unwrap_or_else(|| panic!("{key} 里有无法解析的色值: {hex}"));
+                assert_eq!(c.a, 255, "{hex} 必须是 6 位不透明色");
+                assert!(!seen.contains(&c), "{hex} 在色板里重复了");
+                seen.push(c);
+            }
+        }
+        assert_eq!(seen.len(), 18);
     }
 
     #[test]

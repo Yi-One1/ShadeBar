@@ -154,3 +154,10 @@ common.disabled	Disabled
 common.copy_ok	Version copied
 common.export_ok	Diagnostic bundle created
 common.region_preview	Sample frame updates with the sliders above
+picker.hex	HEX
+picker.on_dark	For dark backgrounds
+picker.on_light	For light backgrounds
+picker.fill	Fill and stroke
+picker.more	More colours...
+picker.invalid	Invalid colour: use 6 or 8 hex digits
+picker.switched	Switched to custom colours

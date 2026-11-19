@@ -187,6 +187,20 @@ impl SettingKey {
     pub const fn degraded_greyed(self) -> bool {
         matches!(self, Self::S30 | Self::S31 | Self::S32 | Self::S33 | Self::S35 | Self::S37)
     }
+
+    /// 颜色项的值规范化（写入路径 [`Config::set`] 与加载路径 [`Config::sanitize`] 共用）。
+    ///
+    /// 端色（S-14/S-15）**alpha 恒为 0xFF**：`argb_to_rgba()` 本来就丢弃 alpha
+    /// （`Rgba::opaque`），端色的半透明对屏幕零影响，留着只会让 HEX 框显示
+    /// `#80FFFFFF` 而屏幕是纯白——那种"显示值与实际效果不一致"最难排查。
+    /// S-35/S-37 是叠加在任务栏上的填充/描边色，alpha 有实际语义，必须原样保留。
+    #[must_use]
+    const fn normalize_color(self, value: i64) -> i64 {
+        match self {
+            Self::S14 | Self::S15 => value | 0xFF00_0000,
+            _ => value,
+        }
+    }
 }
 
 /// 六个分组（§6.1~§6.5 + T03.5 诊断面板）。
@@ -291,7 +305,9 @@ impl SettingMeta {
         Self { group: g, label, help, kind: ControlKind::Dropdown, default_value: def, min: 0, max: count - 1, step: 1, options }
     }
     const fn color(g: Group, label: &'static str, help: &'static str, def: i64) -> Self {
-        Self { group: g, label, help, kind: ControlKind::Color, default_value: def, min: 0, max: 0xFFFF_FFFF, step: 1, options: i18n::OPT_COLOR_PRESETS }
+        // 色板不再是"下拉选项"，而是弹层里的分组色块（见 ui::i18n::COLOR_SWATCH_GROUPS），
+        // 因此 options 为空；值域仍是 0xAARRGGBB。
+        Self { group: g, label, help, kind: ControlKind::Color, default_value: def, min: 0, max: 0xFFFF_FFFF, step: 1, options: &[] }
     }
     const fn button(g: Group, label: &'static str, help: &'static str) -> Self {
         Self { group: g, label, help, kind: ControlKind::Button, default_value: 0, min: 0, max: 0, step: 0, options: &[] }
@@ -398,11 +414,20 @@ impl Config {
 
     /// 写值并钳制；返回是否真的改变（避免无谓的落盘与 `version` 抖动）。
     pub fn set(&mut self, key: SettingKey, raw: i64) -> bool {
-        let v = key.meta().clamp(raw);
+        let v = key.normalize_color(key.meta().clamp(raw));
         if self.values[key.index()] == v {
             return false;
         }
         self.values[key.index()] = v;
+        // 端色改了但「颜色策略」还是纯黑白时，同步切到自定义。
+        // `to_engine_config()` 与 `PolicyCfg::from_config()` 在 S-13 == 0 时强制黑白，
+        // 不切的话用户选完颜色任务栏毫无反应——看起来像设置没生效。
+        if matches!(key, SettingKey::S14 | SettingKey::S15)
+            && self.values[SettingKey::S13.index()] == 0
+        {
+            self.values[SettingKey::S13.index()] = 1;
+            note("colour strategy auto-switched to custom (S-13) after end colour change");
+        }
         self.version = self.version.wrapping_add(1).max(1);
         true
     }
@@ -424,10 +449,12 @@ impl Config {
         *self = Self::default();
     }
 
-    /// 全量钳制（加载损坏配置后调用）。
+    /// 全量钳制（加载损坏配置后调用）。手改 `config.json` 写入半透明端色时，
+    /// 这里负责把 alpha 收回 0xFF，与 [`Config::set`] 完全同一套规范化。
     pub fn sanitize(&mut self) {
         for key in SettingKey::ALL {
-            self.values[key.index()] = key.meta().clamp(self.values[key.index()]);
+            let v = key.normalize_color(key.meta().clamp(self.values[key.index()]));
+            self.values[key.index()] = v;
         }
     }
 
@@ -777,6 +804,59 @@ mod tests {
         let m = SettingKey::S14.meta();
         assert_eq!(m.clamp(0x00FF_FFFF), 0x01FF_FFFF);
         assert_eq!(m.clamp(0xFFFF_FFFF), 0xFFFF_FFFF);
+    }
+
+    #[test]
+    fn end_colours_are_forced_opaque_but_fill_colours_keep_alpha() {
+        let mut c = Config::default();
+        assert!(c.set(SettingKey::S14, 0x8012_3456));
+        assert_eq!(c.get(SettingKey::S14), 0xFF12_3456, "端色 alpha 必须收回 0xFF");
+        assert!(c.set(SettingKey::S15, 0x8011_2233));
+        assert_eq!(c.get(SettingKey::S15), 0xFF11_2233);
+        // alpha=0 的输入先被 clamp 抬到 1，再被规范化为 0xFF
+        assert!(c.set(SettingKey::S15, 0x0011_2234));
+        assert_eq!(c.get(SettingKey::S15), 0xFF11_2234);
+        // S-35/S-37 的 alpha 有实际语义（默认 0x38），不能被抹平
+        assert!(!c.set(SettingKey::S35, 0x38FF_FFFF), "同值不应抖动");
+        assert_eq!(c.get(SettingKey::S35), 0x38FF_FFFF);
+        assert!(c.set(SettingKey::S35, 0x38E5_484D));
+        assert_eq!(c.get(SettingKey::S35), 0x38E5_484D);
+        assert!(c.set(SettingKey::S37, 0x20E5_484D));
+        assert_eq!(c.get(SettingKey::S37), 0x20E5_484D);
+        // 加载路径同样规范化：手改 config.json 写了半透明端色也收得回来
+        let mut d = Config::default();
+        d.values[SettingKey::S14.index()] = 0x8012_3456;
+        d.values[SettingKey::S35.index()] = 0x38FF_FFFF;
+        d.sanitize();
+        assert_eq!(d.get(SettingKey::S14), 0xFF12_3456);
+        assert_eq!(d.get(SettingKey::S35), 0x38FF_FFFF);
+    }
+
+    #[test]
+    fn changing_end_colour_switches_strategy_to_custom() {
+        let mut c = Config::default();
+        assert_eq!(c.get(SettingKey::S13), 0);
+        assert!(c.set(SettingKey::S14, 0x8012_3456));
+        assert_eq!(c.get(SettingKey::S13), 1, "端色改动必须把颜色策略切到自定义");
+        // 值没变就不该动 S-13（避免用户什么都没改却被切策略）
+        let mut d = Config::default();
+        assert!(!d.set(SettingKey::S14, 0xFFFF_FFFF));
+        assert_eq!(d.get(SettingKey::S13), 0);
+        // 已经是自定义时不再重复切换，也不报错
+        let mut e = Config::default();
+        assert!(e.set(SettingKey::S13, 1));
+        assert!(e.set(SettingKey::S15, 0xFF11_2233));
+        assert_eq!(e.get(SettingKey::S13), 1);
+        // 切到自定义后引擎侧真的用上用户色
+        let e = e.to_engine_config();
+        assert_eq!(e.judge.light_color, Rgba::opaque(255, 255, 255));
+        assert_eq!(e.judge.dark_color, Rgba::opaque(0x11, 0x22, 0x33));
+    }
+
+    #[test]
+    fn argb_to_rgba_always_drops_alpha() {
+        assert_eq!(argb_to_rgba(0x8012_3456).a, 255);
+        assert_eq!(argb_to_rgba(0x8012_3456), Rgba::opaque(0x12, 0x34, 0x56));
     }
 
     #[test]

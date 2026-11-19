@@ -51,7 +51,7 @@ use crate::tray::{
 };
 use crate::ui::theme::{self, ThemeMode};
 use crate::ui::widgets::PopupKind;
-use crate::ui::View;
+use crate::ui::{View, ViewAction};
 
 /// `DWMWA_SYSTEMBACKDROP_TYPE`（38）。
 const DWMWA_SYSTEMBACKDROP_TYPE: DWMWINDOWATTRIBUTE = DWMWINDOWATTRIBUTE(38);
@@ -327,35 +327,149 @@ fn high_word(v: isize) -> i32 {
     ((v >> 16) & 0xFFFF) as i16 as i32
 }
 
+// ---------------------------------------------------------------------------
+// 系统调色板（comdlg32）
+//
+// 只借一处系统对话框，手写 extern 声明比多开一组 windows crate feature 更轻，
+// 也不会把未知依赖带进体积门禁（NFR-01）。
+// ---------------------------------------------------------------------------
+
+/// `CHOOSECOLORW`（x64 布局，字段顺序与 winuser.h 一致）。
+#[repr(C)]
+struct ChooseColorW {
+    l_struct_size: u32,
+    hwnd_owner: isize,
+    h_instance: isize,
+    rgb_result: u32,
+    cust_colors: *mut u32,
+    flags: u32,
+    l_cust_data: isize,
+    lpfn_hook: isize,
+    template_name: *const u16,
+}
+
+#[link(name = "comdlg32")]
+extern "system" {
+    fn ChooseColorW(param: *mut ChooseColorW) -> i32;
+}
+
+/// 初始颜色生效。
+const CC_RGBINIT: u32 = 0x0000_0001;
+/// 直接展开完整对话框（调色板区域已显示）。
+const CC_FULLOPEN: u32 = 0x0000_0002;
+/// 允许任意颜色（不限于"基本颜色"）。
+const CC_ANYCOLOR: u32 = 0x0000_0100;
+
+/// 弹出系统调色板，返回 `0xAARRGGBB`；用户取消返回 `None`。
+///
+/// **alpha 必须保留**：填充色（S-35/S-37）是 `0xAARRGGBB`，对话框只处理 RGB，
+/// 若把 alpha 归零会让"半透明填充"变成全透明。端色（S-14/S-15）的 alpha
+/// 由调用方统一置 0xFF——端色是文字色，半透明对屏幕没有意义。
+fn pick_color(hwnd: HWND, current_argb: u32) -> Option<u32> {
+    let alpha = current_argb & 0xFF00_0000;
+    let r = (current_argb >> 16) & 0xFF;
+    let g = (current_argb >> 8) & 0xFF;
+    let b = current_argb & 0xFF;
+    let mut custom = [0u32; 16];
+    let mut cc = ChooseColorW {
+        l_struct_size: std::mem::size_of::<ChooseColorW>() as u32,
+        hwnd_owner: hwnd.0 as isize,
+        h_instance: 0,
+        // COLORREF 是 0x00BBGGRR，与 ARGB 的字节序相反。
+        rgb_result: r | (g << 8) | (b << 16),
+        cust_colors: custom.as_mut_ptr(),
+        flags: CC_RGBINIT | CC_FULLOPEN | CC_ANYCOLOR,
+        l_cust_data: 0,
+        lpfn_hook: 0,
+        template_name: std::ptr::null(),
+    };
+    // SAFETY: 结构体字段已全部初始化，`custom` 在调用期间存活；
+    // 对话框是模态的，返回后立刻读结果，没有悬垂引用。
+    let ok = unsafe { ChooseColorW(&mut cc) };
+    if ok == 0 {
+        return None;
+    }
+    let v = cc.rgb_result;
+    let (r, g, b) = (v & 0xFF, (v >> 8) & 0xFF, (v >> 16) & 0xFF);
+    Some(alpha | (r << 16) | (g << 8) | b)
+}
+
 /// 把输入类消息转发给 `View`，并把产生的动作回写给 `App`。
+///
+/// # 借用纪律（ChooseColorW 是模态对话框）
+///
+/// 模态对话框会跑嵌套消息循环，WM_PAINT / WM_SHADEBAR_DIAG 会重入本 WndProc。
+/// 因此 `state_mut(hwnd)` 的 `&mut WindowState` **绝不能跨过 `pick_color`**：
+/// 否则两处同时持有可变引用 = UB。这里严格三段式：短借用读 → 无借用弹对话框 →
+/// 短借用写回。中间传给对话框的只有 owned 的 `(SettingKey, u32)`。
 fn dispatch_input(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> Option<LRESULT> {
-    // SAFETY: 同一线程消息串行派发，不会与别处形成可变别名。
-    let state = unsafe { state_mut(hwnd) }?;
-    if msg == 0x0200 {
-        // WM_MOUSEMOVE：先更新悬停与 Tooltip，再设置光标。
-        let over = state.view.hit_test_and_update_cursor(low_word(lp.0), high_word(lp.0));
-        let _ = over; // 光标统一用箭头；交互态由控件自身绘制。
-        // SAFETY: 无前置条件。
-        if let Ok(cursor) = unsafe { LoadCursorW(None, IDC_ARROW) } {
-            // SAFETY: cursor 有效。
-            unsafe { SetCursor(cursor) };
+    // ① 短作用域：处理消息、取走动作、把 PickColor 需要的当前色读成 owned 值。
+    let (result, mut actions, pick_colors) = {
+        // SAFETY: 同一线程消息串行派发，且本作用域在模态调用前结束。
+        let state = unsafe { state_mut(hwnd) }?;
+        if msg == 0x0200 {
+            // WM_MOUSEMOVE：先更新悬停与 Tooltip，再设置光标。
+            let over = state.view.hit_test_and_update_cursor(low_word(lp.0), high_word(lp.0));
+            let _ = over; // 光标统一用箭头；交互态由控件自身绘制。
+            // SAFETY: 无前置条件。
+            if let Ok(cursor) = unsafe { LoadCursorW(None, IDC_ARROW) } {
+                // SAFETY: cursor 有效。
+                unsafe { SetCursor(cursor) };
+            }
+        }
+        let result = state.view.on_message(hwnd, msg, wp, lp)?;
+        let mut actions = Vec::new();
+        let mut pick_colors: Vec<(crate::config::SettingKey, u32)> = Vec::new();
+        for action in state.view.take_actions() {
+            match action {
+                ViewAction::PickColor(key) => {
+                    pick_colors.push((key, state.app.config().get(key) as u32));
+                }
+                other => actions.push(other),
+            }
+        }
+        (result, actions, pick_colors)
+    }; // 借用在此释放
+
+    // ② 无借用：模态调用期间可以安全重入 WndProc。
+    for (key, current) in pick_colors {
+        if let Some(argb) = pick_color(hwnd, current) {
+            // 系统对话框只回 RGB：端色（S-14/S-15）强制不透明，
+            // 填充色（S-35/S-37）保留进入对话框时的 alpha。
+            let argb = if matches!(
+                key,
+                crate::config::SettingKey::S14 | crate::config::SettingKey::S15
+            ) {
+                argb | 0xFF00_0000
+            } else {
+                argb
+            };
+            actions.push(ViewAction::Set(key, i64::from(argb)));
         }
     }
-    let result = state.view.on_message(hwnd, msg, wp, lp)?;
-    let actions = state.view.take_actions();
-    let changed = state.app.apply_actions(actions);
-    if changed {
-        state.app.sync_view(&mut state.view);
-        let cfg = state.app.config();
-        state.tray.refresh(
-            hwnd,
-            state.app.decision_color(),
-            cfg.get(crate::config::SettingKey::S43) != 0,
-            state.app.degraded(),
-            state.app.language(),
-            false,
-        );
+
+    // ③ 短作用域：重新借用，统一写回动作并刷新视图 / 托盘。
+    {
+        // SAFETY: 模态对话框已返回，嵌套消息循环也已退出。
+        let state = unsafe { state_mut(hwnd) }?;
+        let mut changed = false;
+        for action in actions {
+            changed |= state.app.apply_actions(vec![action]);
+        }
+        if changed {
+            state.app.sync_view(&mut state.view);
+            let cfg = state.app.config();
+            state.tray.refresh(
+                hwnd,
+                state.app.decision_color(),
+                cfg.get(crate::config::SettingKey::S43) != 0,
+                state.app.degraded(),
+                state.app.language(),
+                false,
+            );
+        }
     }
+
     // SAFETY: hwnd 有效。
     unsafe {
         let _ = InvalidateRect(hwnd, None, false);

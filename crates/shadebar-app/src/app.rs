@@ -249,6 +249,8 @@ impl App {
                         note("clipboard write failed (version shown in About page)");
                     }
                 }
+                // 系统调色板需要 HWND，由窗口层在执行前拦下；走到这里是兜底。
+                ViewAction::PickColor(_) => note("PickColor 未在窗口层处理（已忽略）"),
             }
         }
         if changed {

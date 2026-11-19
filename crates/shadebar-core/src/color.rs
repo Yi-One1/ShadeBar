@@ -115,6 +115,24 @@ impl Rgba {
     pub fn to_hex_rgb(self) -> String {
         format!("#{:02X}{:02X}{:02X}", self.r, self.g, self.b)
     }
+
+    /// WCAG 2.x 相对亮度 `0.0..=1.0`（sRGB 先线性化再加权，**忽略 alpha**）。
+    ///
+    /// 与 `stats` 的感知亮度不是一回事：本函数只服务于"这块底色上该用黑字还是白字"
+    /// 这类明暗阈值判定（阈值 0.5），不参与 §6 的对比度门槛计算（那是 T01.3 的
+    /// `contrast_ratio`）。
+    #[must_use]
+    pub fn relative_luminance(self) -> f32 {
+        fn lin(c: u8) -> f32 {
+            let s = f32::from(c) / 255.0;
+            if s <= 0.039_28 {
+                s / 12.92
+            } else {
+                ((s + 0.055) / 1.055).powf(2.4)
+            }
+        }
+        0.2126 * lin(self.r) + 0.7152 * lin(self.g) + 0.0722 * lin(self.b)
+    }
 }
 
 #[cfg(test)]
@@ -171,5 +189,18 @@ mod tests {
     #[test]
     fn hex_roundtrip_is_uppercase() {
         assert_eq!(Rgba::opaque(0xF3, 0xF3, 0xF3).to_hex_rgb(), "#F3F3F3");
+    }
+
+    #[test]
+    fn relative_luminance_spans_zero_to_one() {
+        assert!((Rgba::opaque(255, 255, 255).relative_luminance() - 1.0).abs() < 1e-6);
+        assert!(Rgba::opaque(0, 0, 0).relative_luminance().abs() < 1e-6);
+        // 勾色阈值判据：纯蓝远低于 0.5，浅黄远高于 0.5
+        assert!(Rgba::from_rgb(0x00_00FF).relative_luminance() < 0.5);
+        assert!(Rgba::from_rgb(0xFF_D0_8A).relative_luminance() > 0.5);
+        // alpha 不参与亮度
+        assert!(
+            (Rgba::new(255, 255, 255, 0x38).relative_luminance() - 1.0).abs() < 1e-6
+        );
     }
 }
