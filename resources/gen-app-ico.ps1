@@ -1,5 +1,7 @@
 ﻿# 随影 ShadeBar — 应用程序图标生成器
 #
+# 已被 gen_app_ico.py 取代，仅作溯源：本环境 Add-Type -AssemblyName System.Drawing 被安全策略拦截，脚本跑不起来。
+# 现行生成方式：python3 resources/gen_app_ico.py（纯标准库，方案 A 对角对分）。
 # 用途：生成 resources/app.ico（§4 #6）。图标是二进制资产，必须保留生成源，
 #       否则以后无法一致地重做（改配色、加尺寸）。
 #

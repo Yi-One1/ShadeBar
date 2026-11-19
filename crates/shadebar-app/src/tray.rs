@@ -5,8 +5,9 @@
 //!   从同一 HICON 缩放，不依赖外部图标文件。
 //! * 菜单 6 项全部生效（A-07）：打开设置 / 暂停自适应（勾选）/ 开机自启动（勾选）/
 //!   导出诊断包 / 关于 / 退出。
-//! * S-40 左键三选一；S-43 判定色小圆点（节流 1 Hz，由 `App` 通知节奏保证）；
-//!   降级时显示「受限」角标与 tip。
+//! * S-40 左键三选一；S-43 **状态点开关**（G4 起只控制点的显示，不再把判定色
+//!   画进图标——A 案限定三色），节流 1 Hz 由 `App` 通知节奏保证；降级时状态点
+//!   从白圆点变白方点，tip 仍显示「受限」。S-43 文案在 G5 重排时统一处理。
 //! * 权限模型：全程普通权限，无 `runas`、无提权入口（FR-20 / NFR-11）。
 
 use shadebar_core::color::Rgba;
@@ -60,10 +61,10 @@ pub struct TrayIcon {
     icon: Option<HICON>,
     /// 上一次成功呈现的外观参数。
     ///
-    /// 采样线程 1 Hz 触发一次刷新，但图标只在**判定色/色点/降级态**变化时才需要变。
-    /// 不做这个缓存的话，每秒都要重建一次 HICON 并走一次 `Shell_NotifyIcon`
-    /// （要过 explorer 的 IPC），实测常驻 CPU 因此被顶到 1% 以上（NFR-03 要求 ≤ 0.1%）。
-    last_look: Option<(Rgba, bool, bool, Lang)>,
+    /// 采样线程 1 Hz 触发一次刷新，但图标只在**状态点/降级态/语言**变化时才需要变。
+    /// 判定色自 G4 起不参与图标（A 案限定三色），所以不再进缓存键——否则每秒
+    /// 都会重建 HICON 并走一次 `Shell_NotifyIcon`（explorer IPC），常驻 CPU 被顶高。
+    last_look: Option<(bool, bool, Lang)>,
 }
 
 impl TrayIcon {
@@ -71,7 +72,7 @@ impl TrayIcon {
     #[must_use]
     pub fn add(
         hwnd: HWND,
-        decision: Option<Rgba>,
+        _decision: Option<Rgba>,
         show_dot: bool,
         degraded: bool,
         lang: Lang,
@@ -81,28 +82,31 @@ impl TrayIcon {
             icon: None,
             last_look: None,
         };
-        tray.refresh(hwnd, decision, show_dot, degraded, lang, true);
+        tray.refresh(hwnd, None, show_dot, degraded, lang, true);
         tray
     }
 
-    /// 刷新图标 / tip（S-43 判定色点、降级受限角标）。
+    /// 刷新图标 / tip（S-43 状态点开关、降级方点与受限 tip）。
+    ///
+    /// `decision` 保留在公开签名里供调用方继续传判定色（诊断面板仍要用），
+    /// 但 A 案图标只有三色，它不再影响外观，因此不进缓存键。
+    /// **不要因此删掉 S-43**：`show_dot` 仍然真实决定点是否绘制。
     pub fn refresh(
         &mut self,
         hwnd: HWND,
-        decision: Option<Rgba>,
+        _decision: Option<Rgba>,
         show_dot: bool,
         degraded: bool,
         lang: Lang,
         first: bool,
     ) {
-        let color = decision.unwrap_or(Rgba::opaque(255, 255, 255));
         // 外观没变就不碰系统：`Shell_NotifyIcon` 要过 explorer 的 IPC，
         // 每秒一次足以把常驻 CPU 顶到 1% 以上。
-        let look = (color, show_dot, degraded, lang);
+        let look = (show_dot, degraded, lang);
         if !first && self.added && self.last_look == Some(look) {
             return;
         }
-        let Some(new_icon) = make_icon(color, show_dot, degraded) else {
+        let Some(new_icon) = make_icon(show_dot, degraded) else {
             return;
         };
         let tip = if degraded {
@@ -236,11 +240,66 @@ fn copy_wide(text: &str, dst: &mut [u16]) {
     }
 }
 
-/// 程序生成 16×16 BGRA 图标：圆角方块 + 可选判定色小圆点 + 受限角标。
+/// A·对分图标的三色（BGRA，DIB 口径）；不引入第四色。
+const ICON_DARK: [u8; 4] = [0x1A, 0x1A, 0x1A, 0xFF];
+const ICON_WHITE: [u8; 4] = [0xFF, 0xFF, 0xFF, 0xFF];
+const ICON_GRAY: [u8; 4] = [0x8A, 0x8A, 0x8A, 0xFF];
+const ICON_CLEAR: [u8; 4] = [0x00, 0x00, 0x00, 0x00];
+
+/// 点是否落在圆角矩形里（角心用 clamp 求，四角才是圆弧而不是尖角）。
+fn in_rounded_rect(u: f32, v: f32, lo: f32, hi: f32, r: f32) -> bool {
+    let cx = u.clamp(lo + r, hi - r);
+    let cy = v.clamp(lo + r, hi - r);
+    (u - cx) * (u - cx) + (v - cy) * (v - cy) <= r * r
+}
+
+/// A·对分图标的一个像素（BGRA）。**纯函数**：渲染与单测共用同一份几何。
+///
+/// 逻辑坐标是 concept 稿的 32×32 viewBox；16 px 时在像素中心采样。
+/// 外框 `[1,31] r=7`、内裁剪 `[3,29] r=5`，两者角心相同，故灰边等宽 2 逻辑
+/// 单位（16 px 下取整为 1 px）。左上深色三角界 `u+v<=32`，右下浅色三角界
+/// `u+v>=35`，中间 3 逻辑单位露出灰色中缝（16 px 下 1 行像素）。
+/// 状态点在左下深半区 `(7,20)`，直径 6/32 ≈ 边长 18%；正常圆点、降级方点。
+#[must_use]
+fn icon_pixel(x: usize, y: usize, show_dot: bool, degraded: bool) -> [u8; 4] {
+    let scale = 32.0 / ICON_SIZE as f32;
+    let u = (x as f32 + 0.5) * scale;
+    let v = (y as f32 + 0.5) * scale;
+
+    if !in_rounded_rect(u, v, 1.0, 31.0, 7.0) {
+        return ICON_CLEAR;
+    }
+    if !in_rounded_rect(u, v, 3.0, 29.0, 5.0) {
+        return ICON_GRAY;
+    }
+    let total = u + v;
+    let base = if total <= 32.0 {
+        ICON_DARK
+    } else if total >= 35.0 {
+        ICON_WHITE
+    } else {
+        ICON_GRAY // 中缝：与外框同色，不是黑白主体
+    };
+    if show_dot && base == ICON_DARK {
+        let dx = u - 7.0;
+        let dy = v - 20.0;
+        let inside = if degraded {
+            dx.abs() <= 3.0 && dy.abs() <= 3.0
+        } else {
+            dx * dx + dy * dy <= 3.0 * 3.0
+        };
+        if inside {
+            return ICON_WHITE;
+        }
+    }
+    base
+}
+
+/// 程序生成 16×16 BGRA 图标：A·对分方砖 + 可选白色状态点。
 ///
 /// 用 32bpp `CreateDIBSection` 直接写像素，`CreateIconIndirect` 生成 HICON；
-/// 不引入任何图像库，守住体积门禁。
-fn make_icon(color: Rgba, show_dot: bool, degraded: bool) -> Option<HICON> {
+/// 不引入任何图像库，守住体积门禁。像素填充全部走 [`icon_pixel`]。
+fn make_icon(show_dot: bool, degraded: bool) -> Option<HICON> {
     // SAFETY: GetDC(NULL) 取屏幕 DC，返回裸 HDC。
     let screen_dc: HDC = unsafe { GetDC(HWND::default()) };
     if screen_dc.is_invalid() {
@@ -286,41 +345,10 @@ fn make_icon(color: Rgba, show_dot: bool, degraded: bool) -> Option<HICON> {
     let pixels = unsafe { std::slice::from_raw_parts_mut(bits.cast::<u8>(), len) };
     for y in 0..ICON_SIZE {
         for x in 0..ICON_SIZE {
+            let px = icon_pixel(x as usize, y as usize, show_dot, degraded);
             let idx = ((y * ICON_SIZE + x) * 4) as usize;
-            let inside = (2..14).contains(&x) && (2..14).contains(&y);
-            // 圆角：四个角各裁掉一个像素。
-            let corner = (x == 2 || x == 13) && (y == 2 || y == 13);
-            if !inside || corner {
-                pixels[idx..idx + 4].copy_from_slice(&[0, 0, 0, 0]);
-                continue;
-            }
-            // 主体：ShadeBar 蓝（BGRA）。
-            pixels[idx..idx + 4].copy_from_slice(&[0xD4, 0x78, 0x00, 0xFF]);
-        }
-    }
-    if show_dot {
-        // 右下角判定色圆点（S-43）。
-        for y in 10..16 {
-            for x in 10..16 {
-                let dx = x - 13;
-                let dy = y - 13;
-                if dx * dx + dy * dy > 9 {
-                    continue;
-                }
-                let idx = ((y * ICON_SIZE + x) * 4) as usize;
-                if idx + 4 <= pixels.len() {
-                    pixels[idx..idx + 4].copy_from_slice(&[color.b, color.g, color.r, 0xFF]);
-                }
-            }
-        }
-    }
-    if degraded {
-        // 受限角标：右上角琥珀色 4×4。
-        for y in 2..6 {
-            for x in 10..14 {
-                let idx = ((y * ICON_SIZE + x) * 4) as usize;
-                pixels[idx..idx + 4].copy_from_slice(&[0x30, 0xC7, 0xFC, 0xFF]);
-            }
+            // BGRA：Windows DIB 是蓝在前，别按 RGB 顺序写。
+            pixels[idx..idx + 4].copy_from_slice(&px);
         }
     }
 
@@ -440,4 +468,56 @@ mod tests {
         assert_eq!((ICON_SIZE * ICON_SIZE * 4) as usize, 1024);
     }
 
+    #[test]
+    fn icon_pixel_corners_are_transparent() {
+        for (x, y) in [(0, 0), (15, 0), (0, 15), (15, 15)] {
+            assert_eq!(icon_pixel(x, y, false, false), ICON_CLEAR, "角落 ({x},{y})");
+        }
+    }
+
+    #[test]
+    fn icon_pixel_is_diagonally_split_dark_upper_left_white_lower_right() {
+        // 坐标写死为左上 / 右下，不拿函数自身当期望：界是 u+v=32 / 35。
+        assert_eq!(icon_pixel(2, 2, false, false), ICON_DARK);
+        assert_eq!(icon_pixel(13, 13, false, false), ICON_WHITE);
+        assert_eq!(icon_pixel(4, 4, false, false), ICON_DARK);
+        assert_eq!(icon_pixel(11, 11, false, false), ICON_WHITE);
+        // 另两角仍归深色侧：分界是 u+v 的斜线，不是竖线/横线
+        assert_eq!(icon_pixel(4, 11, false, false), ICON_DARK);
+        assert_eq!(icon_pixel(11, 4, false, false), ICON_DARK);
+    }
+
+    #[test]
+    fn icon_pixel_has_gray_frame_and_one_pixel_diagonal_seam() {
+        assert_eq!(icon_pixel(0, 8, false, false), ICON_GRAY, "1 px 外框");
+        // (8,7) 的 u+v=32（深），(8,8) 的 34（中缝），(8,9) 的 36（浅）
+        assert_eq!(icon_pixel(8, 7, false, false), ICON_DARK);
+        assert_eq!(icon_pixel(8, 8, false, false), ICON_GRAY);
+        assert_ne!(icon_pixel(8, 8, false, false), ICON_DARK);
+        assert_ne!(icon_pixel(8, 8, false, false), ICON_WHITE);
+        assert_eq!(icon_pixel(8, 9, false, false), ICON_WHITE);
+    }
+
+    #[test]
+    fn status_dot_is_round_or_square_in_dark_half() {
+        // 状态点落在左下深色半区，(3,9) 对应逻辑中心 (7,19)
+        assert_eq!(icon_pixel(3, 9, false, false), ICON_DARK, "无点时是深色");
+        assert_eq!(icon_pixel(3, 9, true, false), ICON_WHITE, "正常白圆点");
+        // 3×4 覆盖区：圆点去掉四角 = 8 px，方点满格 = 12 px
+        let mut round = 0;
+        let mut square = 0;
+        for y in 8..=11 {
+            for x in 2..=4 {
+                if icon_pixel(x, y, true, false) == ICON_WHITE {
+                    round += 1;
+                }
+                if icon_pixel(x, y, true, true) == ICON_WHITE {
+                    square += 1;
+                }
+            }
+        }
+        assert_eq!(round, 8, "圆点四角要被裁掉");
+        assert_eq!(square, 12, "降级方点填满 3×4");
+        assert_eq!(icon_pixel(3, 9, false, true), ICON_DARK, "关闭后不画点");
+    }
 }

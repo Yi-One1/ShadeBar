@@ -31,7 +31,7 @@ use windows::Win32::System::Threading::{GetCurrentProcess, SetProcessWorkingSetS
 use windows::Win32::UI::HiDpi::GetDpiForWindow;
 use windows::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GetClientRect,
-    GetMessageW, GetWindowLongPtrW, HMENU, IDC_ARROW, LoadCursorW, MINMAXINFO, MSG,
+    GetMessageW, GetWindowLongPtrW, HMENU, IDC_ARROW, LoadCursorW, LoadIconW, MINMAXINFO, MSG,
     PostQuitMessage, RegisterClassW, SetCursor, SetForegroundWindow, SetWindowLongPtrW,
     IsWindowVisible, SetWindowPos, ShowWindow, TranslateMessage, CS_HREDRAW, CS_VREDRAW,
     GWLP_USERDATA,
@@ -83,6 +83,13 @@ struct WindowState {
 
 /// 创建主窗口（尚不显示）。
 ///
+/// Win32 `MAKEINTRESOURCEW(id)` 的等价写法（windows 0.58 未导出该宏）。
+///
+/// 资源 ID 以伪指针的形式传进去，LoadIconW 会按 ID 解析；我们从不解引用它。
+fn make_int_resource_w(id: u16) -> PCWSTR {
+    PCWSTR(id as usize as *const u16)
+}
+
 /// # Errors
 ///
 /// 类注册、窗口创建、渲染上下文初始化或 backdrop 设置失败时返回错误。
@@ -101,6 +108,9 @@ pub fn create_main_window(app: Arc<App>) -> SbResult<HWND> {
         lpfnWndProc: Some(wndproc),
         hInstance: instance.into(),
         hCursor: unsafe { LoadCursorW(None, IDC_ARROW) }.unwrap_or_default(),
+        // 资源 ID 1 = resources/app.ico（app.rc）。标题栏与 Explorer 用同一套
+        // A·对分图标；资源加载失败也不能让窗口注册失败。
+        hIcon: unsafe { LoadIconW(instance, make_int_resource_w(1)) }.unwrap_or_default(),
         lpszClassName: PCWSTR(class.as_ptr()),
         ..Default::default()
     };
