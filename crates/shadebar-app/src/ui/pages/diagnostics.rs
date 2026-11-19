@@ -152,7 +152,7 @@ pub fn paint(ctx: &RenderCtx, palette: &Palette, lang: Lang, rect: RectDip, diag
     }
 
     // 最近 10 次采样折线（用等宽小竖条表示，避免引入几何图元依赖）。
-    let chart_top = y + 6.0;
+    let chart_top = y + row_h + 4.0;
     let chart_h = 40.0_f32;
     let chart_w = w.min(320.0);
     ctx.draw_text(

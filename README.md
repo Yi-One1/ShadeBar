@@ -63,7 +63,7 @@ CoreDispatcher 编组到 XAML UI 线程 → IVisualTreeService::SetProperty 改�
 | 权限 | 普通用户（Medium IL），`asInvoker`，**全生命周期 UAC = 0** |
 | 网络 | 完全离线，无任何出站连接 |
 | 体积 | 单 exe **628 KB**（载荷 DLL 内嵌，运行时释放到 `%LOCALAPPDATA%\ShadeBar\`） |
-| 常驻内存 | 收进托盘约 **2 MB** 工作集 / 5 MB 私有；设置页打开时约 18 MB（NFR-02 要求 ≤ 20 MB） |
+| 常驻内存 | 托盘常驻（未打开过设置）**约 15 MB 工作集 / 4 MB 私有**；打开过设置页后收进托盘约 **8–12 MB 工作集**（NFR-02 要求 ≤ 20 MB）。注意：绘制过一帧后私有提交约 41 MB 不再归还，见 §内存口径 |
 | CPU | 托盘常驻 **0.05%**（NFR-03 要求 ≤ 0.1%） |
 
 ## 与其它工具共存

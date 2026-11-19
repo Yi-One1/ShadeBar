@@ -650,6 +650,10 @@ pub struct RegionLuma {
     pub tray: Option<f32>,
     /// 任务栏运行图标区（中部）。
     pub icons: Option<f32>,
+    /// 图标区的平均颜色（诊断面板的「代表色」）。采样失败时为 `None`。
+    pub icons_rep: Option<shadebar_core::color::Rgba>,
+    /// 图标区实际参与统计的像素数（诊断面板「有效像素」）。
+    pub icons_px: u32,
 }
 
 /// 常驻的分区采样器：**一次 BitBlt 抓条带，再从内存取点**。
@@ -703,18 +707,23 @@ impl RegionSampler {
         let rows = [3 + dy, 5 + dy, 7 + dy];
 
         // 行内按步长抽样后取三行中位数（与原实现同口径）。
-        let measure = |x_ratio0: f32, x_ratio1: f32| -> Option<f32> {
+        // 同时累计平均色与有效像素数，供诊断面板显示「代表色 / 有效像素」。
+        let measure = |x_ratio0: f32, x_ratio1: f32| -> (Option<f32>, Option<shadebar_core::color::Rgba>, u32) {
             let x0 = (width as f32 * x_ratio0) as u32;
             let x1 = (width as f32 * x_ratio1) as u32;
             if x1 <= x0 {
-                return None;
+                return (None, None, 0);
             }
             let step = ((x1 - x0) / 96).max(1);
             let mut row_vals: Vec<f32> = Vec::with_capacity(rows.len());
+            let (mut sr, mut sg, mut sb) = (0u64, 0u64, 0u64);
+            let mut total = 0u32;
+            let mut rows_used = 0u32;
             for ry in rows {
                 if ry >= BAND_HEIGHT_PX {
                     continue;
                 }
+                rows_used += 1;
                 let mut sum = 0.0f64;
                 let mut n = 0u32;
                 let mut x = x0;
@@ -726,6 +735,10 @@ impl RegionSampler {
                         let r = f32::from(px[2]);
                         sum += f64::from(0.2126 * r + 0.7152 * g + 0.0722 * b);
                         n += 1;
+                        sr += u64::from(px[2]);
+                        sg += u64::from(px[1]);
+                        sb += u64::from(px[0]);
+                        total += 1;
                     }
                     x += step;
                 }
@@ -734,15 +747,28 @@ impl RegionSampler {
                 }
             }
             row_vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-            row_vals.get(row_vals.len() / 2).copied()
+            let luma = row_vals.get(row_vals.len() / 2).copied();
+            let rep = if total > 0 {
+                Some(shadebar_core::color::Rgba::opaque(
+                    (sr / u64::from(total)) as u8,
+                    (sg / u64::from(total)) as u8,
+                    (sb / u64::from(total)) as u8,
+                ))
+            } else {
+                None
+            };
+            // 「有效像素」按区域实际可用像素数报，不是抽样点数：
+            // 抽样是每行固定约 96 点（性能考虑），拿它比 `SMALL_REGION_VALID_PX`
+            // （1500，按真实像素定的）会永远误报"采样区过小"。
+            (luma, rep, (x1 - x0).saturating_mul(rows_used))
         };
 
         // 时钟贴最右、托盘紧随其左，图标区范围可调（S-20/S-21）。
-        let clock = measure(0.93, 0.99);
-        let tray = measure(0.84, 0.93);
+        let (clock, _, _) = measure(0.93, 0.99);
+        let (tray, _, _) = measure(0.84, 0.93);
         let (i0, i1) = region.icons_span();
-        let icons = measure(i0, i1);
-        RegionLuma { clock, tray, icons }
+        let (icons, icons_rep, icons_px) = measure(i0, i1);
+        RegionLuma { clock, tray, icons, icons_rep, icons_px }
     }
 }
 
@@ -836,7 +862,12 @@ impl RecolorService {
     ///
     /// # Errors
     /// 共享内存创建失败时返回错误（此时不启动线程）。
-    pub fn start(dll_path: std::path::PathBuf, cfg: RuntimeCfg) -> Result<Self, String> {
+    pub fn start(
+        dll_path: std::path::PathBuf,
+        cfg: RuntimeCfg,
+        diag: Arc<Mutex<crate::ui::pages::diagnostics::DiagView>>,
+        hwnd_bits: Arc<std::sync::atomic::AtomicIsize>,
+    ) -> Result<Self, String> {
         let mut ipc = Ipc::create()?;
         // 初始下发"未启用"，等第一拍判定后再 apply
         ipc.restore();
@@ -844,11 +875,19 @@ impl RecolorService {
         let stop_thread = Arc::clone(&stop);
         let shared = Arc::new(Mutex::new(cfg));
         let cfg_thread = Arc::clone(&shared);
+        let diag_thread = Arc::clone(&diag);
 
         let handle = std::thread::Builder::new()
             .name("shadebar-recolor".to_string())
             .spawn(move || {
-                run_loop(&mut ipc, &dll_path, &cfg_thread, &stop_thread);
+                run_loop(
+                    &mut ipc,
+                    &dll_path,
+                    &cfg_thread,
+                    &stop_thread,
+                    &diag_thread,
+                    &hwnd_bits,
+                );
             })
             .map_err(|e| format!("spawn recolor thread failed: {e}"))?;
 
@@ -883,6 +922,8 @@ fn run_loop(
     dll_path: &std::path::Path,
     shared: &Mutex<RuntimeCfg>,
     stop: &AtomicBool,
+    diag: &Mutex<crate::ui::pages::diagnostics::DiagView>,
+    hwnd_bits: &std::sync::atomic::AtomicIsize,
 ) {
     let mut j_clock = RegionJudge::default();
     let mut j_tray = RegionJudge::default();
@@ -891,6 +932,7 @@ fn run_loop(
     let mut last_plan = ColorPlan::NONE;
     let mut ticks: u32 = 0;
     let mut sampler = RegionSampler::new();
+    let mut last_diag_post = std::time::Instant::now();
 
     while !stop.load(Ordering::SeqCst) {
         let cfg = shared.lock().map(|g| *g).unwrap_or_default();
@@ -923,7 +965,9 @@ fn run_loop(
         }
 
         // 2) 采样 + 判定（S-11 关闭时不再采样，沿用上次判定色）
+        let t_sample = std::time::Instant::now();
         let luma = if cfg.follow { sampler.sample(&cfg.region) } else { RegionLuma::default() };
+        let cost_us = u64::try_from(t_sample.elapsed().as_micros()).unwrap_or(u64::MAX);
         if let Some(v) = luma.clock {
             j_clock.update(v, &cfg.policy);
         }
@@ -970,6 +1014,42 @@ fn run_loop(
             },
             mask: cfg.mask,
         };
+
+        // 3.5) 回传诊断数据（只写纯数据；UI 线程自己决定何时重绘）
+        if cfg.follow {
+            if let Ok(mut d) = diag.lock() {
+                d.has_data = true;
+                d.seq = d.seq.wrapping_add(1);
+                if let Some(v) = luma.icons {
+                    let ym = (v * 1000.0) as u32;
+                    d.y_milli = ym;
+                    d.push_y(ym);
+                }
+                if let Some(rep) = luma.icons_rep {
+                    d.rep_color = rep;
+                    d.contrast_milli = (shadebar_core::engine::contrast_ratio(rep, fg_icons) * 1000.0) as u32;
+                }
+                d.decision_color = fg_icons;
+                d.valid_px = luma.icons_px;
+                d.cost_us = cost_us;
+                d.samples = d.samples.wrapping_add(1);
+                d.timestamp_ms = ticks as u64 * u64::from(cfg.interval_ms);
+            }
+            // 1 Hz 唤醒 UI：视图与托盘色点都靠这条消息刷新。
+            // v1.1 之前由引擎线程发；采样搬到这里后没人发了，面板与色点会一直不更新。
+            if last_diag_post.elapsed() >= Duration::from_millis(1000) {
+                last_diag_post = std::time::Instant::now();
+                let bits = hwnd_bits.load(Ordering::Relaxed);
+                if bits != 0 {
+                    crate::ipc_server::post_to_main(
+                        windows::Win32::Foundation::HWND(bits as *mut core::ffi::c_void),
+                        crate::ipc_server::WM_SHADEBAR_DIAG,
+                        0,
+                        0,
+                    );
+                }
+            }
+        }
 
         // 4) 变化才下发，避免无谓唤醒载荷
         if plan != last_plan {

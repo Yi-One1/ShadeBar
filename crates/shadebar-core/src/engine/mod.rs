@@ -39,7 +39,7 @@ pub use mask::{MaskKind, MaskRect, MaskSet};
 pub use sampler::{
     Clock, ConfigSource, DecisionSink, DiagSink, DiagSnapshot, Judge, Judgement, LumaHistogram,
     LoopReport, PowerSource, SampleOutcome, SampleStats, SamplerLoop, Side, SkipReason, Sleeper,
-    StopToken, TickOutcome, sample_once,
+    StopToken, TickOutcome, contrast_ratio, sample_once,
 };
 pub use screen::{ScreenBuffer, ScreenInfo, ScreenSource};
 pub use taskbar::{

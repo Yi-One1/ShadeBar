@@ -47,7 +47,7 @@ use crate::ipc_server::{
 use crate::render::{self, RenderCtx};
 use crate::tray::{
     MENU_ABOUT, MENU_AUTOSTART, MENU_EXIT, MENU_EXPORT, MENU_ID_BASE, MENU_OPEN, MENU_PAUSE,
-    TRAY_LBUTTONUP, TRAY_RBUTTONUP, TrayIcon, handle_left_click, menu_id, tray_event,
+    TRAY_RBUTTONUP, TrayIcon, handle_left_click, is_left_click, menu_id, tray_event,
 };
 use crate::ui::theme::{self, ThemeMode};
 use crate::ui::widgets::PopupKind;
@@ -525,7 +525,7 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRES
                 if let Some(state) = state_mut(hwnd) {
                     let cfg = state.app.config();
                     let lang = state.app.language();
-                    if ev == TRAY_LBUTTONUP {
+                    if is_left_click(ev) {
                         handle_left_click(hwnd, &cfg, lang);
                     } else if ev == TRAY_RBUTTONUP {
                         TrayIcon::show_menu(hwnd, &cfg, lang);

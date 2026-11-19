@@ -35,7 +35,8 @@ const MSG_KEYDOWN: u32 = 0x0100;
 const MSG_CHAR: u32 = 0x0102;
 
 /// 诊断卡片展开后的正文高度（dip）。
-const DIAG_CARD_H: f32 = 320.0;
+/// 8 行指标 + 折线 + 两条预警的实际内容高度约 346 dip，留一点余量。
+const DIAG_CARD_H: f32 = 360.0;
 /// 诊断卡片标题行高度（dip）。收起态只占这一行，点它展开。
 const DIAG_HEAD_H: f32 = 44.0;
 /// 下拉单项高度（dip）。
@@ -362,15 +363,8 @@ impl View {
                     RectDip::new(dr.x, dtop + DIAG_HEAD_H, dr.w, dr.h - DIAG_HEAD_H),
                     &self.diag,
                 );
-                // 采样区过小预警叠加在诊断卡片底部（T03.4 判据⑥，红色）。
-                if self.diag.region_small() {
-                    ctx.draw_text(
-                        i18n::text("banner.region_small", self.lang),
-                        RectDip::new(dr.x + 16.0, dtop + dr.h - 24.0, dr.w - 32.0, 20.0),
-                        TextRole::Body,
-                        palette.danger,
-                    );
-                }
+                // 采样区过小的预警由 `paint_diagnostics` 自己在正文末尾画，
+                // 这里不再叠加（v1.2.0 曾重复画两遍）。
             }
         }
 

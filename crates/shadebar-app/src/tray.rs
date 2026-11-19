@@ -346,10 +346,23 @@ fn make_icon(color: Rgba, show_dot: bool, degraded: bool) -> Option<HICON> {
     icon
 }
 
-/// 托盘消息 `LPARAM` 低字：左键抬起。
-pub const TRAY_LBUTTONUP: u32 = 0x0402;
+/// 托盘消息 `LPARAM` 低字：左键抬起（`WM_LBUTTONUP`）。
+///
+/// **不要写成 `0x0402`**：那是 `NIN_BALLOONSHOW`（气泡开始显示），
+/// 会让"弹出首启气泡"被当成"用户左键点了托盘"，直接弹出设置窗口（v1.2.0 前的真实缺陷）。
+pub const TRAY_LBUTTONUP: u32 = 0x0202;
+/// `NIN_SELECT`：新版托盘回调里的"选择"，语义等同左键。
+pub const TRAY_NIN_SELECT: u32 = 0x0400;
+/// `NIN_KEYSELECT`：键盘回车选中，同样按左键处理。
+pub const TRAY_NIN_KEYSELECT: u32 = 0x0401;
 /// 托盘消息 `LPARAM` 低字：右键抬起。
 pub const TRAY_RBUTTONUP: u32 = 0x0205;
+
+/// 该托盘事件是否应视为"左键点击"。
+#[must_use]
+pub const fn is_left_click(ev: u32) -> bool {
+    matches!(ev, TRAY_LBUTTONUP | TRAY_NIN_SELECT | TRAY_NIN_KEYSELECT)
+}
 
 /// 把 `WM_SHADEBAR_TRAY` 的 LPARAM 低字解析成动作。
 #[must_use]
@@ -387,6 +400,17 @@ mod tests {
         let mut empty = [1u16; 4];
         copy_wide("", &mut empty);
         assert_eq!(empty[3], 0);
+    }
+
+    #[test]
+    fn balloon_show_is_not_a_left_click() {
+        // 0x0402 是 NIN_BALLOONSHOW，曾被误当作 "左键抬起"：
+        // 首启气泡一弹出就弹出设置窗口。这条断言锁死该回归。
+        assert_ne!(TRAY_LBUTTONUP, 0x0402);
+        assert!(!is_left_click(0x0402), "NIN_BALLOONSHOW 不是左键");
+        assert!(is_left_click(0x0202), "WM_LBUTTONUP 是左键");
+        assert!(is_left_click(0x0400), "NIN_SELECT 也按左键处理");
+        assert!(is_left_click(0x0401), "NIN_KEYSELECT 也按左键处理");
     }
 
     #[test]

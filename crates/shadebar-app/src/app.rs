@@ -50,13 +50,15 @@ struct AppState {
 pub struct App {
     state: Mutex<AppState>,
     /// 主窗口 `HWND` 的位模式（原子存取，避免跨线程持有句柄）。
-    hwnd_bits: AtomicIsize,
+    hwnd_bits: Arc<AtomicIsize>,
     /// 采样线程停止标志。
     stop: AtomicBool,
     /// 采样线程是否已启动（防止重复 spawn）。
     started: AtomicBool,
     /// 任务栏配色服务（独立线程 + 注入载荷）。
     recolor: Mutex<Option<crate::recolor::RecolorService>>,
+    /// 配色服务回传的诊断数据（采样线程写、`sync_view` 读）。
+    diag_live: Arc<Mutex<DiagView>>,
 }
 
 impl App {
@@ -75,10 +77,11 @@ impl App {
                 last_post_ms: 0,
                 last_sample_seq: 0,
             }),
-            hwnd_bits: AtomicIsize::new(0),
+            hwnd_bits: Arc::new(AtomicIsize::new(0)),
             stop: AtomicBool::new(false),
             started: AtomicBool::new(false),
             recolor: Mutex::new(None),
+            diag_live: Arc::new(Mutex::new(DiagView::default())),
         })
     }
 
@@ -103,6 +106,9 @@ impl App {
     /// 当前判定色（S-43 托盘小圆点）。
     #[must_use]
     pub fn decision_color(&self) -> Option<Rgba> {
+        // 窗口隐藏时 `sync_view` 会被跳过，但托盘小圆点仍然可见，
+        // 所以这里也要先并入采样线程回传的数据。
+        self.pull_diag();
         let st = self.lock();
         if st.diag.has_data { Some(st.decision_color) } else { None }
     }
@@ -165,7 +171,12 @@ impl App {
             self.mark_degraded(true, "payload dll unavailable");
             return;
         };
-        match crate::recolor::RecolorService::start(dll, cfg) {
+        match crate::recolor::RecolorService::start(
+            dll,
+            cfg,
+            Arc::clone(&self.diag_live),
+            Arc::clone(&self.hwnd_bits),
+        ) {
             Ok(svc) => *slot = Some(svc),
             Err(e) => {
                 drop(slot);
@@ -248,8 +259,29 @@ impl App {
         changed
     }
 
+    /// 把采样线程回传的诊断数据并入共享状态。
+    ///
+    /// v1.1 起真正的采样在 `RecolorService` 线程里，`publish_diag` 读的引擎侧
+    /// 已经没有决策数据，面板与托盘色点会一直是空的（progress §3.7）。
+    fn pull_diag(&self) {
+        // 先取快照再放锁，避免与 state 锁嵌套（采样线程也会拿 diag 锁）。
+        let snapshot = self
+            .diag_live
+            .lock()
+            .ok()
+            .filter(|d| d.has_data)
+            .map(|d| d.clone());
+        let Some(snapshot) = snapshot else { return };
+        let mut st = self.lock();
+        st.decision_color = snapshot.decision_color;
+        if st.diag != snapshot {
+            st.diag = snapshot;
+        }
+    }
+
     /// 用最新状态刷新 View（在 `WM_PAINT` 与动作之后调用）。
     pub fn sync_view(&self, view: &mut View) {
+        self.pull_diag();
         let st = self.lock();
         let cfg = st.config.clone();
         let diag = st.diag.clone();
