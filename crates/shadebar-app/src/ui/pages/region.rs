@@ -1,13 +1,18 @@
-//! 页面 3：采样区域微调（3 项；实时预览 S-23 尚未落地，v1.1 从 UI 收起）。
+//! 页面 3：采样区域微调（6 项；实时预览 S-23 尚未落地，v1.1 从 UI 收起）。
 //!
 //! v1.1 起采样改为"任务栏自身条带 + 三行中位数"，因此 S-20/S-21 只作用于
 //! 中部图标区，S-22 表示采样带相对顶边的垂直偏移（像素）。
+//! v1.2.x 起本页顶部新增三个**分区自适应开关**（S-48~S-50）：关掉某区，
+//! 该区元素写回系统原色，其余分区不受影响。
 
 use crate::config::{Lang, SettingKey};
 use crate::ui::i18n;
 
 /// 本页设置项。
 pub const KEYS: &[SettingKey] = &[
+    SettingKey::S48,
+    SettingKey::S49,
+    SettingKey::S50,
     SettingKey::S20,
     SettingKey::S21,
     SettingKey::S22,
@@ -34,11 +39,15 @@ mod tests {
     use crate::config::{Config, Group};
 
     #[test]
-    fn region_page_has_3_items_in_region_group() {
-        assert_eq!(KEYS.len(), 3);
+    fn region_page_has_3_switches_and_3_sliders_in_region_group() {
+        assert_eq!(KEYS.len(), 6);
         for k in KEYS {
             assert_eq!(k.meta().group, Group::Region);
         }
+        // 分区开关排在滑块前面：它们决定"哪个区参与着色"，比微调更常用。
+        assert_eq!(KEYS[0], SettingKey::S48);
+        assert_eq!(KEYS[1], SettingKey::S49);
+        assert_eq!(KEYS[2], SettingKey::S50);
     }
 
     #[test]

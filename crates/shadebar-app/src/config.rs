@@ -23,7 +23,7 @@ use shadebar_core::{SbError, SbResult};
 use crate::ui::i18n;
 
 /// 设置项总数（§6 口径，S-35/S-37 的 ARGB alpha 滑块是控件内置能力，不另计数）。
-pub const SETTING_COUNT: usize = 36;
+pub const SETTING_COUNT: usize = 39;
 
 /// 设置项编号。顺序与 §6 表格一致，`as usize` 即值表下标。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -71,10 +71,14 @@ pub enum SettingKey {
     // 6.6 判定粒度（1）—— 新增项一律追加在末尾，
     // 保证 `as usize` 的既有下标不漂移，旧 config.json 仍能按原位置读回。
     S47,
+    // 6.7 分区自适应开关（3，S-48 ~ S-50）—— 关掉某区即该区元素写回系统原色。
+    S48,
+    S49,
+    S50,
 }
 
 impl SettingKey {
-    /// 全部 36 项，按 §6 顺序。
+    /// 全部 39 项，按 §6 顺序。
     pub const ALL: [Self; SETTING_COUNT] = [
         Self::S01, Self::S02, Self::S03, Self::S04, Self::S05, Self::S06,
         Self::S10, Self::S11, Self::S12, Self::S13, Self::S14, Self::S15, Self::S16,
@@ -84,6 +88,7 @@ impl SettingKey {
         Self::S36, Self::S37,
         Self::S40, Self::S41, Self::S42, Self::S43, Self::S44, Self::S45, Self::S46,
         Self::S47,
+        Self::S48, Self::S49, Self::S50,
     ];
 
     /// 值表下标。
@@ -108,6 +113,7 @@ impl SettingKey {
             Self::S37 => "S-37", Self::S40 => "S-40", Self::S41 => "S-41",
             Self::S42 => "S-42", Self::S43 => "S-43", Self::S44 => "S-44",
             Self::S45 => "S-45", Self::S46 => "S-46", Self::S47 => "S-47",
+            Self::S48 => "S-48", Self::S49 => "S-49", Self::S50 => "S-50",
         }
     }
 
@@ -134,6 +140,11 @@ impl SettingKey {
             Self::S19 => SettingMeta::toggle(G::Color, "s19", "s19.help", 0),
             // 判定粒度：0 = 分区独立（默认），1 = 全任务栏统一
             Self::S47 => SettingMeta::dropdown(G::Color, "s47", "s47.help", 0, 2, i18n::OPT_JUDGE_MODE),
+            // S-48~S-50：分区自适应开关。关掉某区 = 该区元素写回系统原色，
+            // 不是"停止判定"——判定照常跑，只是不下发该区的颜色。
+            Self::S48 => SettingMeta::toggle(G::Region, "s48", "s48.help", 1),
+            Self::S49 => SettingMeta::toggle(G::Region, "s49", "s49.help", 1),
+            Self::S50 => SettingMeta::toggle(G::Region, "s50", "s50.help", 1),
             Self::S20 => SettingMeta::slider(G::Region, "s20", "s20.help", 0, 0, 50, 1),
             Self::S21 => SettingMeta::slider(G::Region, "s21", "s21.help", 100, 10, 100, 1),
             Self::S22 => SettingMeta::slider(G::Region, "s22", "s22.help", 0, 0, 45, 1),

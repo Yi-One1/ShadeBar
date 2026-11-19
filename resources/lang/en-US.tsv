@@ -43,7 +43,7 @@ s19.help	Also changes Start menu and Control Center colors; fallback only, not t
 s20	Icon area start
 s20.help	Percentage of taskbar width; use it to skip strong colour blocks in the wallpaper
 s21	Icon area width
-s21.help	Width of the icon-area sample band as a percentage of the taskbar; 100% by default
+s21.help	Width of the icon-area sample band as a percentage of the taskbar; 100% stops at the tray edge (84%)
 s22	Sample band offset
 s22.help	Pixels to shift the sample band down from the taskbar top edge
 s23	Sample region preview
@@ -55,7 +55,7 @@ s31.help	Date text darkens or lightens to match the local background
 s32	System tray icons
 s32.help	System glyph icons such as network, volume and battery; app-drawn icons stay untouched
 s33	Running indicator bar (normal state)
-s33.help	The short bar under running icons; the selected state keeps the system accent colour
+s33.help	The short bar under running icons; normal and selected states share one target colour
 s34	Indicator bar color source
 s34.help	Independent from the hover block; the two never affect each other
 s35	Fixed indicator color
@@ -90,6 +90,12 @@ opt.source.adaptive	Follow adaptive
 opt.source.fixed	Independent fixed color
 s47	Judgement granularity
 s47.help	Per region: judged separately; Global: one average shared by all elements
+s48	Clock area adaptive colour
+s48.help	When off, time and date keep the system colour
+s49	Tray area adaptive colour
+s49.help	When off, system tray icons keep the system colour
+s50	Icon area adaptive colour
+s50.help	When off, running indicators keep the system colour
 opt.judge.region	Per region
 opt.judge.global	Global
 opt.left.settings	Open settings

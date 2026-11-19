@@ -614,9 +614,17 @@ pub struct RegionCfg {
     pub top_offset_px: u8,
 }
 
+/// 时钟区横向范围（占任务栏宽度）。
+pub const CLOCK_SPAN: (f32, f32) = (0.93, 0.99);
+/// 托盘图标区横向范围（紧贴时钟左侧）。
+pub const TRAY_SPAN: (f32, f32) = (0.84, 0.93);
+/// 图标区采样上限：不得越过托盘区起点。
+pub const ICONS_SPAN_MAX: f32 = TRAY_SPAN.0;
+
 impl Default for RegionCfg {
     fn default() -> Self {
-        // 默认覆盖整条任务栏：中位数采样本身抗图标干扰，不必预先缩小范围
+        // 默认起点 0 / 宽度 100，由 `icons_span` 卡到托盘区起点，
+        // 不会把时钟与托盘一起平均进来（详见 icons_span 的注释）。
         Self { icons_start_pct: 0, icons_width_pct: 100, top_offset_px: 0 }
     }
 }
@@ -637,7 +645,9 @@ impl RegionCfg {
     fn icons_span(self) -> (f32, f32) {
         let start = (self.icons_start_pct as f32 / 100.0).clamp(0.0, 0.5);
         let width = (self.icons_width_pct as f32 / 100.0).clamp(0.1, 1.0);
-        (start, (start + width).min(1.0))
+        // 上限卡在托盘区起点（84%）。默认 S-20=0 / S-21=100 时若一路放到 100%，
+        // 图标区会把时钟与托盘一起平均进来，左深右浅的壁纸下判定会被右侧带偏。
+        (start, (start + width).min(ICONS_SPAN_MAX))
     }
 }
 
@@ -763,9 +773,9 @@ impl RegionSampler {
             (luma, rep, (x1 - x0).saturating_mul(rows_used))
         };
 
-        // 时钟贴最右、托盘紧随其左，图标区范围可调（S-20/S-21）。
-        let (clock, _, _) = measure(0.93, 0.99);
-        let (tray, _, _) = measure(0.84, 0.93);
+        // 时钟贴最右、托盘紧随其左，图标区范围可调（S-20/S-21），但不得越进托盘区。
+        let (clock, _, _) = measure(CLOCK_SPAN.0, CLOCK_SPAN.1);
+        let (tray, _, _) = measure(TRAY_SPAN.0, TRAY_SPAN.1);
         let (i0, i1) = region.icons_span();
         let (icons, icons_rep, icons_px) = measure(i0, i1);
         RegionLuma { clock, tray, icons, icons_rep, icons_px }
@@ -822,17 +832,22 @@ impl RuntimeCfg {
     /// 由用户配置派生。这是"设置 → 配色服务"的唯一换算点。
     #[must_use]
     pub fn from_config(c: &Config) -> Self {
+        // 掩码 = 元素开关（S-30~S-33）与分区开关（S-48~S-50）的"与"。
+        // 任一关掉，该区元素就不下发颜色，载荷会把它们写回系统原色。
+        let clock_on = c.get(SettingKey::S48) != 0;
+        let tray_on = c.get(SettingKey::S49) != 0;
+        let icons_on = c.get(SettingKey::S50) != 0;
         let mut mask = 0u32;
-        if c.get(SettingKey::S30) != 0 {
+        if clock_on && c.get(SettingKey::S30) != 0 {
             mask |= elem_mask::TIME;
         }
-        if c.get(SettingKey::S31) != 0 {
+        if clock_on && c.get(SettingKey::S31) != 0 {
             mask |= elem_mask::DATE;
         }
-        if c.get(SettingKey::S32) != 0 {
+        if tray_on && c.get(SettingKey::S32) != 0 {
             mask |= elem_mask::TRAY;
         }
-        if c.get(SettingKey::S33) != 0 {
+        if icons_on && c.get(SettingKey::S33) != 0 {
             mask |= elem_mask::INDICATOR;
         }
         Self {
@@ -1140,5 +1155,80 @@ mod tests {
         assert_eq!(p.time, 0xFFF2_F2F2);
         assert_eq!(p.indicator_normal, 0x72F2_F2F2);
         assert_eq!(p.indicator_selected, 0xFFF2_F2F2);
+    }
+
+    #[test]
+    fn region_switches_gate_element_mask() {
+        // 默认：三个分区都开，掩码全开
+        let c = Config::default();
+        assert_eq!(RuntimeCfg::from_config(&c).mask, elem_mask::ALL);
+
+        // 关时钟区：时间与日期都不下发，托盘与指示条不受影响
+        let mut c = Config::default();
+        assert!(c.set(SettingKey::S48, 0));
+        let m = RuntimeCfg::from_config(&c).mask;
+        assert_eq!(m & elem_mask::TIME, 0, "时钟区关掉后时间不得再下发");
+        assert_eq!(m & elem_mask::DATE, 0, "日期与时间同区，必须一起关");
+        assert_eq!(m & elem_mask::TRAY, elem_mask::TRAY);
+        assert_eq!(m & elem_mask::INDICATOR, elem_mask::INDICATOR);
+
+        // 关托盘区：只影响托盘字形图标
+        let mut c = Config::default();
+        assert!(c.set(SettingKey::S49, 0));
+        let m = RuntimeCfg::from_config(&c).mask;
+        assert_eq!(m & elem_mask::TRAY, 0);
+        assert_eq!(m & elem_mask::TIME, elem_mask::TIME);
+
+        // 关图标区：只影响运行指示条
+        let mut c = Config::default();
+        assert!(c.set(SettingKey::S50, 0));
+        let m = RuntimeCfg::from_config(&c).mask;
+        assert_eq!(m & elem_mask::INDICATOR, 0);
+        assert_eq!(m & elem_mask::TRAY, elem_mask::TRAY);
+    }
+
+    #[test]
+    fn element_switch_and_region_switch_are_both_required() {
+        // 分区开、元素关 → 不下发；分区关、元素开 → 也不下发。
+        let mut c = Config::default();
+        assert!(c.set(SettingKey::S33, 0));
+        assert_eq!(RuntimeCfg::from_config(&c).mask & elem_mask::INDICATOR, 0);
+
+        let mut c = Config::default();
+        assert!(c.set(SettingKey::S50, 0));
+        // S-33 默认就是开，这里只是把它写明，避免测试依赖默认值
+        assert_eq!(c.get(SettingKey::S33), 1);
+        assert_eq!(RuntimeCfg::from_config(&c).mask & elem_mask::INDICATOR, 0);
+    }
+
+    #[test]
+    fn icons_span_never_reaches_tray_region() {
+        // 默认 0/100：上限必须停在托盘区起点，否则左深右浅的壁纸会把左侧判定带偏
+        let (a, b) = RegionCfg { icons_start_pct: 0, icons_width_pct: 100, top_offset_px: 0 }
+            .icons_span();
+        assert_eq!(a, 0.0);
+        assert_eq!(b, TRAY_SPAN.0, "图标区不得越进托盘区");
+
+        // 起点抬到 40% 时同样被卡住
+        let (_, b) = RegionCfg { icons_start_pct: 40, icons_width_pct: 100, top_offset_px: 0 }
+            .icons_span();
+        assert_eq!(b, TRAY_SPAN.0);
+
+        // 小范围不受影响
+        let (a, b) = RegionCfg { icons_start_pct: 10, icons_width_pct: 30, top_offset_px: 0 }
+            .icons_span();
+        assert!((a - 0.10).abs() < 1e-6);
+        assert!((b - 0.40).abs() < 1e-6);
+    }
+
+    #[test]
+    fn legacy_config_without_region_switches_defaults_to_on() {
+        // 36 项（S01~S47）的旧文件：三个分区开关必须补 1（开），
+        // 否则升级后用户会以为"颜色突然不跟着背景走了"。
+        let old = format!("{{\"version\":1,\"values\":[{}]}}", vec!["0"; 36].join(","));
+        let parsed = Config::from_json(&old).expect("旧配置必须可读");
+        assert_eq!(parsed.get(SettingKey::S48), 1);
+        assert_eq!(parsed.get(SettingKey::S49), 1);
+        assert_eq!(parsed.get(SettingKey::S50), 1);
     }
 }
