@@ -49,12 +49,18 @@ pub struct Palette {
     pub divider: Rgba,
     /// 任务栏预览的壁纸底。
     pub preview_wall: Rgba,
-    /// 任务栏预览的任务栏条。
+    /// 任务栏预览的任务栏条（暗端）。
     pub preview_bar: Rgba,
-    /// 任务栏预览的描边。
+    /// 任务栏预览的任务栏条（亮端）。
+    pub preview_bar_light: Rgba,
+    /// 任务栏预览的描边（暗端）。
     pub preview_line: Rgba,
-    /// 任务栏预览的前景色（未着色元素）。
+    /// 任务栏预览的描边（亮端）。
+    pub preview_line_light: Rgba,
+    /// 任务栏预览的前景色（未着色元素，暗端）。
     pub preview_ink: Rgba,
+    /// 任务栏预览的前景色（亮端）。
+    pub preview_ink_dark: Rgba,
     /// 任务栏预览的次要文字（区域标签）。
     pub preview_muted: Rgba,
     /// 主文本。
@@ -89,8 +95,11 @@ pub const LIGHT: Palette = Palette {
     divider: Rgba::opaque(0xEF, 0xEF, 0xEF),
     preview_wall: Rgba::opaque(0x24, 0x28, 0x30),
     preview_bar: Rgba::opaque(0x14, 0x17, 0x1B),
+    preview_bar_light: Rgba::opaque(0xF3, 0xF3, 0xF3),
     preview_line: Rgba::opaque(0x3A, 0x3F, 0x45),
+    preview_line_light: Rgba::opaque(0xD8, 0xD8, 0xD8),
     preview_ink: Rgba::opaque(0xF2, 0xF2, 0xF2),
+    preview_ink_dark: Rgba::opaque(0x1A, 0x1A, 0x1A),
     preview_muted: Rgba::opaque(0x9A, 0xA3, 0xAD),
     text_primary: Rgba::opaque(0x1A, 0x1A, 0x1A),
     text_secondary: Rgba::opaque(0x5C, 0x5C, 0x5C),
@@ -114,8 +123,11 @@ pub const DARK: Palette = Palette {
     divider: Rgba::opaque(0x35, 0x35, 0x35),
     preview_wall: Rgba::opaque(0x24, 0x28, 0x30),
     preview_bar: Rgba::opaque(0x14, 0x17, 0x1B),
+    preview_bar_light: Rgba::opaque(0xF3, 0xF3, 0xF3),
     preview_line: Rgba::opaque(0x3A, 0x3F, 0x45),
+    preview_line_light: Rgba::opaque(0xD8, 0xD8, 0xD8),
     preview_ink: Rgba::opaque(0xF2, 0xF2, 0xF2),
+    preview_ink_dark: Rgba::opaque(0x1A, 0x1A, 0x1A),
     preview_muted: Rgba::opaque(0x9A, 0xA3, 0xAD),
     text_primary: Rgba::opaque(0xFF, 0xFF, 0xFF),
     text_secondary: Rgba::opaque(0xA8, 0xA8, 0xA8),
@@ -251,8 +263,9 @@ mod tests {
             let p = mode.palette();
             for c in [
                 p.window_bg, p.heading_bg, p.card_bg, p.card_alt, p.card_border,
-                p.divider, p.preview_wall, p.preview_bar, p.preview_line,
-                p.preview_ink, p.preview_muted,
+                p.divider, p.preview_wall, p.preview_bar, p.preview_bar_light,
+                p.preview_line, p.preview_line_light, p.preview_ink,
+                p.preview_ink_dark, p.preview_muted,
                 p.text_primary, p.text_secondary, p.accent, p.accent_text,
                 p.track_off, p.disabled_fill, p.disabled_text,
                 p.warning, p.danger, p.ok,

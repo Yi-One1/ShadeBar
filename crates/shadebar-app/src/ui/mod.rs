@@ -208,6 +208,7 @@ pub struct View {
     thr_track: Rect,
     sample_card: Rect,
     sample_band: Rect,
+    sample_bar: Rect,
     rows_card: Rect,
     diag_card: Rect,
     diag_spark: Rect,
@@ -251,6 +252,7 @@ impl View {
             thr_track: Rect::default(),
             sample_card: Rect::default(),
             sample_band: Rect::default(),
+            sample_bar: Rect::default(),
             rows_card: Rect::default(),
             diag_card: Rect::default(),
             diag_spark: Rect::default(),
@@ -377,10 +379,42 @@ impl View {
         }
     }
 
-    /// 某一区实际会用的前景色（关闭 / 暂停 / 降级时回落到系统白）。
+    /// 预览条是否用亮端配色。
+    ///
+    /// * `S-10` 亮端 → 浅色条；
+    /// * `S-10` 暗端 → 深色条；
+    /// * 自动 → 与 [`Self::decision_color`] 同源：亮度高用浅色条（配深色文字），
+    ///   亮度低用深色条（配浅色文字）；
+    /// * 暂停 / 关闭 / 降级时元素回落系统白，条必须保持深色，否则白字看不见。
+    fn preview_bar_light(&self) -> bool {
+        if self.degraded || self.paused() {
+            return false;
+        }
+        match self.cfg.get(SettingKey::S10) {
+            1 => true,
+            2 => false,
+            _ => {
+                let thr = self.cfg.get(SettingKey::S12) as f32 / 1000.0;
+                let y = self.diag.y_milli as f32 / 1000.0;
+                y >= thr
+            }
+        }
+    }
+
+    /// 当前预览条的三件套：底色 / 前景 / 描边。
+    fn bar_colors(&self, p: &Palette) -> (Rgba, Rgba, Rgba) {
+        if self.preview_bar_light() {
+            (p.preview_bar_light, p.preview_ink_dark, p.preview_line_light)
+        } else {
+            (p.preview_bar, p.preview_ink, p.preview_line)
+        }
+    }
+
+    /// 某一区实际会用的前景色（关闭 / 暂停 / 降级时回落到条上的前景色）。
     fn zone_color(&self, key: SettingKey, p: &Palette) -> Rgba {
-        if self.degraded || !self.tint_on() || self.cfg.get(key) == 0 {
-            p.preview_ink
+        if self.degraded || self.paused() || self.cfg.get(key) == 0 {
+            let (_, ink, _) = self.bar_colors(p);
+            ink
         } else {
             self.decision_color()
         }
@@ -478,6 +512,7 @@ impl View {
         self.colors_card = Rect::default();
         self.sample_card = Rect::default();
         self.sample_band = Rect::default();
+        self.sample_bar = Rect::default();
         self.diag_card = Rect::default();
         self.diag_spark = Rect::default();
         match self.page {
@@ -538,6 +573,13 @@ impl View {
             Page::Sample => {
                 self.sample_card = Rect::new(PAD, top, cw, 160.0);
                 self.sample_band = Rect::new(PAD + PAD, top + 46.0, cw - PAD * 2.0, 60.0);
+                // 40 px 高的迷你任务栏在 60 px 的带内垂直居中（上下各 10）。
+                self.sample_bar = Rect::new(
+                    self.sample_band.x,
+                    self.sample_band.y + (self.sample_band.h - 40.0) / 2.0,
+                    self.sample_band.w,
+                    40.0,
+                );
             }
             Page::Diag => {
                 self.diag_card = Rect::new(PAD, top, cw, 196.0);
@@ -1169,10 +1211,11 @@ impl View {
         let enabled = self.tint_on() && !self.degraded;
 
         // 预览
+        let (bar_bg, bar_ink, bar_line) = self.bar_colors(p);
         ctx.fill_rounded_rect(rd(self.preview), RADIUS, p.preview_wall);
         let bar = self.preview_bar;
-        ctx.fill_rounded_rect(rd(bar), 7.0, p.preview_bar);
-        ctx.stroke_rounded_rect(rd(bar), 7.0, p.preview_line, 1.0);
+        ctx.fill_rounded_rect(rd(bar), 7.0, bar_bg);
+        ctx.stroke_rounded_rect(rd(bar), 7.0, bar_line, 1.0);
 
         // 背景模式下拉（自动 / 亮端 / 暗端）
         let mode = self.cfg.get(SettingKey::S10);
@@ -1210,7 +1253,7 @@ impl View {
                         7.0,
                     )),
                     1.0,
-                    p.preview_ink,
+                    bar_ink,
                 );
             }
         }
@@ -1226,7 +1269,7 @@ impl View {
                 Rgba::opaque(0x2B, 0x32, 0x3D)
             };
             ctx.fill_rounded_rect(rd(r), 5.0, fill);
-            ctx.stroke_rounded_rect(rd(r), 5.0, p.preview_line, 1.0);
+            ctx.stroke_rounded_rect(rd(r), 5.0, bar_line, 1.0);
             ctx.fill_rounded_rect(
                 rd(Rect::new(r.x + 7.0, r.y + 7.0, 8.0, 8.0)),
                 2.0,
@@ -1247,8 +1290,8 @@ impl View {
         let top = chev.y + 1.0;
         let bottom = chev.bottom() - 1.0;
         // 两段在顶点交叉 0.5 dip，平头线帽不会在尖端留缺口。
-        ctx.draw_line(chev.x + 2.0, bottom, cx + 0.5, top - 0.5, 2.5, p.preview_ink);
-        ctx.draw_line(cx - 0.5, top - 0.5, chev.right() - 2.0, bottom, 2.5, p.preview_ink);
+        ctx.draw_line(chev.x + 2.0, bottom, cx + 0.5, top - 0.5, 2.5, bar_ink);
+        ctx.draw_line(cx - 0.5, top - 0.5, chev.right() - 2.0, bottom, 2.5, bar_ink);
         let tray_tint = self.zone_color(SettingKey::S49, p);
         for (i, g) in self.tray_glyphs.iter().enumerate() {
             match i {
@@ -1264,7 +1307,7 @@ impl View {
         let clock = self.preview_clock;
         ctx.fill_rect(
             rd(Rect::new(clock.x - 10.0, bar.y + 9.0, 1.0, bar.h - 18.0)),
-            p.preview_line,
+            bar_line,
         );
 
         let (time, date) = local_time();
@@ -1463,27 +1506,97 @@ impl View {
             p.text_secondary,
         );
 
+        // 采样带与任务栏预览同款：壁纸底 + 居中的迷你任务栏 + 采样区外遮罩。
         let band = self.sample_band;
         ctx.fill_rounded_rect(rd(band), 6.0, p.preview_wall);
-        let strip = Rect::new(band.x, band.y + 8.0, band.w, 34.0);
-        ctx.fill_rounded_rect(rd(strip), 4.0, p.preview_bar);
+        let (bar_bg, ink, line) = self.bar_colors(p);
+        let bar = self.sample_bar;
+        ctx.fill_rounded_rect(rd(bar), 7.0, bar_bg);
+        ctx.stroke_rounded_rect(rd(bar), 7.0, line, 1.0);
 
-        let start = self.cfg.get(SettingKey::S20) as f32 / 100.0;
-        let width = (self.cfg.get(SettingKey::S21).min(84) as f32 / 100.0).max(0.02);
-        let dy = (self.cfg.get(SettingKey::S22) as f32).min(14.0);
-        let seg = Rect::new(
-            band.x + band.w * start,
-            strip.y + dy,
-            (band.w * width).min(band.right() - (band.x + band.w * start)),
-            strip.h - dy,
+        // 开始按钮 + 应用图标
+        let sx = bar.x + 12.0;
+        let sy = bar.y + 12.0;
+        for row in 0..2 {
+            for col in 0..2 {
+                ctx.fill_rounded_rect(
+                    rd(Rect::new(sx + col as f32 * 8.0, sy + row as f32 * 8.0, 6.0, 6.0)),
+                    1.0,
+                    ink,
+                );
+            }
+        }
+        let icon_x = sx + 26.0;
+        for i in 0..4 {
+            let r = Rect::new(icon_x + i as f32 * 26.0, bar.y + 10.0, 20.0, 20.0);
+            let fill = if i % 2 == 0 {
+                Rgba::opaque(0x4A, 0x55, 0x63)
+            } else {
+                Rgba::opaque(0x2B, 0x32, 0x3D)
+            };
+            ctx.fill_rounded_rect(rd(r), 5.0, fill);
+            ctx.stroke_rounded_rect(rd(r), 5.0, line, 1.0);
+        }
+
+        // 托盘 + 分界线 + 时钟
+        let clock_w = 58.0;
+        let div_x = bar.right() - 12.0 - clock_w - 8.0;
+        for i in 0..3 {
+            let g = Rect::new(div_x - 10.0 - (3 - i) as f32 * 20.0, bar.y + 14.0, 12.0, 12.0);
+            match i {
+                0 => ctx.stroke_rounded_rect(rd(g), 2.0, ink, 1.0),
+                1 => {
+                    ctx.fill_rect(rd(Rect::new(g.x + 1.0, g.y + 7.0, 3.0, 4.0)), ink);
+                    ctx.fill_rect(rd(Rect::new(g.x + 5.0, g.y + 4.0, 3.0, 7.0)), ink);
+                    ctx.fill_rect(rd(Rect::new(g.x + 9.0, g.y + 1.0, 3.0, 10.0)), ink);
+                }
+                _ => ctx.fill_rounded_rect(rd(Rect::new(g.x + 1.0, g.y + 1.0, 10.0, 10.0)), 5.0, ink),
+            }
+        }
+        ctx.fill_rect(
+            rd(Rect::new(div_x, bar.y + 9.0, 1.0, bar.h - 18.0)),
+            line,
         );
+        let (time, _) = local_time();
+        ctx.draw_text_right(
+            &time,
+            rd(Rect::new(bar.right() - 12.0 - clock_w, bar.y + 12.0, clock_w, 16.0)),
+            TextRole::Body,
+            ink,
+        );
+
+        // 采样区：起点 / 宽度 / 偏移都作用在迷你任务栏上；区外盖回壁纸色，
+        // 只留下被采样的那一段任务栏，比一条纯色块更能说明"采的是哪一块"。
+        let start = (self.cfg.get(SettingKey::S20) as f32 / 100.0).clamp(0.0, 1.0);
+        let width = (self.cfg.get(SettingKey::S21) as f32 / 100.0).clamp(0.02, 1.0);
+        let dy = (self.cfg.get(SettingKey::S22) as f32).clamp(0.0, bar.h - 12.0);
+        let seg_x = bar.x + bar.w * start;
+        let seg = Rect::new(
+            seg_x,
+            bar.y + dy,
+            (bar.w * width).min(bar.right() - seg_x).max(4.0),
+            bar.h - dy,
+        );
+        ctx.fill_rect(
+            rd(Rect::new(bar.x, bar.y, seg.x - bar.x, bar.h)),
+            p.preview_wall,
+        );
+        ctx.fill_rect(
+            rd(Rect::new(seg.right(), bar.y, bar.right() - seg.right(), bar.h)),
+            p.preview_wall,
+        );
+        if dy > 0.0 {
+            ctx.fill_rect(
+                rd(Rect::new(seg.x, bar.y, seg.w, dy)),
+                p.preview_wall,
+            );
+        }
+        ctx.stroke_rounded_rect(rd(seg), 3.0, p.accent, 1.5);
         let live = if self.diag.has_data {
             self.diag.rep_color
         } else {
             p.card_alt
         };
-        ctx.fill_rounded_rect(rd(seg), 3.0, live);
-        ctx.stroke_rounded_rect(rd(seg), 3.0, p.accent, 1.5);
 
         // 实时色块与亮度
         let chip = Rect::new(inner.x, card.y + 120.0, 20.0, 20.0);
@@ -2195,6 +2308,53 @@ mod tests {
             (icon_cy - chev_cy).abs() <= 1.0,
             "^ 必须与托盘图标垂直居中（icon={icon_cy}, chev={chev_cy}）"
         );
+    }
+
+    /// 组 3 回归：亮端用浅色条（配深色字），暗端 / 暂停 / 降级保持深色条。
+    #[test]
+    fn preview_bar_follows_light_mode() {
+        let mut cfg = Config::default();
+        let mut v = View::new(&cfg, Lang::Zh, false);
+        v.set_dpi(96);
+        v.set_client(theme::MIN_WIDTH_DIP, theme::MIN_HEIGHT_DIP);
+
+        cfg.set(SettingKey::S10, 1);
+        v.rebuild(&cfg, &DiagView::default(), false);
+        assert!(v.preview_bar_light(), "亮端必须是浅色条");
+
+        cfg.set(SettingKey::S10, 2);
+        v.rebuild(&cfg, &DiagView::default(), false);
+        assert!(!v.preview_bar_light(), "暗端必须是深色条");
+
+        cfg.set(SettingKey::S10, 0);
+        cfg.set(SettingKey::S12, 500);
+        let mut d = DiagView::default();
+        d.has_data = true;
+        d.y_milli = 800;
+        v.rebuild(&cfg, &d, false);
+        assert!(v.preview_bar_light(), "自动模式亮度高于阈值应转浅色条");
+        d.y_milli = 200;
+        v.rebuild(&cfg, &d, false);
+        assert!(!v.preview_bar_light(), "自动模式亮度低于阈值应保持深色条");
+
+        cfg.set(SettingKey::S10, 1);
+        cfg.set(SettingKey::S42, 1);
+        v.rebuild(&cfg, &d, false);
+        assert!(!v.preview_bar_light(), "暂停时元素回落白色，条必须保持深色");
+    }
+
+    /// 组 3 回归：采样带里的迷你任务栏必须垂直居中。
+    #[test]
+    fn sample_bar_is_vertically_centered() {
+        let mut v = make_view();
+        let (tx, ty) = center(v.tab_rects[1]);
+        click(&mut v, tx, ty);
+        assert!(v.sample_bar.h > 0.0, "采样页应已布局迷你任务栏");
+        assert_eq!(v.sample_bar.w, v.sample_band.w);
+        let top_gap = v.sample_bar.y - v.sample_band.y;
+        let bottom_gap = v.sample_band.bottom() - v.sample_bar.bottom();
+        assert!((top_gap - bottom_gap).abs() <= 0.5, "上下留白不一致：{top_gap} vs {bottom_gap}");
+        assert!((top_gap - 10.0).abs() <= 0.5, "留白应为 10 dip，实际 {top_gap}");
     }
 
     #[test]
