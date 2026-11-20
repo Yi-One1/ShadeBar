@@ -104,8 +104,10 @@ CoreDispatcher 编组到 XAML UI 线程 → IVisualTreeService::SetProperty 改�
 三区 + 端色与判定）、采样（采样带 + 间隔 / 平滑 / 区域微调）、托盘（托盘行为 + 启动 +
 语言）、诊断（实时判定 + 日志级别 + 版本 + 导出诊断包）。底部固定操作栏提供恢复默认
 （二次确认）、导入配置、导出配置、关于，配置导入导出写
-`%LOCALAPPDATA%\ShadeBar\config-export.json`，不弹文件对话框。中英双语即时切换、
-无「应用」按钮、改动同拍生效并落盘到 `%LOCALAPPDATA%\ShadeBar\config.json`。
+`%LOCALAPPDATA%\ShadeBar\config-export.json`，不弹文件对话框。诊断包写
+`%LOCALAPPDATA%\ShadeBar\diagnostics\shadebar-diag-<时间戳>.zip`，导出成功后在窗口
+底部提示完整路径。中英双语即时切换、无「应用」按钮、改动同拍生效并落盘到
+`%LOCALAPPDATA%\ShadeBar\config.json`。
 
 开机自启走 `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`：不弹 UAC、
 不生成额外文件，可在任务管理器「启动」页停用。

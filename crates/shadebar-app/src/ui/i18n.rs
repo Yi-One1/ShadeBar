@@ -109,6 +109,7 @@ pub const UI_KEYS: &[&str] = &[
     "action.restore", "action.about", "action.export", "action.copy",
     "action.export_diag", "action.export_config", "action.import_config",
     "config.export_ok", "config.export_fail", "config.import_ok", "config.import_fail",
+    "diag.export_ok", "diag.export_fail",
     // 任务栏预览 / 三区 / 采样带 / 诊断摘要
     "preview.auto", "preview.light", "preview.dark",
     "zone.icons", "zone.clock", "zone.tray",

@@ -153,6 +153,8 @@ common.enabled	已启用
 common.disabled	已停用
 common.copy_ok	版本号已复制
 common.export_ok	诊断包已生成
+diag.export_ok	诊断包已导出至
+diag.export_fail	诊断包导出失败（请检查 ShadeBar 数据目录权限）
 common.region_preview	采样框随上方滑块实时更新
 picker.hex	HEX
 picker.on_dark	深色背景上使用

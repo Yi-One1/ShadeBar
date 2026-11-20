@@ -1953,7 +1953,8 @@ impl View {
     }
 
     fn paint_toast(&self, ctx: &RenderCtx, p: &Palette, msg: &str, w: f32, h: f32) {
-        let tw = text_width(msg, TextRole::Body.size()) + 32.0;
+        // 诊断包路径可能很长：限制提示条宽度，避免超出客户区被直接裁掉。
+        let tw = (text_width(msg, TextRole::Body.size()) + 32.0).min((w - 24.0).max(120.0));
         let r = Rect::new((w - tw) / 2.0, h - FOOTER_H - 44.0, tw, 30.0);
         ctx.fill_rounded_rect(rd(r), 6.0, p.card_bg);
         ctx.stroke_rounded_rect(rd(r), 6.0, p.accent, 1.0);

@@ -26,6 +26,8 @@ artifact filename, the About page and the exe VERSIONINFO (FR-16 / A-16).
   采样带改为同款迷你任务栏并垂直居中，采样区外遮回壁纸色，只显示被采样的那一段。
 - 数值范围与实际一致：阈值刻度显示 0.30–0.70；图标区采样宽度范围改为 10–84%
   （上限为托盘区起点），采样预览同步收口，不再画出实际采不到的区域。
+- 导出诊断包给出可见反馈：设置页按钮与托盘菜单导出后提示完整落盘路径，失败时提示
+  检查数据目录权限（`%LOCALAPPDATA%\ShadeBar\diagnostics`）。
 
 ### Removed
 

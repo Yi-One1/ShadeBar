@@ -153,6 +153,8 @@ common.enabled	Enabled
 common.disabled	Disabled
 common.copy_ok	Version copied
 common.export_ok	Diagnostic bundle created
+diag.export_ok	Diagnostic bundle exported to
+diag.export_fail	Diagnostic export failed (check write access to the ShadeBar data folder)
 common.region_preview	Sample frame updates with the sliders above
 picker.hex	HEX
 picker.on_dark	For dark backgrounds

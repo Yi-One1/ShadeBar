@@ -17,6 +17,7 @@
 //! * 系统深浅色 / UI 语言变化即时重绘（FR-40 / A-23）；
 //! * 所有输入消息统一转发给 [`View::on_message`]，窗口层不做布局判断。
 
+use std::path::Path;
 use std::sync::Arc;
 
 use shadebar_core::win::HResultExt;
@@ -473,6 +474,12 @@ fn dispatch_input(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> Option<LRESUL
                     )),
                     Err(_) => state.view.show_toast("config.export_fail"),
                 },
+                ViewAction::ExportDiagnostics => match state.app.export_diagnostics() {
+                    Ok(path) => state
+                        .view
+                        .show_toast_text(export_toast_text(state.app.language(), &path)),
+                    Err(_) => state.view.show_toast("diag.export_fail"),
+                },
                 ViewAction::ImportConfig => match state.app.import_config() {
                     Ok(_) => {
                         state.view.show_toast("config.import_ok");
@@ -504,6 +511,15 @@ fn dispatch_input(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> Option<LRESUL
     Some(result)
 }
 
+/// 诊断包导出提示：把落盘路径一并显示，用户不用猜文件在哪。
+fn export_toast_text(lang: crate::config::Lang, path: &Path) -> String {
+    format!(
+        "{}: {}",
+        crate::ui::i18n::text("diag.export_ok", lang),
+        path.display()
+    )
+}
+
 /// 托盘菜单命令（A-07：6 项全部生效）。
 fn handle_menu(hwnd: HWND, wp: WPARAM) {
     let id = menu_id(wp);
@@ -524,10 +540,12 @@ fn handle_menu(hwnd: HWND, wp: WPARAM) {
             let _ = state.app.toggle_autostart();
             state.app.sync_view(&mut state.view);
         }
-        MENU_EXPORT => {
-            let _ = state.app.export_diagnostics();
-            state.view.show_toast("common.export_ok");
-        }
+        MENU_EXPORT => match state.app.export_diagnostics() {
+            Ok(path) => state
+                .view
+                .show_toast_text(export_toast_text(state.app.language(), &path)),
+            Err(_) => state.view.show_toast("diag.export_fail"),
+        },
         MENU_ABOUT => state.view.request_popup(PopupKind::About),
         MENU_EXIT => {
             state.app.request_exit();
@@ -780,5 +798,24 @@ unsafe fn paint(hwnd: HWND) {
     if let Ok(true) = ctx.end_frame() {
         // SAFETY: hwnd 有效。
         let _ = unsafe { InvalidateRect(hwnd, None, false) };
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::Lang;
+
+    /// 组 5 回归：导出成功提示必须带落盘路径，否则用户不知道文件在哪。
+    #[test]
+    fn export_toast_carries_full_path() {
+        let p = Path::new(
+            r"C:\Users\me\AppData\Local\ShadeBar\diagnostics\shadebar-diag-1763800000.zip",
+        );
+        let zh = export_toast_text(Lang::Zh, p);
+        assert!(zh.contains("诊断包已导出至"), "缺失中文提示：{zh}");
+        assert!(zh.contains("shadebar-diag-1763800000.zip"), "缺失文件名：{zh}");
+        let en = export_toast_text(Lang::En, p);
+        assert!(en.contains("exported to"), "缺失英文提示：{en}");
     }
 }
