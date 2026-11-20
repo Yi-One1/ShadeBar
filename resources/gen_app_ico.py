@@ -2,18 +2,16 @@
 # -*- coding: utf-8 -*-
 """生成随影 ShadeBar 的应用图标（方案 A · 对分）。
 
-权威几何：scratch/icon-concepts.html 的 `#iconA`：
-    viewBox 0 0 32 32
-    <rect x=1 y=1 w=30 h=30 rx=7 fill=#8A8A8A>        外框
-    clipPath: <rect x=3 y=3 w=26 h=26 rx=5>           内部裁剪
-    <path d="M3 3 L29 3 L3 29 Z" fill=#1A1A1A>        左上深色三角
-    <path d="M29 29 L6 29 L29 6 Z" fill=#FFFFFF>      右下浅色三角
-两条斜边的界分别是 x+y=32 与 x+y=35，中间 3 个逻辑单位是灰色中缝；
-16 px 下正好留 1 行像素的中缝。外框与内裁剪的圆角中心同为 (8,8)/(24,8)/
-(8,24)/(24,24)，所以灰边等宽 2 逻辑单位 = 16 px 下 1 px（取整像素）。
+权威几何：scratch/icon-concepts.html 的 `#iconA` 对角黑白方砖。
+真机返工（G4 验收）：原 #8A8A8A 细边在白底/深底上都会"融进去"，改为
+**深灰 #595959 加粗轮廓**；状态点按用户决定彻底去掉。三色结构不变：
+#1A1A1A / #FFFFFF / #595959。
 
-状态点：中心 (7,20)（左下深色半区），直径 6/32 ≈ 边长的 18%（r=3）；
-正常画白圆点，降级画白方点。只用 #1A1A1A / #FFFFFF / #8A8A8A 三色。
+轮廓按目标尺寸取整像素（不在小尺寸上硬等比例缩细）：
+    外框  16/24/32 → 1 px，48 → 2 px，256 → 8 px
+    中缝  16/24/32 → 2 px，48 → 3 px，256 → 12 px
+圆角恒为边长 22%（四舍五入取整像素）。外框与内裁剪共用圆角中心，
+所以灰边等宽。中缝按 45° 的垂直宽度计：x+y 方向的间隔 = seam_px×√2。
 
 只用 Python 标准库（zlib / struct）。输出：
     resources/app.ico             16/24/32/48/256 PNG 压缩 ICO（覆盖生成）
@@ -27,18 +25,15 @@ import zlib
 from pathlib import Path
 
 # ---- 几何（与 crates/shadebar-app/src/tray.rs::icon_pixel 同一套数字） ----
-UNIT = 32.0
-OUTER_LO, OUTER_HI, OUTER_R = 1.0, 31.0, 7.0
-INNER_LO, INNER_HI, INNER_R = 3.0, 29.0, 5.0
-DARK_SUM, WHITE_SUM = 32.0, 35.0
-DOT_X, DOT_Y, DOT_R2 = 7.0, 20.0, 3.0 * 3.0
+FRAME_PX = {16: 1, 24: 1, 32: 1, 48: 2, 256: 8}
+SEAM_PX = {16: 2, 24: 2, 32: 2, 48: 3, 256: 12}
 
 DARK = (0x1A, 0x1A, 0x1A, 0xFF)
 WHITE = (0xFF, 0xFF, 0xFF, 0xFF)
-GRAY = (0x8A, 0x8A, 0x8A, 0xFF)
+GRAY = (0x59, 0x59, 0x59, 0xFF)  # 深灰轮廓 + 中缝，same color
 CLEAR = (0x00, 0x00, 0x00, 0x00)
 
-SIZES = (16, 24, 32, 48, 256)
+SIZES = tuple(FRAME_PX)
 
 
 def in_rounded(u: float, v: float, lo: float, hi: float, r: float) -> bool:
@@ -48,38 +43,28 @@ def in_rounded(u: float, v: float, lo: float, hi: float, r: float) -> bool:
     return (u - cx) ** 2 + (v - cy) ** 2 <= r**2
 
 
-def pixel(u: float, v: float, show_dot: bool, degraded: bool) -> tuple[int, int, int, int]:
-    """逻辑 32 坐标取色（RGBA）。与 Rust 的 icon_pixel 逐像素等价。"""
-    if not in_rounded(u, v, OUTER_LO, OUTER_HI, OUTER_R):
+def pixel(x: int, y: int, size: int) -> tuple[int, int, int, int]:
+    """目标尺寸的像素中心取色（RGBA）。与 Rust 的 icon_pixel 逐像素等价。"""
+    frame = FRAME_PX[size]
+    radius = round(size * 0.22)  # 圆角 = 边长 22%
+    u, v = x + 0.5, y + 0.5
+    if not in_rounded(u, v, 0.0, float(size), float(radius)):
         return CLEAR
-    if not in_rounded(u, v, INNER_LO, INNER_HI, INNER_R):
+    if not in_rounded(u, v, frame, float(size - frame), float(radius - frame)):
         return GRAY
+    center = float(size)
+    half = SEAM_PX[size] * (2**0.5) / 2.0
     total = u + v
-    if total <= DARK_SUM:
-        base = DARK
-    elif total >= WHITE_SUM:
-        base = WHITE
-    else:
-        base = GRAY  # 中缝：外框同色，非黑白主体
-    if show_dot and base is DARK:
-        dx, dy = u - DOT_X, v - DOT_Y
-        # 圆点差掉四角，方点保留；16 px 下两者一眼可辨。
-        inside = (dx * dx + dy * dy <= DOT_R2) if not degraded else (
-            abs(dx) <= 3.0 and abs(dy) <= 3.0
-        )
-        if inside:
-            return WHITE
-    return base
+    if total <= center - half:
+        return DARK
+    if total >= center + half:
+        return WHITE
+    return GRAY  # 中缝：与外框同色
 
 
-def render(size: int, show_dot: bool = True, degraded: bool = False) -> list[tuple[int, int, int, int]]:
+def render(size: int) -> list[list[tuple[int, int, int, int]]]:
     """按目标尺寸在像素中心采样，得到 1:1 的 RGBA 栅格。"""
-    scale = UNIT / size
-    rows = []
-    for y in range(size):
-        v = (y + 0.5) * scale
-        rows.append([pixel((x + 0.5) * scale, v, show_dot, degraded) for x in range(size)])
-    return rows
+    return [[pixel(x, y, size) for x in range(size)] for y in range(size)]
 
 
 # ---- 纯标准库 PNG 编码 ----------------------------------------------------

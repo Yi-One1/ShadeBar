@@ -1,13 +1,14 @@
 //! 托盘外壳（架构 §8.3 T03.6 / §8.4 T04.1 / FR-07 / A-06 / A-07 / S-40 / S-43）。
 //!
-//! * 图标**程序生成**（16×16 32bpp DIB → `CreateIconIndirect`）：深/浅任务栏下
-//!   轮廓清晰，与 TranslucentTB 的半透明条明显不同（A-06）；6 档尺寸由系统
-//!   从同一 HICON 缩放，不依赖外部图标文件。
+//! * 图标**程序生成**（16×16 32bpp DIB → `CreateIconIndirect`）：由 `icon_pixel`
+//!   按 A·对分方案的三色几何逐像素绘制，与 `resources/app.ico`（exe / 标题栏）
+//!   同构但**不共享同一 HICON**；深/浅任务栏下轮廓清晰（A-06）。
 //! * 菜单 6 项全部生效（A-07）：打开设置 / 暂停自适应（勾选）/ 开机自启动（勾选）/
 //!   导出诊断包 / 关于 / 退出。
-//! * S-40 左键三选一；S-43 **状态点开关**（G4 起只控制点的显示，不再把判定色
-//!   画进图标——A 案限定三色），节流 1 Hz 由 `App` 通知节奏保证；降级时状态点
-//!   从白圆点变白方点，tip 仍显示「受限」。S-43 文案在 G5 重排时统一处理。
+//! * S-40 左键三选一；**S-43 自 G4 起没有任何视觉表现**（用户决定去掉白点，
+//!   图标限定黑白 + 深灰三色）。它不能当"仍然生效"糊弄过去：**必须在 G5 重排
+//!   设置页时删除或改名**。对外签名与缓存键暂不动，避免扩大改动面；降级只
+//!   影响 tip 的「受限」文案。
 //! * 权限模型：全程普通权限，无 `runas`、无提权入口（FR-20 / NFR-11）。
 
 use shadebar_core::color::Rgba;
@@ -86,11 +87,11 @@ impl TrayIcon {
         tray
     }
 
-    /// 刷新图标 / tip（S-43 状态点开关、降级方点与受限 tip）。
+    /// 刷新图标 / tip（降级只改 tip 的「受限」文案）。
     ///
-    /// `decision` 保留在公开签名里供调用方继续传判定色（诊断面板仍要用），
-    /// 但 A 案图标只有三色，它不再影响外观，因此不进缓存键。
-    /// **不要因此删掉 S-43**：`show_dot` 仍然真实决定点是否绘制。
+    /// `decision` 与 `show_dot` 保留在公开签名与缓存键里，只是为了避免改动面扩大；
+    /// A 案图标限定三色且已去掉状态点，它们**都不再影响像素**。
+    /// **S-43 必须在 G5 删除或改名**，别把它当成还生效的设置。
     pub fn refresh(
         &mut self,
         hwnd: HWND,
@@ -106,7 +107,7 @@ impl TrayIcon {
         if !first && self.added && self.last_look == Some(look) {
             return;
         }
-        let Some(new_icon) = make_icon(show_dot, degraded) else {
+        let Some(new_icon) = make_icon() else {
             return;
         };
         let tip = if degraded {
@@ -241,10 +242,17 @@ fn copy_wide(text: &str, dst: &mut [u16]) {
 }
 
 /// A·对分图标的三色（BGRA，DIB 口径）；不引入第四色。
+/// 深灰 #595959 替代原来的浅灰 #8A8A8A：真机上浅边在白底/深底都会融掉。
 const ICON_DARK: [u8; 4] = [0x1A, 0x1A, 0x1A, 0xFF];
 const ICON_WHITE: [u8; 4] = [0xFF, 0xFF, 0xFF, 0xFF];
-const ICON_GRAY: [u8; 4] = [0x8A, 0x8A, 0x8A, 0xFF];
+const ICON_GRAY: [u8; 4] = [0x59, 0x59, 0x59, 0xFF];
 const ICON_CLEAR: [u8; 4] = [0x00, 0x00, 0x00, 0x00];
+
+/// 16 px 的轮廓参数：外框 1 px、中缝 2 px、圆角 = 16×22% = 4 px。
+const ICON_FRAME: f32 = 1.0;
+const ICON_RADIUS: f32 = 4.0;
+/// 中缝按 45° 垂直宽度 2 px 计，x+y 方向的间隔是 `2×√2`。
+const ICON_SEAM_HALF: f32 = 1.414_213_6; // √2，const 上下文不能调 sqrt()
 
 /// 点是否落在圆角矩形里（角心用 clamp 求，四角才是圆弧而不是尖角）。
 fn in_rounded_rect(u: f32, v: f32, lo: f32, hi: f32, r: f32) -> bool {
@@ -255,51 +263,44 @@ fn in_rounded_rect(u: f32, v: f32, lo: f32, hi: f32, r: f32) -> bool {
 
 /// A·对分图标的一个像素（BGRA）。**纯函数**：渲染与单测共用同一份几何。
 ///
-/// 逻辑坐标是 concept 稿的 32×32 viewBox；16 px 时在像素中心采样。
-/// 外框 `[1,31] r=7`、内裁剪 `[3,29] r=5`，两者角心相同，故灰边等宽 2 逻辑
-/// 单位（16 px 下取整为 1 px）。左上深色三角界 `u+v<=32`，右下浅色三角界
-/// `u+v>=35`，中间 3 逻辑单位露出灰色中缝（16 px 下 1 行像素）。
-/// 状态点在左下深半区 `(7,20)`，直径 6/32 ≈ 边长 18%；正常圆点、降级方点。
+/// 16 px 像素中心采样：外框 `[0,16] r=4`、内裁剪 `[1,15] r=3`，两者角心同为
+/// `(4,4)` 等，故深灰边等宽 1 px。对角分界 `u+v=16`，左右各留 √2 得到
+/// 中缝垂直宽度 2 px。左上深色、右下白色不变；**不画任何状态点**。
+///
+/// `show_dot` / `degraded` 仅为兼容 `refresh` 的对外签名保留，函数完全忽略：
+/// S-43 自 G4 起没有视觉表现，必须在 G5 删除或改名。
 #[must_use]
-fn icon_pixel(x: usize, y: usize, show_dot: bool, degraded: bool) -> [u8; 4] {
-    let scale = 32.0 / ICON_SIZE as f32;
-    let u = (x as f32 + 0.5) * scale;
-    let v = (y as f32 + 0.5) * scale;
+fn icon_pixel(x: usize, y: usize, _show_dot: bool, _degraded: bool) -> [u8; 4] {
+    let u = x as f32 + 0.5;
+    let v = y as f32 + 0.5;
 
-    if !in_rounded_rect(u, v, 1.0, 31.0, 7.0) {
+    if !in_rounded_rect(u, v, 0.0, ICON_SIZE as f32, ICON_RADIUS) {
         return ICON_CLEAR;
     }
-    if !in_rounded_rect(u, v, 3.0, 29.0, 5.0) {
+    if !in_rounded_rect(
+        u,
+        v,
+        ICON_FRAME,
+        ICON_SIZE as f32 - ICON_FRAME,
+        ICON_RADIUS - ICON_FRAME,
+    ) {
         return ICON_GRAY;
     }
     let total = u + v;
-    let base = if total <= 32.0 {
+    if total <= ICON_SIZE as f32 - ICON_SEAM_HALF {
         ICON_DARK
-    } else if total >= 35.0 {
+    } else if total >= ICON_SIZE as f32 + ICON_SEAM_HALF {
         ICON_WHITE
     } else {
         ICON_GRAY // 中缝：与外框同色，不是黑白主体
-    };
-    if show_dot && base == ICON_DARK {
-        let dx = u - 7.0;
-        let dy = v - 20.0;
-        let inside = if degraded {
-            dx.abs() <= 3.0 && dy.abs() <= 3.0
-        } else {
-            dx * dx + dy * dy <= 3.0 * 3.0
-        };
-        if inside {
-            return ICON_WHITE;
-        }
     }
-    base
 }
 
-/// 程序生成 16×16 BGRA 图标：A·对分方砖 + 可选白色状态点。
+/// 程序生成 16×16 BGRA 图标：A·对分方砖，无状态点。
 ///
 /// 用 32bpp `CreateDIBSection` 直接写像素，`CreateIconIndirect` 生成 HICON；
 /// 不引入任何图像库，守住体积门禁。像素填充全部走 [`icon_pixel`]。
-fn make_icon(show_dot: bool, degraded: bool) -> Option<HICON> {
+fn make_icon() -> Option<HICON> {
     // SAFETY: GetDC(NULL) 取屏幕 DC，返回裸 HDC。
     let screen_dc: HDC = unsafe { GetDC(HWND::default()) };
     if screen_dc.is_invalid() {
@@ -345,7 +346,7 @@ fn make_icon(show_dot: bool, degraded: bool) -> Option<HICON> {
     let pixels = unsafe { std::slice::from_raw_parts_mut(bits.cast::<u8>(), len) };
     for y in 0..ICON_SIZE {
         for x in 0..ICON_SIZE {
-            let px = icon_pixel(x as usize, y as usize, show_dot, degraded);
+            let px = icon_pixel(x as usize, y as usize, false, false);
             let idx = ((y * ICON_SIZE + x) * 4) as usize;
             // BGRA：Windows DIB 是蓝在前，别按 RGB 顺序写。
             pixels[idx..idx + 4].copy_from_slice(&px);
@@ -477,47 +478,39 @@ mod tests {
 
     #[test]
     fn icon_pixel_is_diagonally_split_dark_upper_left_white_lower_right() {
-        // 坐标写死为左上 / 右下，不拿函数自身当期望：界是 u+v=32 / 35。
+        // 坐标写死为左上 / 右下，不拿函数自身当期望：深/浅界是 u+v=16。
         assert_eq!(icon_pixel(2, 2, false, false), ICON_DARK);
         assert_eq!(icon_pixel(13, 13, false, false), ICON_WHITE);
         assert_eq!(icon_pixel(4, 4, false, false), ICON_DARK);
         assert_eq!(icon_pixel(11, 11, false, false), ICON_WHITE);
-        // 另两角仍归深色侧：分界是 u+v 的斜线，不是竖线/横线
-        assert_eq!(icon_pixel(4, 11, false, false), ICON_DARK);
-        assert_eq!(icon_pixel(11, 4, false, false), ICON_DARK);
+        // 另两角仍归深色侧：分界是斜线，不是竖线/横线
+        assert_eq!(icon_pixel(3, 10, false, false), ICON_DARK);
+        assert_eq!(icon_pixel(10, 3, false, false), ICON_DARK);
     }
 
     #[test]
-    fn icon_pixel_has_gray_frame_and_one_pixel_diagonal_seam() {
-        assert_eq!(icon_pixel(0, 8, false, false), ICON_GRAY, "1 px 外框");
-        // (8,7) 的 u+v=32（深），(8,8) 的 34（中缝），(8,9) 的 36（浅）
-        assert_eq!(icon_pixel(8, 7, false, false), ICON_DARK);
+    fn icon_pixel_has_dark_gray_frame_and_two_pixel_diagonal_seam() {
+        assert_eq!(icon_pixel(0, 8, false, false), ICON_GRAY, "1 px 深灰外框");
+        assert_ne!(ICON_GRAY, [0x8A, 0x8A, 0x8A, 0xFF], "浅灰已弃用");
+        // 中轴线 (8,y)：u+v = y+9；15 深、16/17 中缝、18 浅
+        assert_eq!(icon_pixel(8, 5, false, false), ICON_DARK);
+        assert_eq!(icon_pixel(8, 7, false, false), ICON_GRAY);
         assert_eq!(icon_pixel(8, 8, false, false), ICON_GRAY);
-        assert_ne!(icon_pixel(8, 8, false, false), ICON_DARK);
-        assert_ne!(icon_pixel(8, 8, false, false), ICON_WHITE);
         assert_eq!(icon_pixel(8, 9, false, false), ICON_WHITE);
     }
 
     #[test]
-    fn status_dot_is_round_or_square_in_dark_half() {
-        // 状态点落在左下深色半区，(3,9) 对应逻辑中心 (7,19)
-        assert_eq!(icon_pixel(3, 9, false, false), ICON_DARK, "无点时是深色");
-        assert_eq!(icon_pixel(3, 9, true, false), ICON_WHITE, "正常白圆点");
-        // 3×4 覆盖区：圆点去掉四角 = 8 px，方点满格 = 12 px
-        let mut round = 0;
-        let mut square = 0;
-        for y in 8..=11 {
-            for x in 2..=4 {
-                if icon_pixel(x, y, true, false) == ICON_WHITE {
-                    round += 1;
-                }
-                if icon_pixel(x, y, true, true) == ICON_WHITE {
-                    square += 1;
-                }
+    fn icon_pixels_ignore_show_dot_and_degraded() {
+        // 用户决定彻底去掉白点：任意组合下像素完全一致。
+        // S-43 自 G4 起无视觉表现，必须在 G5 删除或改名。
+        for y in 0..ICON_SIZE {
+            for x in 0..ICON_SIZE {
+                let (x, y) = (x as usize, y as usize);
+                let base = icon_pixel(x, y, false, false);
+                assert_eq!(icon_pixel(x, y, true, false), base, "({x},{y})");
+                assert_eq!(icon_pixel(x, y, false, true), base, "({x},{y})");
+                assert_eq!(icon_pixel(x, y, true, true), base, "({x},{y})");
             }
         }
-        assert_eq!(round, 8, "圆点四角要被裁掉");
-        assert_eq!(square, 12, "降级方点填满 3×4");
-        assert_eq!(icon_pixel(3, 9, false, true), ICON_DARK, "关闭后不画点");
     }
 }
