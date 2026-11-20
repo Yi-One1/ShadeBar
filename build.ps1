@@ -10,7 +10,7 @@
 #      (a plain shell has no VC environment; rust-lld cannot find kernel32.lib)
 #   3. build the FORMAL release (no features): evidence/visual/png + --verify
 #      branch are NOT compiled (requirement baseline v1.4 section 7 / K-07)
-#   4. copy to dist\<product>_ShadeBar_v<ver>.exe  (the single shipped exe)
+#   4. copy to dist\<product>_ShadeBar_v<ver>.exe  (keep prior versions)
 #   5. run the five gates on the formal artifact (hard limit 4096 KB)
 #   6. build the VERIFY artifact (--features verify) into dist\verify\
 #      and run the SAME five gates on it (task #9: two profiles, one gate set)
@@ -197,13 +197,11 @@ $built = Join-Path $Root "target\$TargetTriple\release\shadebar-app.exe"
 if (-not (Test-Path $built)) { Fail "build artifact not found: $built" }
 
 # ---------------------------------------------------------------------------
-# 5. copy to dist\ (exactly one exe, NFR-19 / A-26)
+# 5. copy to dist\ (keep prior versions; only overwrite the same version)
 # ---------------------------------------------------------------------------
 Write-Step 'Copy to dist\'
 if (-not (Test-Path $distDir)) { New-Item -ItemType Directory -Path $distDir | Out-Null }
-# PS 5.1: piping FileInfo (or even a string) into Remove-Item fails parameter binding
-# when the dist path contains non-ASCII characters. Pass -LiteralPath explicitly.
-Get-ChildItem $distDir -Filter '*_ShadeBar_v*.exe' -ErrorAction SilentlyContinue | ForEach-Object { Remove-Item -LiteralPath $_.FullName -Force }
+# 用户要求：打包新版本时**保留旧 exe**，仅供同名版本覆盖（便于回滚和对比）。
 Copy-Item $built $distExe -Force
 Write-Host "    $distExe"
 $formalSize = (Get-Item $distExe).Length
