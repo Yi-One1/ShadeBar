@@ -35,7 +35,8 @@ use shadebar_core::{SbError, SbResult};
 use windows::core::{Interface, HSTRING};
 use windows::Win32::Foundation::HWND;
 use windows::Win32::Graphics::Direct2D::Common::{
-    D2D1_ALPHA_MODE_IGNORE, D2D1_COLOR_F, D2D1_PIXEL_FORMAT, D2D_RECT_F, D2D_SIZE_U,
+    D2D1_ALPHA_MODE_IGNORE, D2D1_COLOR_F, D2D1_PIXEL_FORMAT, D2D_POINT_2F, D2D_RECT_F,
+    D2D_SIZE_U,
 };
 use windows::Win32::Graphics::Direct2D::{
     D2D1CreateFactory, D2D1_DRAW_TEXT_OPTIONS_NONE, D2D1_FACTORY_TYPE_SINGLE_THREADED,
@@ -237,6 +238,18 @@ impl RenderCtx {
         let r = self.to_d2d_rect(rect);
         // SAFETY: 处于 BeginDraw/EndDraw 之间，brush 与矩形均有效。
         unsafe { self.target.FillRectangle(&r, &brush) };
+    }
+
+    /// 画一条抗锯齿线段（dip）。小图形必须走矢量线：用若干像素方块拼出来的
+    /// 斜边在 125%/150% 缩放下会变成锯齿块，看起来"糊"且不像箭头。
+    pub fn draw_line(&self, x1: f32, y1: f32, x2: f32, y2: f32, width_dip: f32, color: Rgba) {
+        let Some(brush) = self.solid(color) else {
+            return;
+        };
+        let p0 = D2D_POINT_2F { x: self.px(x1), y: self.px(y1) };
+        let p1 = D2D_POINT_2F { x: self.px(x2), y: self.px(y2) };
+        // SAFETY: 处于 BeginDraw/EndDraw 之间；默认线帽为平头，坐标由调用方保证。
+        unsafe { self.target.DrawLine(p0, p1, &brush, self.px(width_dip), None) };
     }
 
     /// 不透明填充圆角矩形。

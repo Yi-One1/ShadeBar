@@ -494,7 +494,8 @@ impl View {
                 // 末尾 6 dip 是图标与分界线之间的留白，避免最后一个图标贴线。
                 let tray_w = chev_w + glyph_gap + 3.0 * glyph_w + 2.0 * glyph_gap + 6.0;
                 let tray_x = self.preview_clock.x - 10.0 - tray_w;
-                self.tray_chevron = Rect::new(tray_x, bar.y + 14.0, chev_w, 12.0);
+                // 与 12 px 托盘图标光学对齐（中心同高），避免箭头"浮"在图标上方。
+                self.tray_chevron = Rect::new(tray_x, bar.y + 17.0, chev_w, 10.0);
                 for (i, g) in self.tray_glyphs.iter_mut().enumerate() {
                     *g = Rect::new(
                         tray_x + chev_w + glyph_gap + i as f32 * (glyph_w + glyph_gap),
@@ -1240,19 +1241,14 @@ impl View {
 
         // 托盘（^ 在最左）+ 时钟（最右）
         let chev = self.tray_chevron;
-        // 3 px 粗的阶梯箭头：字体里的 "^" 太细，2 px 块在 100% 缩放下会发虚。
-        for i in 0..4 {
-            let dx = i as f32 * 2.0;
-            let y = chev.y + 7.0 - dx;
-            ctx.fill_rect(
-                rd(Rect::new(chev.x + 1.0 + dx, y, 3.0, 3.0)),
-                p.preview_ink,
-            );
-            ctx.fill_rect(
-                rd(Rect::new(chev.right() - 4.0 - dx, y, 3.0, 3.0)),
-                p.preview_ink,
-            );
-        }
+        // 两条抗锯齿实线画 ^：方块拼斜边在任何非 100% DPI 下都会出现锯齿和毛边，
+        // 线段交给 D2D 做几何抗锯齿，斜边连续、尖顶不用平顶色块凑。
+        let cx = chev.x + chev.w / 2.0;
+        let top = chev.y + 1.0;
+        let bottom = chev.bottom() - 1.0;
+        // 两段在顶点交叉 0.5 dip，平头线帽不会在尖端留缺口。
+        ctx.draw_line(chev.x + 2.0, bottom, cx + 0.5, top - 0.5, 2.5, p.preview_ink);
+        ctx.draw_line(cx - 0.5, top - 0.5, chev.right() - 2.0, bottom, 2.5, p.preview_ink);
         let tray_tint = self.zone_color(SettingKey::S49, p);
         for (i, g) in self.tray_glyphs.iter().enumerate() {
             match i {
@@ -2192,6 +2188,12 @@ mod tests {
         assert!(
             chev.y >= v.preview_bar.y && chev.bottom() <= v.preview_bar.bottom(),
             "^ 必须落在预览条内"
+        );
+        let icon_cy = v.tray_glyphs[0].y + v.tray_glyphs[0].h / 2.0;
+        let chev_cy = chev.y + chev.h / 2.0;
+        assert!(
+            (icon_cy - chev_cy).abs() <= 1.0,
+            "^ 必须与托盘图标垂直居中（icon={icon_cy}, chev={chev_cy}）"
         );
     }
 
