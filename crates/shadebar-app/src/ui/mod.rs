@@ -1240,12 +1240,18 @@ impl View {
 
         // 托盘（^ 在最左）+ 时钟（最右）
         let chev = self.tray_chevron;
-        // 用阶梯小块画一个 12×8 的向上箭头：字体里的 "^" 太窄，右侧还会压到分界线。
+        // 3 px 粗的阶梯箭头：字体里的 "^" 太细，2 px 块在 100% 缩放下会发虚。
         for i in 0..4 {
             let dx = i as f32 * 2.0;
-            let y = chev.y + 8.0 - dx;
-            ctx.fill_rect(rd(Rect::new(chev.x + 2.0 + dx, y, 2.0, 2.0)), p.preview_muted);
-            ctx.fill_rect(rd(Rect::new(chev.right() - 4.0 - dx, y, 2.0, 2.0)), p.preview_muted);
+            let y = chev.y + 7.0 - dx;
+            ctx.fill_rect(
+                rd(Rect::new(chev.x + 1.0 + dx, y, 3.0, 3.0)),
+                p.preview_ink,
+            );
+            ctx.fill_rect(
+                rd(Rect::new(chev.right() - 4.0 - dx, y, 3.0, 3.0)),
+                p.preview_ink,
+            );
         }
         let tray_tint = self.zone_color(SettingKey::S49, p);
         for (i, g) in self.tray_glyphs.iter().enumerate() {
