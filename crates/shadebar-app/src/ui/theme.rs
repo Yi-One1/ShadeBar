@@ -41,8 +41,22 @@ pub struct Palette {
     pub heading_bg: Rgba,
     /// 分组卡片填充（不透明）。
     pub card_bg: Rgba,
+    /// 卡片内的凹陷底（色样槽、分段控件底）。
+    pub card_alt: Rgba,
     /// 卡片 1 px 描边。
     pub card_border: Rgba,
+    /// 卡片内分隔线（比描边更淡）。
+    pub divider: Rgba,
+    /// 任务栏预览的壁纸底。
+    pub preview_wall: Rgba,
+    /// 任务栏预览的任务栏条。
+    pub preview_bar: Rgba,
+    /// 任务栏预览的描边。
+    pub preview_line: Rgba,
+    /// 任务栏预览的前景色（未着色元素）。
+    pub preview_ink: Rgba,
+    /// 任务栏预览的次要文字（区域标签）。
+    pub preview_muted: Rgba,
     /// 主文本。
     pub text_primary: Rgba,
     /// 次要文本。
@@ -70,7 +84,14 @@ pub const LIGHT: Palette = Palette {
     window_bg: Rgba::opaque(0xF3, 0xF3, 0xF3),
     heading_bg: Rgba::opaque(0xF3, 0xF3, 0xF3),
     card_bg: Rgba::opaque(0xFF, 0xFF, 0xFF),
+    card_alt: Rgba::opaque(0xF7, 0xF7, 0xF7),
     card_border: Rgba::opaque(0xE1, 0xE1, 0xE1),
+    divider: Rgba::opaque(0xEF, 0xEF, 0xEF),
+    preview_wall: Rgba::opaque(0x24, 0x28, 0x30),
+    preview_bar: Rgba::opaque(0x14, 0x17, 0x1B),
+    preview_line: Rgba::opaque(0x3A, 0x3F, 0x45),
+    preview_ink: Rgba::opaque(0xF2, 0xF2, 0xF2),
+    preview_muted: Rgba::opaque(0x9A, 0xA3, 0xAD),
     text_primary: Rgba::opaque(0x1A, 0x1A, 0x1A),
     text_secondary: Rgba::opaque(0x5C, 0x5C, 0x5C),
     accent: Rgba::opaque(0x00, 0x78, 0xD4),
@@ -88,7 +109,14 @@ pub const DARK: Palette = Palette {
     window_bg: Rgba::opaque(0x20, 0x20, 0x20),
     heading_bg: Rgba::opaque(0x20, 0x20, 0x20),
     card_bg: Rgba::opaque(0x2C, 0x2C, 0x2C),
+    card_alt: Rgba::opaque(0x33, 0x33, 0x33),
     card_border: Rgba::opaque(0x3A, 0x3A, 0x3A),
+    divider: Rgba::opaque(0x35, 0x35, 0x35),
+    preview_wall: Rgba::opaque(0x24, 0x28, 0x30),
+    preview_bar: Rgba::opaque(0x14, 0x17, 0x1B),
+    preview_line: Rgba::opaque(0x3A, 0x3F, 0x45),
+    preview_ink: Rgba::opaque(0xF2, 0xF2, 0xF2),
+    preview_muted: Rgba::opaque(0x9A, 0xA3, 0xAD),
     text_primary: Rgba::opaque(0xFF, 0xFF, 0xFF),
     text_secondary: Rgba::opaque(0xA8, 0xA8, 0xA8),
     accent: Rgba::opaque(0x60, 0xCD, 0xFF),
@@ -110,6 +138,7 @@ impl Palette {
 
     /// 控件当前可用的填充色（置灰时换成 disabled_fill）。
     #[must_use]
+    #[cfg(test)]
     pub const fn control_fill(self, on: bool, enabled: bool) -> Rgba {
         if !enabled {
             self.disabled_fill
@@ -188,6 +217,25 @@ pub const MIN_WIDTH_DIP: f32 = 720.0;
 /// 最小窗口高度。
 pub const MIN_HEIGHT_DIP: f32 = 560.0;
 
+// ---- 设置窗口（页签式布局）----
+
+/// 头部高度：页签 + 状态 + 着色开关 + 暂停。
+pub const HEADER_HEIGHT_DIP: f32 = 48.0;
+/// 底栏高度：恢复默认 / 导入 / 导出 / 关于。
+pub const FOOTER_HEIGHT_DIP: f32 = 48.0;
+/// 内容区外边距。
+pub const PAGE_PAD_DIP: f32 = 16.0;
+/// 卡片之间、卡片与内容区之间的间距。
+pub const PAGE_GAP_DIP: f32 = 12.0;
+/// 一行设置的高度（整行可点）。
+pub const ROW_HEIGHT_DIP: f32 = 44.0;
+/// 开关轨道尺寸（视觉与命中一致）。
+pub const TOGGLE_W_DIP: f32 = 36.0;
+/// 开关轨道高度。
+pub const TOGGLE_H_DIP: f32 = 18.0;
+/// 卡片圆角。
+pub const TILE_RADIUS_DIP: f32 = 8.0;
+
 /// 正文字体族。
 pub const FONT_FAMILY_BODY: &str = "Segoe UI Variable Text";
 /// 标题/强调字体族。
@@ -202,7 +250,9 @@ mod tests {
         for mode in [ThemeMode::Light, ThemeMode::Dark] {
             let p = mode.palette();
             for c in [
-                p.window_bg, p.heading_bg, p.card_bg, p.card_border,
+                p.window_bg, p.heading_bg, p.card_bg, p.card_alt, p.card_border,
+                p.divider, p.preview_wall, p.preview_bar, p.preview_line,
+                p.preview_ink, p.preview_muted,
                 p.text_primary, p.text_secondary, p.accent, p.accent_text,
                 p.track_off, p.disabled_fill, p.disabled_text,
                 p.warning, p.danger, p.ok,

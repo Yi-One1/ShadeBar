@@ -1,8 +1,31 @@
-//! UI 模块根（§4 #28 / §6.4 `View`）。
+//! 设置窗口（G6 重做：方案 1「任务栏直控」）。
 //!
-//! [`View`] 持有控件树、分组卡片、滚动视口、焦点/悬停、语言版本与诊断数据。
-//! `window.rs` 只负责把 Win32 消息转发进来并调用 `paint`；所有布局、命中、
-//! 弹层、语言热切换都在这里收敛，六个页面不各自实现一遍。
+//! # 结构
+//!
+//! ```text
+//! ┌──────────────────────────────────────────────────────────────┐
+//! │ 任务栏  采样  托盘  诊断        Y 0.183·暗端  ●运行中 着色 ◉  暂停 │ 48
+//! ├──────────────────────────────────────────────────────────────┤
+//! │ 内容区（按页手工排布，720×560 一屏放下，不滚动）                  │
+//! ├──────────────────────────────────────────────────────────────┤
+//! │ 恢复默认                              导入配置  导出配置  关于   │ 48
+//! └──────────────────────────────────────────────────────────────┘
+//! ```
+//!
+//! # 为什么不再有自绘标题栏
+//!
+//! 窗口本身是 `WS_OVERLAPPEDWINDOW`，DWM 已经提供标题栏与关闭按钮；
+//! 再自绘一条 40 px 标题区只会形成"双层标题栏"。这里只画页面头。
+//!
+//! # 为什么没有"标签 + 说明 + 控件"三行模板
+//!
+//! 布局本身承担解释职责：任务栏预览直接把三区、颜色、阈值画出来，
+//! 开关就贴在被影响的位置上；因此不再有每行一句灰色说明文字。
+//!
+//! # 坐标
+//!
+//! 本文件所有坐标都是 **dip，且等于客户区坐标**（无侧栏偏移、无滚动）。
+//! 浮层锚点直接用控件矩形，命中与绘制共用同一份几何。
 
 pub mod i18n;
 pub mod layout;
@@ -12,1533 +35,2273 @@ pub mod widgets;
 
 use std::time::Instant;
 
-use shadebar_core::PRODUCT_NAME;
 use shadebar_core::color::Rgba;
-use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
+use shadebar_core::SbResult;
+use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, SYSTEMTIME, WPARAM};
+use windows::Win32::System::SystemInformation::GetLocalTime;
+use windows::Win32::UI::Input::KeyboardAndMouse::{ReleaseCapture, SetCapture};
+use windows::Win32::UI::WindowsAndMessaging::{LoadCursorW, SetCursor, IDC_ARROW, IDC_HAND};
 
-use crate::config::{Config, Group, Lang, SettingKey};
+use crate::config::{argb_to_rgba, Config, ControlKind, Lang, SettingKey};
 use crate::render::{RectDip, RenderCtx, TextRole};
-use crate::ui::layout::{Metrics, Rect, Scroll};
-use crate::ui::pages::diagnostics::{DiagView, paint as paint_diagnostics};
-use crate::ui::pages::{SETTING_GROUPS, keys_of};
-use crate::ui::theme::{Palette, ThemeMode, CARD_RADIUS_DIP};
+use crate::ui::i18n::text;
+use crate::ui::layout::{ellipsize, hex_rgb, text_width, Rect};
+use crate::ui::pages::diagnostics::DiagView;
+use crate::ui::theme::{Palette, ThemeMode};
 use crate::ui::widgets::{
-    Banner, GroupHeader, PopupKind, SettingWidget, UiEvent, VK_DOWN, VK_ESCAPE, VK_LEFT, VK_NEXT,
-    VK_PRIOR, VK_RETURN, VK_RIGHT, VK_SPACE, VK_TAB, VK_UP, Widget, WidgetResult,
+    PopupKind, VK_DOWN, VK_ESCAPE, VK_LEFT, VK_RETURN, VK_RIGHT, VK_SPACE, VK_TAB, VK_UP,
 };
 
-// Win32 消息号（避免为几个常量再开 windows feature）。
-const MSG_MOUSEMOVE: u32 = 0x0200;
-const MSG_LBUTTONDOWN: u32 = 0x0201;
-const MSG_LBUTTONUP: u32 = 0x0202;
-const MSG_MOUSEWHEEL: u32 = 0x020A;
-const MSG_KEYDOWN: u32 = 0x0100;
-const MSG_CHAR: u32 = 0x0102;
+const HEADER_H: f32 = theme::HEADER_HEIGHT_DIP;
+const FOOTER_H: f32 = theme::FOOTER_HEIGHT_DIP;
+const PAD: f32 = theme::PAGE_PAD_DIP;
+const GAP: f32 = theme::PAGE_GAP_DIP;
+const ROW_H: f32 = theme::ROW_HEIGHT_DIP;
+const TOGGLE_W: f32 = theme::TOGGLE_W_DIP;
+const TOGGLE_H: f32 = theme::TOGGLE_H_DIP;
+const RADIUS: f32 = theme::TILE_RADIUS_DIP;
 
-/// 诊断卡片展开后的正文高度（dip）。
-/// 8 行指标 + 折线 + 两条预警的实际内容高度约 346 dip，留一点余量。
-const DIAG_CARD_H: f32 = 360.0;
-/// 诊断卡片标题行高度（dip）。收起态只占这一行，点它展开。
-const DIAG_HEAD_H: f32 = 44.0;
-/// 下拉单项高度（dip）。
-const POPUP_ITEM_H: f32 = 28.0;
-/// 弹层宽度（dip）。
-const POPUP_W: f32 = 220.0;
+const WM_MOUSEMOVE: u32 = 0x0200;
+const WM_LBUTTONDOWN: u32 = 0x0201;
+const WM_LBUTTONUP: u32 = 0x0202;
+const WM_KEYDOWN: u32 = 0x0100;
+const WM_KILLFOCUS: u32 = 0x0008;
 
-// ---- 颜色弹层几何 ----------------------------------------------------------
-//
-// 渲染与命中测试共用下面几个函数，不允许两边各写一份公式：
-// 历史事故里"按钮显示区域与交互区域不一致"就是这么来的。
-//
-// 宽度验算：12 + 6×32 + 5×8 + 12 = 256
-// 高度验算（两组）：12 +(16+6+32) +12 +(16+6+32) +10 +32 +8 +32 +12 = 226
-// 高度验算（一组）：12 +(16+6+32) +10 +32 +8 +32 +12 = 160
-/// 弹层宽度：内边距 + 6 列色块 + 5 个间距 + 内边距。
-const PICKER_W: f32 = 256.0;
-/// 内边距。
-const PICKER_PAD: f32 = 12.0;
-/// 单个色块边长（圆角 [`SWATCH_RADIUS`]）。
-const SWATCH: f32 = 32.0;
-/// 色块间距，横竖同一个值。
-const SWATCH_GAP: f32 = 8.0;
-/// 色块圆角。
-const SWATCH_RADIUS: f32 = 4.0;
-/// 焦点环半径（36×36、外扩 2、圆角 8，与色块本身区分开）。
-const SWATCH_FOCUS_RADIUS: f32 = 8.0;
-/// 焦点环外扩量（32 + 2×2 = 36）。
-const SWATCH_FOCUS_OUT: f32 = 2.0;
-/// 组标题高度（正文 12 px 那一档）。
-const SWATCH_LABEL_H: f32 = 16.0;
-/// 组标题 ↔ 色块。
-const SWATCH_LABEL_GAP: f32 = 6.0;
-/// 组间距。
-const SWATCH_GROUP_GAP: f32 = 12.0;
-/// 一组占的纵向高度：标题 + 间隙 + 色块。
-const SWATCH_ROW_H: f32 = SWATCH_LABEL_H + SWATCH_LABEL_GAP + SWATCH;
-/// 色板 ↔ HEX 输入框。
-const PICKER_HEX_GAP: f32 = 10.0;
-/// HEX 输入框高度。
-const PICKER_HEX_H: f32 = 32.0;
-/// HEX 标签列宽。
-const PICKER_HEX_LABEL_W: f32 = 36.0;
-/// HEX ↔「更多颜色…」。
-const PICKER_MORE_GAP: f32 = 8.0;
-/// 「更多颜色…」按钮高度。
-const PICKER_MORE_H: f32 = 32.0;
+/// 诊断页上的固定动作行（不参与页面设置项归属）。
+const DIAG_ROWS: &[SettingKey] = &[SettingKey::S45, SettingKey::S05, SettingKey::S46];
+const NO_ROWS: &[SettingKey] = &[];
 
-/// 某组在弹层内的纵向起点。
-fn group_top(group: usize) -> f32 {
-    PICKER_PAD + group as f32 * (SWATCH_ROW_H + SWATCH_GROUP_GAP)
-}
+/// 版本号（编译期常量，点击即复制）。
+const VERSION_TEXT: &str = concat!("v", env!("CARGO_PKG_VERSION"));
 
-/// 某组某个色块的矩形（内容坐标）。
-fn swatch_rect(frame: Rect, group: usize, idx: usize) -> Rect {
-    Rect::new(
-        frame.x + PICKER_PAD + idx as f32 * (SWATCH + SWATCH_GAP),
-        frame.y + group_top(group) + SWATCH_LABEL_H + SWATCH_LABEL_GAP,
-        SWATCH,
-        SWATCH,
-    )
-}
-
-/// 某组标题的矩形。
-fn swatch_label_rect(frame: Rect, group: usize) -> Rect {
-    Rect::new(
-        frame.x + PICKER_PAD,
-        frame.y + group_top(group),
-        frame.w - 2.0 * PICKER_PAD,
-        SWATCH_LABEL_H,
-    )
-}
-
-/// 色板最下沿（最后一组色块的下边），HEX 行从这里往下排。
-fn swatches_bottom(groups: usize) -> f32 {
-    PICKER_PAD
-        + groups as f32 * SWATCH_ROW_H
-        + groups.saturating_sub(1) as f32 * SWATCH_GROUP_GAP
-}
-
-/// HEX 输入框矩形。`groups` 是当前 key 显示的色板组数（1 或 2）。
-fn picker_hex_rect(frame: Rect, groups: usize) -> Rect {
-    Rect::new(
-        frame.x + PICKER_PAD,
-        frame.y + swatches_bottom(groups) + PICKER_HEX_GAP,
-        frame.w - 2.0 * PICKER_PAD,
-        PICKER_HEX_H,
-    )
-}
-
-/// "更多颜色"按钮矩形。
-fn picker_more_rect(frame: Rect, groups: usize) -> Rect {
-    let hr = picker_hex_rect(frame, groups);
-    Rect::new(
-        frame.x + PICKER_PAD,
-        hr.y + PICKER_HEX_H + PICKER_MORE_GAP,
-        frame.w - 2.0 * PICKER_PAD,
-        PICKER_MORE_H,
-    )
-}
-
-/// 弹层总高：由上面同一组常量推出来，改一个数整体跟着走（不再手写魔数和）。
-fn picker_height(groups: usize) -> f32 {
-    let frame = Rect::new(0.0, 0.0, PICKER_W, 0.0);
-    picker_more_rect(frame, groups).y + PICKER_MORE_H + PICKER_PAD
-}
-
-/// 某个颜色项该看哪几组色板。
-///
-/// **按 key 分流是这张卡的核心**：端色（S-14/S-15）要的是"文字色"（A 组浅色 +
-/// B 组深色），填充色（S-35/S-37）要的是"叠在任务栏上的填充/描边色"（C 组）。
-/// 混用会直接出事故：深色背景上的文字拿到 `#FFC857` 对比度只有 1.39:1，
-/// 用户根本看不见自己选的文字色。
-///
-/// 渲染与命中测试都调这一个函数，不许两处各写一份。
-#[must_use]
-pub fn swatch_groups_for(key: SettingKey) -> &'static [(&'static str, [&'static str; 6])] {
-    match key {
-        SettingKey::S14 | SettingKey::S15 => &i18n::COLOR_SWATCH_GROUPS[..2],
-        _ => &i18n::COLOR_SWATCH_GROUPS[2..],
-    }
-}
-
-/// 提示条显示时长（毫秒）。
-const TOAST_MS: u64 = 2200;
-
-/// `View` 交给 `App` 执行的动作。
+/// 页面。顺序即页签顺序。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ViewAction {
-    /// 写入一个设置值（含 S-04 语言热切换）。
-    Set(SettingKey, i64),
-    /// 全量恢复默认（A-12，已经过二次确认）。
-    RestoreDefaults,
-    /// 导出诊断包（S-46）。
-    ExportDiagnostics,
-    /// 复制版本号（S-05）。
-    CopyVersion,
-    /// 打开系统调色板挑任意颜色（由窗口层执行，因为它需要 HWND）。
-    PickColor(SettingKey),
+enum Page {
+    /// 任务栏：预览 + 三区 + 颜色与判定。
+    Taskbar,
+    /// 采样：采样带 + 间隔/平滑/区域。
+    Sample,
+    /// 托盘：托盘行为 + 启动 + 语言。
+    Tray,
+    /// 诊断：实时判定 + 日志级别 + 版本 + 诊断包。
+    Diag,
 }
 
-/// 弹层状态。
-#[derive(Debug, Clone)]
-enum PopupState {
-    /// 无弹层。
+impl Page {
+    const ALL: [Self; 4] = [Self::Taskbar, Self::Sample, Self::Tray, Self::Diag];
+
+    fn title_key(self) -> &'static str {
+        match self {
+            Self::Taskbar => "tab.taskbar",
+            Self::Sample => "tab.sample",
+            Self::Tray => "tab.tray",
+            Self::Diag => "tab.diag",
+        }
+    }
+
+}
+
+/// 命中目标。命中与绘制共用同一份矩形，测试据此核对"视觉 == 命中"。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Hit {
+    /// 无。
     None,
-    /// 下拉选项。
-    Dropdown { key: SettingKey, rect: Rect },
-    /// 颜色选择（Hex 输入 + 按 key 分流的预设色板）。
-    ColorPicker {
-        /// 正在编辑的配置项。
-        key: SettingKey,
-        /// 弹层矩形（内容坐标）。
-        rect: Rect,
-        /// 用户已敲入的 HEX 文本（初值留空，空时显示当前值灰字提示）。
-        hex: String,
-        /// 键盘焦点所在色格（`组×6 + 列` 的线性下标）。
-        focus: Option<usize>,
-    },
-    /// 恢复默认二次确认。
-    Confirm { rect: Rect },
+    /// 页签。
+    Tab(usize),
+    /// 顶栏「着色」开关（S-01）。
+    Tint,
+    /// 顶栏「暂停 / 继续」（S-42）。
+    Pause,
+    /// 预览上的背景模式（S-10）。
+    Mode(usize),
+    /// 三区卡片（0 图标 / 1 托盘 / 2 时钟）。
+    Zone(usize),
+    /// 端色色样（0 = S-14，1 = S-15）。
+    Well(usize),
+    /// 判定粒度（S-47）。
+    Judge(usize),
+    /// 亮度阈值滑条（S-12）。
+    Threshold,
+    /// 设置行。
+    Row(usize),
+    /// 底栏（0 恢复默认 / 1 导入 / 2 导出 / 3 关于）。
+    Footer(usize),
 }
 
-/// 设置窗口的控件树与状态。
+/// 行控件。
+struct RowWidget {
+    key: SettingKey,
+    /// 整行命中区。
+    rect: Rect,
+    value: i64,
+    enabled: bool,
+}
+
+/// 浮层状态。
+struct PopupState {
+    kind: PopupKind,
+    /// 浮层矩形（客户区坐标）。
+    frame: Rect,
+    /// 下拉当前选中项。
+    selected: usize,
+}
+
+/// 视图动作（由 `window.rs` 执行）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ViewAction {
+    /// 写一项配置。
+    Set(SettingKey, i64),
+    /// 恢复默认（已二次确认）。
+    RestoreDefaults,
+    /// 导出诊断包。
+    ExportDiagnostics,
+    /// 复制版本号。
+    CopyVersion,
+    /// 打开系统取色对话框。
+    PickColor(SettingKey),
+    /// 导出配置。
+    ExportConfig,
+    /// 导入配置。
+    ImportConfig,
+}
+
+/// 运行状态 chip。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RunState {
+    Running,
+    Paused,
+    Limited,
+}
+
+/// 设置窗口视图。
 pub struct View {
-    /// 7 个分组标题（6 个设置分组 + 诊断）。
-    headers: Vec<GroupHeader>,
-    /// 设置行（数量等于当前可见项数）。
-    rows: Vec<SettingWidget>,
-    /// 每个分组对应的行区间 `[start, end)`。
-    row_ranges: Vec<(usize, usize)>,
-    /// 每个分组的卡片矩形（内容坐标）。
-    cards: Vec<Rect>,
-    /// 降级横幅。
-    banner: Banner,
-    /// 诊断卡片矩形（含标题行）。
-    diag_rect: Rect,
-    /// 诊断卡片是否展开（默认收起：诊断是排查工具，不该占主页面）。
-    diag_expanded: bool,
-    /// 滚动视口。
-    scroll: Scroll,
-    /// 布局度量。
-    metrics: Metrics,
-    /// 当前语言。
-    lang: Lang,
-    /// 当前深浅色。
-    mode: ThemeMode,
-    /// 是否降级（L1 only）。
-    degraded: bool,
-    /// 焦点行下标。
-    focus_index: Option<usize>,
-    /// 弹层。
-    popup: PopupState,
-    /// 关于页浮层。
-    about_visible: bool,
-    /// 待交给 App 的动作。
-    actions: Vec<ViewAction>,
-    /// 瞬时提示（key, 到期毫秒）。
-    toast: Option<(&'static str, u64)>,
-    /// 颜色策略（S-13）当前是否已是「自定义」。
-    ///
-    /// 端色改动会由 `Config::set` 自动把 S-13 切到自定义；这里留一份镜像，
-    /// 只用于决定"要不要弹一次 `picker.switched` 提示"，不参与任何判定。
-    s13_custom: bool,
-    /// 悬浮提示（全文 + 内容坐标）。
-    tooltip: Option<(String, f32, f32)>,
-    /// 诊断数据。
+    cfg: Config,
     diag: DiagView,
-    /// 客户区尺寸（dip）。
-    client: (f32, f32),
-    /// 当前 DPI（px → dip 换算用）。
+    lang: Lang,
+    mode: ThemeMode,
     dpi: u32,
-    /// 单调时钟（toast 计时）。
-    clock: Instant,
+    degraded: bool,
+    page: Page,
+    rows: Vec<RowWidget>,
+    actions: Vec<ViewAction>,
+    popup: Option<PopupState>,
+    toast: Option<(String, Instant)>,
+    hover: Hit,
+    focus: usize,
+    focus_visible: bool,
+    dragging: Option<SettingKey>,
+    client: (f32, f32),
+
+    tab_rects: [Rect; 4],
+    tint_toggle: Rect,
+    pause_btn: Rect,
+    preview: Rect,
+    preview_bar: Rect,
+    mode_rects: [Rect; 3],
+    zone_rects: [Rect; 3],
+    colors_card: Rect,
+    well_rects: [Rect; 2],
+    judge_rects: [Rect; 2],
+    thr_track: Rect,
+    sample_card: Rect,
+    sample_band: Rect,
+    rows_card: Rect,
+    diag_card: Rect,
+    diag_spark: Rect,
+    foot_rects: [Rect; 4],
 }
 
 impl View {
-    /// 以配置、语言、降级状态建立控件树。
+    /// 新建视图。
     #[must_use]
     pub fn new(cfg: &Config, lang: Lang, degraded: bool) -> Self {
-        let mut headers = Vec::new();
-        let mut rows = Vec::new();
-        let mut row_ranges = Vec::new();
-        for g in SETTING_GROUPS {
-            headers.push(GroupHeader::new(g));
-            let start = rows.len();
-            for &k in keys_of(g) {
-                rows.push(SettingWidget::new(k, cfg, degraded));
-            }
-            row_ranges.push((start, rows.len()));
-        }
-        // 诊断分组无设置项，但有自己的标题与卡片。
-        headers.push(GroupHeader::new(Group::Diagnostics));
-        row_ranges.push((rows.len(), rows.len()));
-
-        // T03.4 绑定自检：每个分组的 `keys_of` 静态表必须与 `Group::keys`
-        // 的元数据过滤结果一致，防止新增项漏绑到页面。
-        for g in SETTING_GROUPS {
-            if g.keys().len() != keys_of(g).len() {
-                crate::config::note("page binding mismatch detected");
-                break;
-            }
-        }
-        // A-25 的双语覆盖由 `i18n::tests::both_tables_cover_every_required_key`
-        // 在构建期逐项核对（含 35 项标签/说明、分组标题、托盘菜单、诊断、
-        // 确认框、关于页、下拉选项），比运行期再扫一遍更严格且零体积开销。
-
-        Self {
-            headers,
-            rows,
-            row_ranges,
-            cards: Vec::new(),
-            banner: Banner::new(degraded),
-            diag_rect: Rect::new(0.0, 0.0, 0.0, 0.0),
-            // 默认收起：诊断只服务排查，常驻展开会吃掉主页面一半高度。
-            diag_expanded: false,
-            scroll: Scroll::default(),
-            metrics: Metrics::default(),
-            lang,
-            mode: ThemeMode::system(),
-            degraded,
-            focus_index: None,
-            popup: PopupState::None,
-            about_visible: false,
-            actions: Vec::new(),
-            toast: None,
-            s13_custom: cfg.get(SettingKey::S13) != 0,
-            tooltip: None,
+        let mut v = Self {
+            cfg: cfg.clone(),
             diag: DiagView::default(),
-            client: (720.0, 560.0),
+            lang,
+            mode: ThemeMode::Light,
             dpi: 96,
-            clock: Instant::now(),
-        }
+            degraded,
+            page: Page::Taskbar,
+            rows: Vec::new(),
+            actions: Vec::new(),
+            popup: None,
+            toast: None,
+            hover: Hit::None,
+            focus: usize::MAX,
+            focus_visible: false,
+            dragging: None,
+            client: (theme::MIN_WIDTH_DIP, theme::MIN_HEIGHT_DIP),
+            tab_rects: [Rect::default(); 4],
+            tint_toggle: Rect::default(),
+            pause_btn: Rect::default(),
+            preview: Rect::default(),
+            preview_bar: Rect::default(),
+            mode_rects: [Rect::default(); 3],
+            zone_rects: [Rect::default(); 3],
+            colors_card: Rect::default(),
+            well_rects: [Rect::default(); 2],
+            judge_rects: [Rect::default(); 2],
+            thr_track: Rect::default(),
+            sample_card: Rect::default(),
+            sample_band: Rect::default(),
+            rows_card: Rect::default(),
+            diag_card: Rect::default(),
+            diag_spark: Rect::default(),
+            foot_rects: [Rect::default(); 4],
+        };
+        v.rebuild_rows();
+        v.rebuild_layout();
+        v
     }
 
-    /// 取走待执行动作。
+    /// 用最新配置 / 诊断数据刷新（每帧 `WM_PAINT` 前由 `app.sync_view` 调用）。
+    pub fn rebuild(&mut self, cfg: &Config, diag: &DiagView, degraded: bool) {
+        self.cfg = cfg.clone();
+        self.diag = diag.clone();
+        self.degraded = degraded;
+        self.rebuild_rows();
+        self.rebuild_layout();
+    }
+
+    /// 语言变化：文案即时切换，浮层关闭（旧语言的选项文字不能留在屏幕上）。
+    pub fn rebuild_texts(&mut self, lang: Lang) {
+        if lang == self.lang {
+            return;
+        }
+        self.lang = lang;
+        self.popup = None;
+        self.rebuild_rows();
+        self.rebuild_layout();
+    }
+
+    /// 取动作队列（由 `window.rs` 消费）。
     pub fn take_actions(&mut self) -> Vec<ViewAction> {
         std::mem::take(&mut self.actions)
     }
 
-    /// 当前语言。
-    #[must_use]
-    pub const fn language(&self) -> Lang {
-        self.lang
+    /// 外部请求打开浮层（托盘菜单「关于」）。
+    pub fn request_popup(&mut self, kind: PopupKind) {
+        self.open_popup(kind);
     }
 
-    /// 当前客户区 DPI。
-    #[must_use]
-    pub const fn dpi(&self) -> u32 {
-        self.dpi
+    /// 提示条（i18n key）。
+    pub fn show_toast(&mut self, key: &'static str) {
+        self.show_toast_text(text(key, self.lang).to_string());
     }
 
-    /// DPI 变化（PerMonitorV2）。
+    /// 提示条（现成文本）。
+    pub fn show_toast_text(&mut self, text: String) {
+        self.toast = Some((text, Instant::now()));
+    }
+
+    /// 设置 DPI。
     pub fn set_dpi(&mut self, dpi: u32) {
         self.dpi = dpi.max(96);
     }
 
-    /// 客户区尺寸变化（`WM_SIZE`）。
-    pub fn set_client(&mut self, w_dip: f32, h_dip: f32) {
-        self.client = (w_dip.max(1.0), h_dip.max(1.0));
-        self.rebuild_layout();
+    /// 当前 DPI。
+    #[must_use]
+    pub fn dpi(&self) -> u32 {
+        self.dpi
     }
 
-    /// 系统深浅色变化（FR-40）。
+    /// 设置深 / 浅色。
     pub fn set_theme(&mut self, mode: ThemeMode) {
         self.mode = mode;
     }
 
-    /// 当前深浅色。
+    /// 当前主题。
     #[must_use]
-    pub const fn theme(&self) -> ThemeMode {
+    pub fn theme(&self) -> ThemeMode {
         self.mode
     }
 
-    /// 语言热切换（A-24：≤1 s、PID 不变、采样不中断）。
-    pub fn rebuild_texts(&mut self, lang: Lang) {
-        self.lang = lang;
-        for h in &mut self.headers {
-            h.set_texts(lang);
-        }
-        for r in &mut self.rows {
-            r.set_texts(lang);
-        }
-        self.banner.set_texts(lang);
+    /// 当前语言。
+    #[must_use]
+    pub fn language(&self) -> Lang {
+        self.lang
     }
 
-    /// 用最新配置/诊断/降级状态刷新控件（A-10：设置改动同拍生效）。
-    pub fn rebuild(&mut self, cfg: &Config, diag: &DiagView, degraded: bool) {
-        self.degraded = degraded;
-        self.banner.visible = degraded;
-        for r in &mut self.rows {
-            r.sync_value(cfg.get(r.key));
-            // 降级时只置灰 L2/L3 元素控件，值保留（NFR-05 / §13-6）。
-            r.set_enabled(
-                !(degraded && crate::ui::pages::elements::GREYED_IN_DEGRADED.contains(&r.key)),
-            );
+    /// 客户区尺寸（dip）。
+    pub fn set_client(&mut self, w: f32, h: f32) {
+        if (self.client.0 - w).abs() < 0.01 && (self.client.1 - h).abs() < 0.01 {
+            return;
         }
-        self.diag = diag.clone();
-        self.s13_custom = cfg.get(SettingKey::S13) != 0;
+        self.client = (w, h);
         self.rebuild_layout();
     }
 
-    /// 打开关于页（托盘菜单「关于」）。
-    pub fn show_about(&mut self) {
-        self.about_visible = true;
-        self.popup = PopupState::None;
+    // -----------------------------------------------------------------
+    // 数据
+    // -----------------------------------------------------------------
+
+    fn tint_on(&self) -> bool {
+        self.cfg.get(SettingKey::S01) != 0
     }
 
-    /// 由托盘菜单请求一个弹层/动作（供 `window.rs` 转发 `PopupKind::About` 等）。
-    pub fn request_popup(&mut self, kind: PopupKind) {
-        self.open_popup(kind, self.client.0 / 2.0, self.metrics.heading_h);
+    fn paused(&self) -> bool {
+        !self.tint_on() || self.cfg.get(SettingKey::S42) != 0
     }
 
-    /// 显示一条瞬时提示。
-    pub fn show_toast(&mut self, key: &'static str) {
-        self.toast = Some((key, self.now_ms().saturating_add(TOAST_MS)));
-    }
-
-    fn now_ms(&self) -> u64 {
-        u64::try_from(self.clock.elapsed().as_millis()).unwrap_or(u64::MAX)
-    }
-
-    /// 某个颜色项当前的值（`0xAARRGGBB`）。
-    ///
-    /// 行被 UI 收起时（S-35/S-37 目前就收着）回退到该键的默认值，不能用白色兜底：
-    /// 那样会把"22% 不透明"的 alpha 语义悄悄换成全不透明。
-    fn current_color(&self, key: SettingKey) -> u32 {
-        self.rows
-            .iter()
-            .find(|r| r.key == key)
-            .map_or(key.meta().default_value as u32, |r| r.value as u32)
-    }
-
-    /// 写回一个颜色值；端色第一次落到「自定义」策略时提示一次。
-    fn write_color(&mut self, key: SettingKey, argb: i64) {
-        if matches!(key, SettingKey::S14 | SettingKey::S15)
-            && !self.s13_custom
-            && argb != i64::from(self.current_color(key))
-        {
-            self.show_toast("picker.switched");
-        }
-        self.actions.push(ViewAction::Set(key, argb));
-    }
-
-    /// 点色块：**只换 RGB**，alpha 取该 key 当前值。
-    ///
-    /// 色块只有 RGB；若直接当 `0xFFRRGGBB` 写回去，S-35（默认 `0x38FFFFFF`，22%）
-    /// 会被一次点击突变成全不透明——指示条瞬间从"淡淡的"变成"糊住任务栏"。
-    fn apply_swatch(&mut self, key: SettingKey, hex: &str) {
-        let Some(c) = Rgba::parse_hex(hex) else {
-            return;
-        };
-        let alpha = self.current_color(key) & 0xFF00_0000;
-        let argb = i64::from(alpha | rgb_of(c));
-        self.write_color(key, argb);
-    }
-
-    /// 提交 HEX 输入。非法 → 不写配置，弹 `picker.invalid`。
-    ///
-    /// 6 位输入对填充色同样保留当前 alpha（与点色块一致）；8 位输入以用户写的为准。
-    fn submit_hex(&mut self, key: SettingKey, hex: &str) {
-        let Some(c) = Rgba::parse_hex(hex) else {
-            self.show_toast("picker.invalid");
-            return;
-        };
-        let digits = hex.strip_prefix('#').unwrap_or(hex).len();
-        let c = if digits == 6 {
-            Rgba::new(c.r, c.g, c.b, hex_alpha(self.current_color(key)))
+    fn run_state(&self) -> RunState {
+        if self.paused() {
+            RunState::Paused
+        } else if self.degraded {
+            RunState::Limited
         } else {
-            c
-        };
-        let argb = rgba_to_argb(c);
-        self.write_color(key, argb);
-    }
-
-    /// 颜色弹层内的按键。返回是否消费。
-    fn handle_picker_key(&mut self, vk: u16) -> bool {
-        let PopupState::ColorPicker { key, rect, hex, focus } = self.popup.clone() else {
-            return false;
-        };
-        let groups = swatch_groups_for(key);
-        let cells = groups.len() * 6;
-        match vk {
-            VK_LEFT | VK_RIGHT | VK_UP | VK_DOWN => {
-                let cur = focus.unwrap_or(0).min(cells.saturating_sub(1));
-                let col = cur % 6;
-                let next = match vk {
-                    VK_LEFT => cur.saturating_sub(1).max(cur - col),
-                    VK_RIGHT => (cur + 1).min(cur - col + 5),
-                    // 已在第一排就不动，别把焦点弹回左上角。
-                    VK_UP => {
-                        if cur < 6 {
-                            cur
-                        } else {
-                            cur - 6
-                        }
-                    }
-                    _ => (cur + 6).min(cells - 1),
-                };
-                self.popup = PopupState::ColorPicker { key, rect, hex, focus: Some(next) };
-                true
-            }
-            VK_RETURN | VK_SPACE => {
-                if !hex.is_empty() {
-                    self.submit_hex(key, &hex);
-                } else if let Some(idx) = focus {
-                    if let Some((_, colors)) = groups.get(idx / 6) {
-                        if let Some(p) = colors.get(idx % 6) {
-                            self.apply_swatch(key, p);
-                        }
-                    }
-                }
-                self.popup = PopupState::None;
-                true
-            }
-            _ => false,
+            RunState::Running
         }
     }
 
-    /// 重新计算所有卡片/行/诊断区的内容坐标与内容总高。
+    /// 当前判定色：`S-10` 强制端色优先，否则按阈值在 `S-14/S-15` 间选。
+    fn decision_color(&self) -> Rgba {
+        match self.cfg.get(SettingKey::S10) {
+            1 => argb_to_rgba(self.cfg.get(SettingKey::S15)),
+            2 => argb_to_rgba(self.cfg.get(SettingKey::S14)),
+            _ => {
+                let thr = self.cfg.get(SettingKey::S12) as f32 / 1000.0;
+                let y = self.diag.y_milli as f32 / 1000.0;
+                if y < thr {
+                    argb_to_rgba(self.cfg.get(SettingKey::S14))
+                } else {
+                    argb_to_rgba(self.cfg.get(SettingKey::S15))
+                }
+            }
+        }
+    }
+
+    /// 某一区实际会用的前景色（关闭 / 暂停 / 降级时回落到系统白）。
+    fn zone_color(&self, key: SettingKey, p: &Palette) -> Rgba {
+        if self.degraded || !self.tint_on() || self.cfg.get(key) == 0 {
+            p.preview_ink
+        } else {
+            self.decision_color()
+        }
+    }
+
+    fn row_enabled(&self, key: SettingKey) -> bool {
+        match self.page {
+            Page::Sample => self.tint_on() && !self.degraded && key.meta().kind == ControlKind::Slider,
+            _ => key != SettingKey::S46 || self.tint_on(),
+        }
+    }
+
+    // -----------------------------------------------------------------
+    // 布局
+    // -----------------------------------------------------------------
+
+    fn rebuild_rows(&mut self) {
+        let keys: &[SettingKey] = match self.page {
+            Page::Taskbar => NO_ROWS,
+            Page::Sample => pages::SAMPLE_KEYS,
+            Page::Tray => pages::TRAY_KEYS,
+            Page::Diag => DIAG_ROWS,
+        };
+        self.rows.clear();
+        let (card, pad_top) = self.rows_geometry();
+        for (i, &key) in keys.iter().enumerate() {
+            self.rows.push(RowWidget {
+                key,
+                rect: Rect::new(card.x, card.y + pad_top + i as f32 * ROW_H, card.w, ROW_H),
+                value: self.cfg.get(key),
+                enabled: self.row_enabled(key),
+            });
+        }
+        if self.focus >= self.rows.len() {
+            self.focus = usize::MAX;
+        }
+    }
+
+    fn rows_geometry(&self) -> (Rect, f32) {
+        let w = self.client.0;
+        let cw = w - PAD * 2.0;
+        match self.page {
+            Page::Sample => (Rect::new(PAD, 236.0, cw, 244.0), 12.0),
+            Page::Tray => (Rect::new(PAD, HEADER_H + PAD, cw, 244.0), 12.0),
+            Page::Diag => (Rect::new(PAD, 272.0, cw, 144.0), 6.0),
+            Page::Taskbar => (Rect::default(), 0.0),
+        }
+    }
+
     fn rebuild_layout(&mut self) {
-        let m = self.metrics;
-        let outer_x = m.margin;
-        let outer_w = (self.client.0 - m.margin * 2.0).max(0.0);
-        let inner_x = outer_x + m.card_pad;
-        let inner_w = (outer_w - m.card_pad * 2.0).max(0.0);
-        let mut y = 0.0_f32;
+        let w = self.client.0.max(theme::MIN_WIDTH_DIP);
+        let h = self.client.1.max(theme::MIN_HEIGHT_DIP);
 
-        let banner_size = self.banner.layout(Rect::new(outer_x, y, outer_w, 0.0), &m);
-        if banner_size.h > 0.0 {
-            y += banner_size.h + m.group_gap;
+        // 页签
+        let mut x = PAD;
+        for (i, page) in Page::ALL.iter().enumerate() {
+            let tw = text_width(text(page.title_key(), self.lang), TextRole::Subtitle.size())
+                .max(26.0);
+            self.tab_rects[i] = Rect::new(x, 0.0, tw + 28.0, HEADER_H);
+            x += tw + 28.0 + 2.0;
         }
 
-        self.cards.clear();
-        let groups_len = SETTING_GROUPS.len();
-        for (gi, g) in SETTING_GROUPS
-            .iter()
-            .copied()
-            .chain([Group::Diagnostics])
-            .enumerate()
-        {
-            let _ = g; // 分组名只用于标识，标题文字由 GroupHeader 自己取。
-            let card_y = y;
-            let header_size = self.headers[gi].layout(Rect::new(inner_x, y, inner_w, 0.0), &m);
-            y += header_size.h;
-            let (start, end) = self.row_ranges[gi];
-            for idx in start..end {
-                let size = self.rows[idx].layout(Rect::new(inner_x, y, inner_w, 0.0), &m);
-                y += size.h;
-            }
-            if gi == groups_len {
-                let dh = if self.diag_expanded {
-                    DIAG_HEAD_H + DIAG_CARD_H
-                } else {
-                    DIAG_HEAD_H
-                };
-                self.diag_rect = Rect::new(inner_x, y, inner_w, dh);
-                y += dh;
-            }
-            self.cards.push(Rect::new(outer_x, card_y, outer_w, y - card_y + m.card_pad));
-            y += m.group_gap;
-        }
-
-        self.scroll.content_h = y + m.card_pad;
-        self.scroll.view_h = (self.client.1 - m.heading_h).max(0.0);
-        self.scroll.clamp();
-    }
-
-    /// 画一帧（由 `window.rs::WM_PAINT` 在 `BeginPaint/EndPaint` 之间调用）。
-    pub fn paint(&mut self, ctx: &RenderCtx, palette: &Palette, mode: ThemeMode) {
-        self.mode = mode;
-        self.rebuild_layout();
-        let (cw, ch) = self.client;
-        let dy = self.metrics.heading_h - self.scroll.offset;
-
-        // 1) 整幅不透明背景（B3：每帧从干净表面重建，绝不叠加）。
-        ctx.fill_rect(RectDip::new(0.0, 0.0, cw, ch), palette.window_bg);
-        ctx.fill_rect(RectDip::new(0.0, 0.0, cw, self.metrics.heading_h), palette.heading_bg);
-        ctx.draw_text(
-            PRODUCT_NAME,
-            RectDip::new(self.metrics.margin, 10.0, cw - self.metrics.margin * 2.0, 26.0),
-            TextRole::Title,
-            palette.text_primary,
+        // 顶栏右侧：暂停 → 着色开关
+        let pause_label = text(
+            if self.paused() { "ui.resume" } else { "ui.pause" },
+            self.lang,
         );
+        let pw = text_width(pause_label, TextRole::Body.size()) + 30.0;
+        self.pause_btn = Rect::new(w - PAD - pw, 10.0, pw, 28.0);
+        self.tint_toggle = Rect::new(self.pause_btn.x - 16.0 - TOGGLE_W, 15.0, TOGGLE_W, TOGGLE_H);
 
-        // 2) 分组卡片（超出视口的由系统裁剪，不影响布局正确性）。
-        for card in &self.cards {
-            let r = RectDip::new(card.x, card.y + dy, card.w, card.h);
-            if r.y > ch || r.y + r.h < self.metrics.heading_h {
-                continue;
-            }
-            ctx.fill_rounded_rect(r, CARD_RADIUS_DIP, palette.card_bg);
-            ctx.stroke_rounded_rect(r, CARD_RADIUS_DIP, palette.card_border, 1.0);
-        }
+        // 底栏
+        let fy = h - FOOTER_H + 10.0;
+        let body = TextRole::Body.size();
+        let restore_w = text_width(text("action.restore", self.lang), body) + 26.0;
+        self.foot_rects[0] = Rect::new(PAD, fy, restore_w, 28.0);
+        let about_w = text_width(text("action.about", self.lang), body) + 26.0;
+        let export_w = text_width(text("action.export_config", self.lang), body) + 26.0;
+        let import_w = text_width(text("action.import_config", self.lang), body) + 26.0;
+        let mut rx = w - PAD - about_w;
+        self.foot_rects[3] = Rect::new(rx, fy, about_w, 28.0);
+        rx -= export_w + 4.0;
+        self.foot_rects[2] = Rect::new(rx, fy, export_w, 28.0);
+        rx -= import_w + 4.0;
+        self.foot_rects[1] = Rect::new(rx, fy, import_w, 28.0);
 
-        self.banner.paint(ctx, palette, self.lang, dy);
-        for h in &self.headers {
-            h.paint(ctx, palette, self.lang, dy);
-        }
-        for r in &self.rows {
-            let visible_top = r.rect.y + dy;
-            if visible_top > ch || visible_top + r.rect.h < self.metrics.heading_h {
-                continue;
-            }
-            r.paint(ctx, palette, self.lang, dy);
-        }
-        let dr = self.diag_rect;
-        let dtop = dr.y + dy;
-        if dtop < ch && dtop + dr.h > self.metrics.heading_h {
-            self.paint_diag_head(ctx, palette, RectDip::new(dr.x, dtop, dr.w, DIAG_HEAD_H));
-            if self.diag_expanded {
-                paint_diagnostics(
-                    ctx,
-                    palette,
-                    self.lang,
-                    RectDip::new(dr.x, dtop + DIAG_HEAD_H, dr.w, dr.h - DIAG_HEAD_H),
-                    &self.diag,
-                );
-                // 采样区过小的预警由 `paint_diagnostics` 自己在正文末尾画，
-                // 这里不再叠加（v1.2.0 曾重复画两遍）。
-            }
-        }
+        // 各页几何
+        let cw = w - PAD * 2.0;
+        let top = HEADER_H + PAD;
+        self.preview = Rect::default();
+        self.preview_bar = Rect::default();
+        self.colors_card = Rect::default();
+        self.sample_card = Rect::default();
+        self.sample_band = Rect::default();
+        self.diag_card = Rect::default();
+        self.diag_spark = Rect::default();
+        match self.page {
+            Page::Taskbar => {
+                self.preview = Rect::new(PAD, top, cw, 150.0);
+                self.preview_bar = Rect::new(PAD + 10.0, top + 150.0 - 54.0, cw - 20.0, 44.0);
 
-        self.paint_popup(ctx, palette, dy);
-        if self.about_visible {
-            self.paint_about(ctx, palette);
-        }
-        self.paint_tooltip_and_toast(ctx, palette);
-    }
-
-    /// 画诊断卡片的标题行（收起态的全部内容，展开态的可点击抬头）。
-    fn paint_diag_head(&self, ctx: &RenderCtx, palette: &Palette, r: RectDip) {
-        // 左侧：一行实时摘要，收起时也能确认采样在跑。
-        let summary = if self.diag.has_data {
-            format!(
-                "Y {:.3}   {:.1}:1",
-                self.diag.y_milli as f32 / 1000.0,
-                self.diag.contrast_milli as f32 / 1000.0
-            )
-        } else {
-            i18n::text("diag.no_data", self.lang).to_string()
-        };
-        ctx.draw_text(
-            &summary,
-            RectDip::new(r.x + 16.0, r.y + 12.0, (r.w - 160.0).max(60.0), 20.0),
-            TextRole::Body,
-            palette.text_secondary,
-        );
-        // 右侧：展开 / 收起。
-        let hint = if self.diag_expanded {
-            i18n::text("diag.collapse", self.lang)
-        } else {
-            i18n::text("diag.expand", self.lang)
-        };
-        let arrow = if self.diag_expanded { "  ▾" } else { "  ▸" };
-        ctx.draw_text(
-            &format!("{hint}{arrow}"),
-            RectDip::new(r.x + r.w - 136.0, r.y + 12.0, 120.0, 20.0),
-            TextRole::Body,
-            palette.accent,
-        );
-    }
-
-    fn paint_popup(&self, ctx: &RenderCtx, palette: &Palette, dy: f32) {
-        match &self.popup {
-            PopupState::None => {}
-            PopupState::Dropdown { key, rect } => {
-                let meta = key.meta();
-                let h = meta.options.len() as f32 * POPUP_ITEM_H + 8.0;
-                let r = RectDip::new(rect.x, rect.y + dy, POPUP_W.min(rect.w.max(120.0)), h);
-                ctx.fill_rounded_rect(r, 6.0, palette.card_bg);
-                ctx.stroke_rounded_rect(r, 6.0, palette.accent, 1.0);
-                for (i, k) in meta.options.iter().enumerate() {
-                    let label = if k.starts_with('#') { *k } else { i18n::text(k, self.lang) };
-                    ctx.draw_text(
-                        label,
-                        RectDip::new(r.x + 8.0, r.y + 4.0 + i as f32 * POPUP_ITEM_H, r.w - 16.0, POPUP_ITEM_H),
-                        TextRole::Body,
-                        palette.text_primary,
+                let chip_w = 48.0;
+                let chip_gap = 6.0;
+                let chips_w = chip_w * 3.0 + chip_gap * 2.0;
+                let chips_x = self.preview.right() - 10.0 - chips_w;
+                for i in 0..3 {
+                    self.mode_rects[i] = Rect::new(
+                        chips_x + i as f32 * (chip_w + chip_gap),
+                        top + 10.0,
+                        chip_w,
+                        22.0,
                     );
                 }
+
+                let zw = (cw - 2.0 * GAP) / 3.0;
+                let zy = self.preview.bottom() + GAP;
+                for i in 0..3 {
+                    self.zone_rects[i] = Rect::new(PAD + i as f32 * (zw + GAP), zy, zw, 44.0);
+                }
+
+                self.colors_card = Rect::new(PAD, self.zone_rects[0].bottom() + GAP, cw, 214.0);
+                let inner = self.colors_card.inset(PAD);
+                let bw = (inner.w - 10.0) / 2.0;
+                let wy = inner.y + 36.0;
+                self.well_rects[0] = Rect::new(inner.x, wy, bw, 70.0);
+                self.well_rects[1] = Rect::new(inner.x + bw + 10.0, wy, bw, 70.0);
+                let seg_w = 76.0;
+                self.judge_rects[0] = Rect::new(inner.right() - seg_w * 2.0 - 2.0, inner.y, seg_w, 26.0);
+                self.judge_rects[1] = Rect::new(inner.right() - seg_w, inner.y, seg_w, 26.0);
+                self.thr_track = Rect::new(inner.x, inner.y + 118.0 + 22.0, inner.w, 10.0);
             }
-            PopupState::ColorPicker { key, rect, hex, focus } => {
-                let groups = swatch_groups_for(*key);
-                let n = groups.len();
-                let f = Rect::new(rect.x, rect.y + dy, PICKER_W, picker_height(n));
-                let rd = |q: Rect| RectDip::new(q.x, q.y, q.w, q.h);
-                ctx.fill_rounded_rect(rd(f), 8.0, palette.card_bg);
-                ctx.stroke_rounded_rect(rd(f), 8.0, palette.accent, 1.0);
+            Page::Sample => {
+                self.sample_card = Rect::new(PAD, top, cw, 160.0);
+                self.sample_band = Rect::new(PAD + PAD, top + 46.0, cw - PAD * 2.0, 60.0);
+            }
+            Page::Diag => {
+                self.diag_card = Rect::new(PAD, top, cw, 196.0);
+                self.diag_spark = Rect::new(PAD + PAD, top + 118.0, cw - PAD * 2.0, 46.0);
+            }
+            Page::Tray => {}
+        }
 
-                let current = self.current_color(*key);
-                let cur_rgb = current & 0x00FF_FFFF;
+        let (card, first) = self.rows_geometry();
+        self.rows_card = card;
+        for (i, row) in self.rows.iter_mut().enumerate() {
+            row.rect = Rect::new(card.x, card.y + first + i as f32 * ROW_H, card.w, ROW_H);
+        }
+    }
 
-                // HEX 输入框：标签列 36 宽 + 等宽值列。
-                // 当前色不在板内时，标签列改画 16×16 当前色块——用户得看见
-                // "我现在是什么色"，否则只能靠猜。位置固定，两种状态零跳动。
-                let hr = picker_hex_rect(f, n);
-                ctx.stroke_rounded_rect(rd(hr), 4.0, palette.card_border, 1.0);
-                let label_x = hr.x + 8.0;
-                if in_palette(groups, cur_rgb) {
-                    ctx.draw_text(
-                        i18n::text("picker.hex", self.lang),
-                        RectDip::new(label_x, hr.y + 7.0, PICKER_HEX_LABEL_W, 18.0),
-                        TextRole::Body,
-                        palette.text_secondary,
-                    );
-                } else {
-                    let chip = RectDip::new(label_x + 10.0, hr.y + 8.0, 16.0, 16.0);
-                    ctx.fill_rounded_rect(chip, 2.0, Rgba::from_rgb(cur_rgb));
-                    ctx.stroke_rounded_rect(chip, 1.0, palette.card_border, 1.0);
-                }
-                let value_x = hr.x + 8.0 + PICKER_HEX_LABEL_W;
-                let value_w = hr.w - PICKER_HEX_LABEL_W - 16.0;
-                // 预填 `#FFFFFFFF` 要退格 9 次才能重输，所以初值留空、
-                // 当前值只做灰字提示；第一次敲键提示自然消失。
-                if hex.is_empty() {
-                    ctx.draw_text(
-                        &format!("#{current:08X}"),
-                        RectDip::new(value_x + 10.0, hr.y + 7.0, value_w - 10.0, 18.0),
-                        TextRole::Body,
-                        palette.text_secondary,
-                    );
-                } else {
-                    ctx.draw_text(
-                        hex,
-                        RectDip::new(value_x, hr.y + 7.0, value_w, 18.0),
-                        TextRole::Body,
-                        palette.text_primary,
-                    );
-                }
-                ctx.draw_text(
-                    "|",
-                    RectDip::new(value_x + hex.chars().count() as f32 * 7.4, hr.y + 7.0, 8.0, 18.0),
-                    TextRole::Body,
-                    palette.accent,
-                );
+    // -----------------------------------------------------------------
+    // 命中
+    // -----------------------------------------------------------------
 
-                for (gi, (label_key, colors)) in groups.iter().enumerate() {
-                    // 组标题行按施工单是 16 高；正文 14 dip 的行盒约 18.6，
-                    // 画在 16 高的框里会把 g/p 的下沿裁掉，所以绘制框放到 20
-                    // （只吃 6 dip 的标题↔色块间隙，不占布局高度）。
-                    let lr = swatch_label_rect(f, gi);
-                    ctx.draw_text(
-                        i18n::text(label_key, self.lang),
-                        RectDip::new(lr.x, lr.y, lr.w, 20.0),
-                        TextRole::Body,
-                        palette.text_secondary,
-                    );
-                    for (i, p) in colors.iter().enumerate() {
-                        let sr = swatch_rect(f, gi, i);
-                        let Some(c) = Rgba::parse_hex(p) else {
-                            continue;
-                        };
-                        ctx.fill_rounded_rect(rd(sr), SWATCH_RADIUS, c);
-                        // 白色块在白卡片上必须描边，否则看不出边界。
-                        ctx.stroke_rounded_rect(rd(sr), SWATCH_RADIUS, palette.card_border, 1.0);
-                        // 选中态：中心画 12×12 圆角矩形填 ink，再嵌 8×8 原色圆点，
-                        // 形成 2 px 环。必须画图形——任何字符（含 U+2713）都可能
-                        // 落在 emoji 区段，禁作功能图标。ink 按色块自身亮度取黑/白。
-                        if rgb_of(c) == cur_rgb {
-                            let ink = if c.relative_luminance() > 0.5 {
-                                Rgba::opaque(0, 0, 0)
-                            } else {
-                                Rgba::opaque(0xFF, 0xFF, 0xFF)
-                            };
-                            ctx.fill_rounded_rect(
-                                RectDip::new(sr.x + 10.0, sr.y + 10.0, 12.0, 12.0),
-                                6.0,
-                                ink,
-                            );
-                            ctx.fill_rounded_rect(
-                                RectDip::new(sr.x + 12.0, sr.y + 12.0, 8.0, 8.0),
-                                4.0,
-                                c,
-                            );
-                        }
-                        // 键盘焦点环：2 px accent、外扩 2（36×36、圆角 8）。
-                        // 形状与对勾完全不同，两者叠加也分得清。
-                        if *focus == Some(gi * 6 + i) {
-                            let fr = sr.inset(-SWATCH_FOCUS_OUT);
-                            ctx.stroke_rounded_rect(rd(fr), SWATCH_FOCUS_RADIUS, palette.accent, 2.0);
-                        }
+    fn hit(&self, x: f32, y: f32) -> Hit {
+        for (i, r) in self.foot_rects.iter().enumerate() {
+            if r.contains(x, y) {
+                return Hit::Footer(i);
+            }
+        }
+        for (i, r) in self.tab_rects.iter().enumerate() {
+            if r.contains(x, y) {
+                return Hit::Tab(i);
+            }
+        }
+        if self.tint_toggle.contains(x, y) {
+            return Hit::Tint;
+        }
+        if self.pause_btn.contains(x, y) {
+            return Hit::Pause;
+        }
+        match self.page {
+            Page::Taskbar => {
+                for (i, r) in self.mode_rects.iter().enumerate() {
+                    if r.contains(x, y) {
+                        return Hit::Mode(i);
                     }
                 }
-
-                let mr = picker_more_rect(f, n);
-                ctx.stroke_rounded_rect(rd(mr), 4.0, palette.card_border, 1.0);
-                ctx.draw_text(
-                    i18n::text("picker.more", self.lang),
-                    RectDip::new(mr.x + 8.0, mr.y + 7.0, mr.w - 16.0, 18.0),
-                    TextRole::Body,
-                    palette.accent,
-                );
-            }
-            PopupState::Confirm { rect } => {
-                let r = RectDip::new(rect.x, rect.y + dy, rect.w, 120.0);
-                ctx.fill_rounded_rect(r, 8.0, palette.card_bg);
-                ctx.stroke_rounded_rect(r, 8.0, palette.warning, 1.5);
-                ctx.draw_text(
-                    i18n::text("dlg.restore.title", self.lang),
-                    RectDip::new(r.x + 12.0, r.y + 10.0, r.w - 24.0, 24.0),
-                    TextRole::Title,
-                    palette.text_primary,
-                );
-                ctx.draw_text(
-                    i18n::text("dlg.restore.body", self.lang),
-                    RectDip::new(r.x + 12.0, r.y + 36.0, r.w - 24.0, 24.0),
-                    TextRole::Body,
-                    palette.text_secondary,
-                );
-                let bw = (r.w - 36.0) / 2.0;
-                ctx.fill_rounded_rect(RectDip::new(r.x + 12.0, r.y + 76.0, bw, 32.0), 4.0, palette.accent);
-                ctx.draw_text(
-                    i18n::text("dlg.confirm", self.lang),
-                    RectDip::new(r.x + 12.0, r.y + 82.0, bw, 22.0),
-                    TextRole::Body,
-                    palette.accent_text,
-                );
-                ctx.fill_rounded_rect(RectDip::new(r.x + 24.0 + bw, r.y + 76.0, bw, 32.0), 4.0, palette.disabled_fill);
-                ctx.draw_text(
-                    i18n::text("dlg.cancel", self.lang),
-                    RectDip::new(r.x + 24.0 + bw, r.y + 82.0, bw, 22.0),
-                    TextRole::Body,
-                    palette.text_primary,
-                );
-            }
-        }
-    }
-
-    fn paint_about(&self, ctx: &RenderCtx, palette: &Palette) {
-        let (cw, ch) = self.client;
-        let w = 420.0_f32.min(cw - 40.0);
-        let h = 220.0_f32;
-        let r = RectDip::new((cw - w) / 2.0, (ch - h) / 2.0, w, h);
-        ctx.fill_rounded_rect(r, 10.0, palette.card_bg);
-        ctx.stroke_rounded_rect(r, 10.0, palette.accent, 1.5);
-        let version_line = format!("{}: v{}", i18n::text("about.version", self.lang), shadebar_core::VERSION);
-        let lines = [
-            i18n::text("about.title", self.lang),
-            version_line.as_str(),
-            i18n::text("about.license", self.lang),
-            i18n::text("about.known_limits", self.lang),
-        ];
-        for (i, line) in lines.iter().enumerate() {
-            ctx.draw_text(
-                line,
-                RectDip::new(r.x + 20.0, r.y + 20.0 + i as f32 * 34.0, r.w - 40.0, 28.0),
-                if i == 0 { TextRole::Title } else { TextRole::Body },
-                palette.text_primary,
-            );
-        }
-        ctx.draw_text(
-            i18n::text("about.copy_version", self.lang),
-            RectDip::new(r.x + 20.0, r.y + h - 44.0, r.w - 40.0, 24.0),
-            TextRole::Body,
-            palette.accent,
-        );
-    }
-
-    fn paint_tooltip_and_toast(&mut self, ctx: &RenderCtx, palette: &Palette) {
-        if let Some((text, x, y)) = self.tooltip.clone() {
-            let w = (text.chars().count() as f32 * 8.0).min(self.client.0 - 20.0);
-            let r = RectDip::new(x + 10.0, y + 14.0, w + 16.0, 26.0);
-            ctx.fill_rounded_rect(r, 4.0, palette.card_bg);
-            ctx.stroke_rounded_rect(r, 4.0, palette.card_border, 1.0);
-            ctx.draw_text(&text, RectDip::new(r.x + 8.0, r.y + 4.0, r.w - 16.0, 20.0), TextRole::Body, palette.text_primary);
-        }
-        let now = self.now_ms();
-        if let Some((key, until)) = self.toast {
-            if now < until {
-                let text = i18n::text(key, self.lang);
-                let r = RectDip::new(self.metrics.margin, self.client.1 - 40.0, self.client.0 - self.metrics.margin * 2.0, 28.0);
-                ctx.fill_rounded_rect(r, 4.0, palette.card_bg);
-                ctx.draw_text(text, RectDip::new(r.x + 10.0, r.y + 4.0, r.w - 20.0, 22.0), TextRole::Body, palette.text_primary);
-            } else {
-                self.toast = None;
-            }
-        }
-    }
-
-    fn px_to_content(&self, px: i32, py: i32) -> (f32, f32) {
-        let scale = 96.0 / self.dpi.max(96) as f32;
-        (
-            px as f32 * scale,
-            py as f32 * scale - self.metrics.heading_h + self.scroll.offset,
-        )
-    }
-
-    fn low_word(v: isize) -> i32 {
-        (v & 0xFFFF) as i16 as i32
-    }
-
-    fn high_word(v: isize) -> i32 {
-        ((v >> 16) & 0xFFFF) as i16 as i32
-    }
-
-    /// 鼠标悬停 / 光标判定（§6.4 签名；坐标为客户区物理像素）。
-    pub fn hit_test_and_update_cursor(&mut self, px: i32, py: i32) -> bool {
-        let (x, y) = self.px_to_content(px, py);
-        let mut interactive = false;
-        self.tooltip = None;
-        for r in &mut self.rows {
-            let hit = r.control_hit(x, y);
-            r.hover = hit;
-            if hit {
-                interactive = true;
-            }
-            if r.row_hit(x, y) {
-                let label = i18n::text(r.meta.label, self.lang);
-                let help = i18n::text(r.meta.help, self.lang);
-                let label_w = (r.control.x - r.rect.x - 8.0).max(40.0);
-                if crate::ui::widgets::needs_tooltip(label, label_w) {
-                    self.tooltip = Some((label.to_string(), x, y));
-                } else if crate::ui::widgets::needs_tooltip(help, r.rect.w) {
-                    self.tooltip = Some((help.to_string(), x, y));
-                }
-            }
-        }
-        interactive || !matches!(self.popup, PopupState::None) || self.about_visible
-            // 诊断抬头可点：给了手型光标用户才知道能展开。
-            || Rect::new(self.diag_rect.x, self.diag_rect.y, self.diag_rect.w, DIAG_HEAD_H)
-                .contains(x, y)
-    }
-
-    fn set_focus(&mut self, idx: Option<usize>) {
-        if let Some(old) = self.focus_index {
-            if let Some(r) = self.rows.get_mut(old) {
-                r.focus = false;
-            }
-        }
-        self.focus_index = idx;
-        if let Some(i) = idx {
-            if let Some(r) = self.rows.get_mut(i) {
-                r.focus = true;
-            }
-        }
-    }
-
-    fn open_popup(&mut self, kind: PopupKind, x: f32, y: f32) {
-        match kind {
-            PopupKind::Dropdown(key) => {
-                self.popup = PopupState::Dropdown { key, rect: Rect::new(x, y, POPUP_W, 0.0) };
-            }
-            PopupKind::ColorPicker(key) => {
-                let groups = swatch_groups_for(key);
-                let n = groups.len();
-                let (w, h) = (PICKER_W, picker_height(n));
-                // 初始焦点：当前色在板内就落在那一格，否则落在左上角第一格。
-                let focus = groups
-                    .iter()
-                    .enumerate()
-                    .flat_map(|(gi, (_, colors))| {
-                        colors.iter().enumerate().map(move |(i, p)| (gi * 6 + i, *p))
-                    })
-                    .find(|(_, p)| {
-                        Rgba::parse_hex(p)
-                            .is_some_and(|c| rgb_of(c) == self.current_color(key) & 0x00FF_FFFF)
-                    })
-                    .map_or(0, |(idx, _)| idx);
-                // 吸附在窗口内：右侧越界就左移，下方放不下就翻到锚点上方。
-                let left = x.min(self.client.0 - w - 12.0).max(8.0);
-                let below_ok = (y - self.scroll.offset) + h + 12.0 <= self.client.1;
-                let top = if below_ok {
-                    y + 6.0
-                } else {
-                    (y - h - 6.0).max(self.scroll.offset + 8.0)
-                };
-                self.popup = PopupState::ColorPicker {
-                    key,
-                    rect: Rect::new(left, top, w, h),
-                    // 初值留空：预填 `#FFFFFFFF` 要退格 9 次才能重输，
-                    // 当前值只做灰字提示（见 `paint_popup`）。
-                    hex: String::new(),
-                    focus: Some(focus),
-                };
-            }
-            PopupKind::ConfirmRestore => {
-                let w = 360.0_f32.min(self.client.0 - 40.0);
-                self.popup = PopupState::Confirm {
-                    rect: Rect::new((self.client.0 - w) / 2.0, self.client.1 / 2.0 - 60.0, w, 0.0),
-                };
-            }
-            PopupKind::About => self.show_about(),
-            PopupKind::ExportDiagnostics => {
-                self.actions.push(ViewAction::ExportDiagnostics);
-                self.show_toast("common.export_ok");
-            }
-            PopupKind::CopyVersion => {
-                self.actions.push(ViewAction::CopyVersion);
-                self.show_toast("common.copy_ok");
-            }
-        }
-    }
-
-    fn handle_popup_click(&mut self, x: f32, y: f32) -> bool {
-        let state = self.popup.clone();
-        match state {
-            PopupState::None => false,
-            PopupState::Dropdown { key, rect } => {
-                let meta = key.meta();
-                let n = meta.options.len();
-                let top = rect.y;
-                let right = rect.x + POPUP_W.min(rect.w.max(120.0));
-                let bottom = top + n as f32 * POPUP_ITEM_H + 8.0;
-                if !(rect.x..=right).contains(&x) || !(top..=bottom).contains(&y) {
-                    self.popup = PopupState::None;
-                    return true;
-                }
-                let idx = ((y - top - 4.0) / POPUP_ITEM_H).floor().max(0.0) as usize;
-                if idx < n {
-                    self.actions.push(ViewAction::Set(key, idx as i64));
-                }
-                self.popup = PopupState::None;
-                true
-            }
-            PopupState::ColorPicker { key, rect, hex, focus } => {
-                // 命中与渲染共用同一组几何函数：色块走 swatch_rect、按钮走
-                // picker_more_rect，绝不另写一份坐标公式（否则就会出现
-                // "看到的位置点不中、点中的地方没按钮"这类问题）。
-                let groups = swatch_groups_for(key);
-                let n = groups.len();
-                for (gi, (_, colors)) in groups.iter().enumerate() {
-                    for (i, p) in colors.iter().enumerate() {
-                        if swatch_rect(rect, gi, i).contains(x, y) {
-                            self.apply_swatch(key, p);
-                            self.popup = PopupState::None;
-                            return true;
-                        }
+                for (i, r) in self.zone_rects.iter().enumerate() {
+                    if r.contains(x, y) {
+                        return Hit::Zone(i);
                     }
                 }
-                if picker_more_rect(rect, n).contains(x, y) {
-                    self.actions.push(ViewAction::PickColor(key));
-                    self.popup = PopupState::None;
-                    return true;
-                }
-                // 点弹层内部（HEX 输入区）保持打开，等键盘输入；点外面关闭。
-                if !Rect::new(rect.x, rect.y, PICKER_W, picker_height(n)).contains(x, y) {
-                    self.popup = PopupState::None;
-                } else {
-                    self.popup = PopupState::ColorPicker { key, rect, hex, focus };
-                }
-                true
-            }
-            PopupState::Confirm { rect } => {
-                let ry = y - rect.y;
-                let bw = (rect.w - 36.0) / 2.0;
-                if (76.0..=108.0).contains(&ry) {
-                    if (rect.x + 12.0..=rect.x + 12.0 + bw).contains(&x) {
-                        self.actions.push(ViewAction::RestoreDefaults);
+                for (i, r) in self.well_rects.iter().enumerate() {
+                    if r.contains(x, y) {
+                        return Hit::Well(i);
                     }
-                    self.popup = PopupState::None;
-                } else if !(rect.x..=rect.x + rect.w).contains(&x) || !(0.0..=120.0).contains(&ry) {
-                    self.popup = PopupState::None;
                 }
-                true
+                for (i, r) in self.judge_rects.iter().enumerate() {
+                    if r.contains(x, y) {
+                        return Hit::Judge(i);
+                    }
+                }
+                let thr_hit = Rect::new(
+                    self.thr_track.x,
+                    self.thr_track.y - 8.0,
+                    self.thr_track.w,
+                    self.thr_track.h + 16.0,
+                );
+                if thr_hit.contains(x, y) {
+                    return Hit::Threshold;
+                }
             }
+            Page::Sample | Page::Tray | Page::Diag => {
+                for (i, row) in self.rows.iter().enumerate() {
+                    if row.rect.contains(x, y) {
+                        return Hit::Row(i);
+                    }
+                }
+            }
+        }
+        Hit::None
+    }
+
+    fn hit_is_interactive(hit: Hit) -> bool {
+        !matches!(hit, Hit::None)
+    }
+
+    // -----------------------------------------------------------------
+    // 输入
+    // -----------------------------------------------------------------
+
+    /// 鼠标移动时的光标形状（`window.rs` 在无浮层时调用）。
+    pub fn hit_test_and_update_cursor(&mut self, x_px: i32, y_px: i32) -> bool {
+        let (x, y) = self.px_to_dip(x_px, y_px);
+        if self.popup.is_some() {
+            self.set_cursor(true);
+            return true;
+        }
+        let hit = self.hit(x, y);
+        self.hover = hit;
+        self.set_cursor(Self::hit_is_interactive(hit));
+        Self::hit_is_interactive(hit)
+    }
+
+    fn set_cursor(&self, interactive: bool) {
+        let name = if interactive { IDC_HAND } else { IDC_ARROW };
+        // SAFETY: 无前置条件；加载失败时保持系统默认光标。
+        if let Ok(cursor) = unsafe { LoadCursorW(None, name) } {
+            // SAFETY: cursor 有效。
+            unsafe { SetCursor(cursor) };
         }
     }
 
-    fn handle_row_event(&mut self, ev: &UiEvent, x: f32, y: f32) -> bool {
-        // 诊断卡片抬头：只响应标题行的按下，展开/收起切换后立即重排。
-        if let UiEvent::LButtonDown { .. } = *ev {
-            let head = Rect::new(self.diag_rect.x, self.diag_rect.y, self.diag_rect.w, DIAG_HEAD_H);
-            if head.contains(x, y) {
-                self.diag_expanded = !self.diag_expanded;
-                self.rebuild_layout();
-                // 展开后正文会伸到视口下方：直接滚到底，让用户立刻看到面板，
-                // 而不是点开一个"看起来没反应"的卡片。
-                if self.diag_expanded {
-                    self.scroll.offset = self.scroll.max_offset();
-                } else {
-                    self.scroll.clamp();
-                }
-                return true;
-            }
-        }
-        for idx in 0..self.rows.len() {
-            let result = self.rows[idx].event(ev);
-            match result {
-                WidgetResult::Ignored => {}
-                WidgetResult::Handled => return true,
-                WidgetResult::Changed(key, v) => {
-                    self.actions.push(ViewAction::Set(key, v));
-                    self.rows[idx].sync_value(v);
-                    return true;
-                }
-                WidgetResult::OpenPopup(kind) => {
-                    self.open_popup(kind, x, y);
-                    return true;
-                }
-            }
-        }
-        false
+    fn px_to_dip(&self, x_px: i32, y_px: i32) -> (f32, f32) {
+        let s = self.dpi as f32 / 96.0;
+        (x_px as f32 / s, y_px as f32 / s)
     }
 
-    /// 处理一条 Win32 消息（§6.4 签名）。返回 `Some(LRESULT)` 表示已消费。
+    /// 处理窗口消息。`Some` 表示已消费。
+    ///
+    /// # Errors
+    ///
+    /// 当前实现不产生错误；保留 `SbResult` 与窗口层签名一致。
     pub fn on_message(
         &mut self,
-        _hwnd: HWND,
+        hwnd: HWND,
         msg: u32,
         wp: WPARAM,
         lp: LPARAM,
-    ) -> Option<LRESULT> {
+    ) -> SbResult<Option<LRESULT>> {
+        let x = (lp.0 & 0xFFFF) as u16 as i16 as i32;
+        let y = ((lp.0 >> 16) & 0xFFFF) as u16 as i16 as i32;
+        let (dx, dy) = self.px_to_dip(x, y);
+
         match msg {
-            MSG_MOUSEMOVE | MSG_LBUTTONDOWN | MSG_LBUTTONUP => {
-                let px = Self::low_word(lp.0);
-                let py = Self::high_word(lp.0);
-                let (x, y) = self.px_to_content(px, py);
-                if !matches!(self.popup, PopupState::None)
-                    && msg == MSG_LBUTTONDOWN
-                    && self.handle_popup_click(x, y)
-                {
-                    return Some(LRESULT(0));
-                }
-                if self.about_visible && msg == MSG_LBUTTONDOWN {
-                    self.about_visible = false;
-                    return Some(LRESULT(0));
-                }
-                let ev = match msg {
-                    MSG_MOUSEMOVE => UiEvent::MouseMove { x, y },
-                    MSG_LBUTTONDOWN => UiEvent::LButtonDown { x, y },
-                    _ => UiEvent::LButtonUp { x, y },
-                };
-                let consumed = self.handle_row_event(&ev, x, y);
-                if consumed {
-                    Some(LRESULT(0))
+            WM_MOUSEMOVE => {
+                if let Some(key) = self.dragging {
+                    self.drag_slider(key, dx);
                 } else {
-                    None
-                }
-            }
-            MSG_MOUSEWHEEL => {
-                let delta = Self::high_word(wp.0 as isize) as f32;
-                let _ = self.scroll.scroll_by(-delta / 120.0 * 60.0);
-                Some(LRESULT(0))
-            }
-            MSG_KEYDOWN => {
-                let vk = (wp.0 & 0xFFFF) as u16;
-                if vk == VK_ESCAPE {
-                    self.popup = PopupState::None;
-                    self.about_visible = false;
-                    return Some(LRESULT(0));
-                }
-                // 颜色弹层优先吃掉方向键 / Enter / Space：打开弹层时这四类键
-                // 属于弹层，不能再往下走给页面控件。
-                if matches!(self.popup, PopupState::ColorPicker { .. })
-                    && self.handle_picker_key(vk)
-                {
-                    return Some(LRESULT(0));
-                }
-                if vk == VK_TAB {
-                    let next = match self.focus_index {
-                        None => Some(0usize),
-                        Some(i) => Some((i + 1) % self.rows.len().max(1)),
+                    self.hover = if self.popup.is_some() {
+                        Hit::None
+                    } else {
+                        self.hit(dx, dy)
                     };
-                    self.set_focus(next);
-                    return Some(LRESULT(0));
                 }
-                if vk == VK_PRIOR || vk == VK_NEXT {
-                    let _ = self.scroll.page(if vk == VK_NEXT { 1.0 } else { -1.0 });
-                    return Some(LRESULT(0));
-                }
-                let consumed = self.handle_row_event(&UiEvent::Key { vk }, 0.0, 0.0);
-                if consumed { Some(LRESULT(0)) } else { None }
+                Ok(Some(LRESULT(0)))
             }
-            MSG_CHAR => {
-                let ch = char::from_u32((wp.0 & 0xFFFF) as u32).unwrap_or('\0');
-                if ch == '\0' {
-                    return None;
+            WM_LBUTTONDOWN => {
+                self.focus_visible = false;
+                if self.popup.is_some() {
+                    self.handle_popup_click(dx, dy);
+                    Ok(Some(LRESULT(0)))
+                } else {
+                    self.handle_click(hwnd, dx, dy);
+                    Ok(Some(LRESULT(0)))
                 }
-                let state = self.popup.clone();
-                if let PopupState::ColorPicker { key, rect, mut hex, focus } = state {
-                    if ch == '\u{0008}' {
-                        hex.pop();
-                    } else if (ch == '#' || ch.is_ascii_hexdigit()) && hex.chars().count() < 9 {
-                        // `#` + 8 位 = 9；3 位简写不支持（§11.5 只认 6/8 位）。
-                        hex.push(ch.to_ascii_uppercase());
-                    }
-                    self.popup = PopupState::ColorPicker { key, rect, hex, focus };
-                    return Some(LRESULT(0));
-                }
-                let consumed = self.handle_row_event(&UiEvent::Char { ch }, 0.0, 0.0);
-                if consumed { Some(LRESULT(0)) } else { None }
             }
-            _ => None,
+            WM_LBUTTONUP => {
+                if self.dragging.take().is_some() {
+                    // SAFETY: 与 SetCapture 配对。
+                    unsafe { ReleaseCapture().ok() };
+                }
+                Ok(Some(LRESULT(0)))
+            }
+            WM_KEYDOWN => {
+                self.handle_key(wp.0 as u16);
+                Ok(Some(LRESULT(0)))
+            }
+            WM_KILLFOCUS => {
+                self.dragging = None;
+                Ok(Some(LRESULT(0)))
+            }
+            _ => Ok(None),
         }
+    }
+
+    fn handle_click(&mut self, hwnd: HWND, x: f32, y: f32) {
+        match self.hit(x, y) {
+            Hit::Tab(i) => {
+                let page = Page::ALL[i];
+                if page != self.page {
+                    self.page = page;
+                    self.focus = usize::MAX;
+                    self.rebuild_rows();
+                    self.rebuild_layout();
+                }
+            }
+            Hit::Tint => {
+                let v = i64::from(self.cfg.get(SettingKey::S01) == 0);
+                self.push_set(SettingKey::S01, v);
+            }
+            Hit::Pause => {
+                let v = i64::from(self.cfg.get(SettingKey::S42) == 0);
+                self.push_set(SettingKey::S42, v);
+            }
+            Hit::Mode(i) => self.push_set(SettingKey::S10, i as i64),
+            Hit::Zone(i) => {
+                // 任务栏从左到右：图标 → 托盘 → 时钟。
+                let key = [
+                    SettingKey::S50,
+                    SettingKey::S49,
+                    SettingKey::S48,
+                ][i];
+                let v = i64::from(self.cfg.get(key) == 0);
+                self.push_set(key, v);
+            }
+            Hit::Well(i) => {
+                let key = if i == 0 { SettingKey::S14 } else { SettingKey::S15 };
+                self.open_popup(PopupKind::ColorPicker(key));
+            }
+            Hit::Judge(i) => self.push_set(SettingKey::S47, i as i64),
+            Hit::Threshold => {
+                self.set_threshold(x);
+                self.dragging = Some(SettingKey::S12);
+                // SAFETY: hwnd 有效；捕获后拖出窗口也能收到抬起消息。
+                unsafe { SetCapture(hwnd) };
+            }
+            Hit::Row(i) => self.press_row(hwnd, i, x),
+            Hit::Footer(i) => match i {
+                0 => self.open_popup(PopupKind::ConfirmRestore),
+                1 => self.actions.push(ViewAction::ImportConfig),
+                2 => self.actions.push(ViewAction::ExportConfig),
+                _ => self.open_popup(PopupKind::About),
+            },
+            Hit::None => {}
+        }
+    }
+
+    fn press_row(&mut self, hwnd: HWND, index: usize, x: f32) {
+        let Some(row) = self.rows.get(index) else {
+            return;
+        };
+        let key = row.key;
+        let kind = key.meta().kind;
+        let enabled = row.enabled;
+        if !enabled {
+            return;
+        }
+        match kind {
+            ControlKind::Toggle => {
+                let v = i64::from(self.cfg.get(key) == 0);
+                self.push_set(key, v);
+            }
+            ControlKind::Dropdown => {
+                self.focus = index;
+                self.open_popup(PopupKind::Dropdown(key));
+            }
+            ControlKind::Slider => {
+                self.focus = index;
+                self.set_slider_from_x(key, x);
+                self.dragging = Some(key);
+                // SAFETY: hwnd 有效。
+                unsafe { SetCapture(hwnd) };
+            }
+            ControlKind::ReadOnly => {
+                self.focus = index;
+                if key == SettingKey::S05 {
+                    self.actions.push(ViewAction::CopyVersion);
+                    self.show_toast("common.copy_ok");
+                }
+            }
+            ControlKind::Button => {
+                self.focus = index;
+                if key == SettingKey::S46 {
+                    self.actions.push(ViewAction::ExportDiagnostics);
+                }
+            }
+            ControlKind::Color => {}
+        }
+    }
+
+    fn drag_slider(&mut self, key: SettingKey, x: f32) {
+        if key == SettingKey::S12 {
+            self.set_threshold(x);
+            return;
+        }
+        self.set_slider_from_x(key, x);
+    }
+
+    fn set_threshold(&mut self, x: f32) {
+        let r = self.thr_track;
+        if r.w <= 0.0 {
+            return;
+        }
+        let ratio = ((x - r.x) / r.w).clamp(0.0, 1.0);
+        let raw = 300.0 + ratio * 400.0;
+        self.push_set(SettingKey::S12, (raw / 10.0).round() as i64 * 10);
+    }
+
+    fn set_slider_from_x(&mut self, key: SettingKey, x: f32) {
+        let Some(row) = self.rows.iter().find(|r| r.key == key) else {
+            return;
+        };
+        let track = slider_track(row.rect);
+        let meta = key.meta();
+        let ratio = ((x - track.x) / track.w.max(1.0)).clamp(0.0, 1.0);
+        let raw = meta.min as f32 + ratio * (meta.max - meta.min) as f32;
+        let step = meta.step.max(1) as f32;
+        let v = ((raw - meta.min as f32) / step).round() * step + meta.min as f32;
+        self.push_set(key, v as i64);
+    }
+
+    fn push_set(&mut self, key: SettingKey, value: i64) {
+        if self.cfg.get(key) == value {
+            return;
+        }
+        self.actions.push(ViewAction::Set(key, value));
+    }
+
+    fn handle_key(&mut self, vk: u16) {
+        if self.popup.is_some() {
+            match vk {
+                VK_ESCAPE => self.popup = None,
+                VK_DOWN => self.move_popup(1),
+                VK_UP => self.move_popup(-1),
+                VK_RETURN => self.apply_popup_selection(),
+                _ => {}
+            }
+            return;
+        }
+        match vk {
+            VK_TAB | VK_DOWN => self.move_focus(1),
+            VK_UP => self.move_focus(-1),
+            VK_LEFT | VK_RIGHT => self.nudge_focused(if vk == VK_LEFT { -1 } else { 1 }),
+            VK_RETURN | VK_SPACE => {
+                if self.focus != usize::MAX {
+                    let x = self.rows[self.focus].rect.x + 40.0;
+                    self.press_row(HWND::default(), self.focus, x);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn move_focus(&mut self, delta: i32) {
+        if self.rows.is_empty() {
+            return;
+        }
+        self.focus_visible = true;
+        let n = self.rows.len() as i32;
+        let cur = if self.focus == usize::MAX { -1 } else { self.focus as i32 };
+        let next = (cur + delta).rem_euclid(n);
+        self.focus = next as usize;
+    }
+
+    fn nudge_focused(&mut self, dir: i32) {
+        if self.focus == usize::MAX {
+            return;
+        }
+        let Some(row) = self.rows.get(self.focus) else {
+            return;
+        };
+        let key = row.key;
+        let meta = key.meta();
+        if meta.kind != ControlKind::Slider {
+            return;
+        }
+        let v = self.cfg.get(key) + i64::from(dir) * meta.step.max(1);
+        self.push_set(key, v);
+    }
+
+    fn move_popup(&mut self, delta: i32) {
+        let Some(popup) = self.popup.as_mut() else {
+            return;
+        };
+        let PopupKind::Dropdown(key) = popup.kind else {
+            return;
+        };
+        let n = key.meta().options.len() as i32;
+        if n == 0 {
+            return;
+        }
+        popup.selected = (popup.selected as i32 + delta).rem_euclid(n) as usize;
+    }
+
+    fn apply_popup_selection(&mut self) {
+        let Some(popup) = self.popup.take() else {
+            return;
+        };
+        if let PopupKind::Dropdown(key) = popup.kind {
+            self.push_set(key, popup.selected as i64);
+        }
+    }
+
+    // -----------------------------------------------------------------
+    // 浮层
+    // -----------------------------------------------------------------
+
+    fn open_popup(&mut self, kind: PopupKind) {
+        let (w, h) = self.client;
+        let frame = match kind {
+            PopupKind::Dropdown(key) => {
+                let Some(row) = self.rows.iter().find(|r| r.key == key) else {
+                    return;
+                };
+                let n = key.meta().options.len() as i64;
+                let fw = 180.0;
+                let fh = n as f32 * 28.0 + 8.0;
+                let mut y = row.rect.bottom() + 2.0;
+                if y + fh > h - FOOTER_H {
+                    y = row.rect.y - fh - 2.0;
+                }
+                Rect::new(row.rect.right() - 16.0 - fw, y, fw, fh)
+            }
+            PopupKind::ColorPicker(key) => {
+                let idx = if key == SettingKey::S14 { 0 } else { 1 };
+                let anchor = self.well_rects[idx];
+                let fw = 256.0;
+                let fh = 112.0;
+                let mut y = anchor.bottom() + 6.0;
+                if y + fh > h - 8.0 {
+                    y = (h - 8.0 - fh).max(8.0);
+                }
+                Rect::new(anchor.x, y, fw, fh)
+            }
+            PopupKind::ConfirmRestore => Rect::new((w - 380.0) / 2.0, (h - 132.0) / 2.0, 380.0, 132.0),
+            PopupKind::About => Rect::new((w - 420.0) / 2.0, (h - 200.0) / 2.0, 420.0, 200.0),
+        };
+        let selected = match kind {
+            PopupKind::Dropdown(key) => self.cfg.get(key).clamp(0, i64::MAX) as usize,
+            _ => 0,
+        };
+        self.popup = Some(PopupState {
+            kind,
+            frame,
+            selected,
+        });
+    }
+
+    fn handle_popup_click(&mut self, x: f32, y: f32) {
+        let Some(popup) = self.popup.as_ref() else {
+            return;
+        };
+        let frame = popup.frame;
+        let kind = popup.kind;
+        if !frame.contains(x, y) {
+            self.popup = None;
+            return;
+        }
+        match kind {
+            PopupKind::Dropdown(key) => {
+                let n = key.meta().options.len();
+                let item_h = 28.0;
+                for i in 0..n {
+                    let r = Rect::new(frame.x + 4.0, frame.y + 4.0 + i as f32 * item_h, frame.w - 8.0, item_h);
+                    if r.contains(x, y) {
+                        self.popup = None;
+                        self.push_set(key, i as i64);
+                        return;
+                    }
+                }
+            }
+            PopupKind::ColorPicker(key) => {
+                let group = if key == SettingKey::S14 { 0 } else { 1 };
+                let colors = i18n::COLOR_SWATCH_GROUPS[group].1;
+                let sw = 32.0;
+                let gap = 6.0;
+                let y0 = frame.y + 32.0;
+                for (i, hex) in colors.iter().enumerate() {
+                    let r = Rect::new(frame.x + 12.0 + i as f32 * (sw + gap), y0, sw, 26.0);
+                    if r.contains(x, y) {
+                        self.popup = None;
+                        let argb = parse_hex(hex) | 0xFF00_0000;
+                        self.push_set(key, argb);
+                        return;
+                    }
+                }
+                let more = Rect::new(frame.x + 12.0, frame.y + 70.0, frame.w - 24.0, 30.0);
+                if more.contains(x, y) {
+                    self.popup = None;
+                    self.actions.push(ViewAction::PickColor(key));
+                }
+            }
+            PopupKind::ConfirmRestore => {
+                let by = frame.bottom() - 46.0;
+                let cancel = Rect::new(frame.right() - 16.0 - 88.0, by, 88.0, 30.0);
+                let confirm = Rect::new(cancel.x - 8.0 - 96.0, by, 96.0, 30.0);
+                if confirm.contains(x, y) {
+                    self.popup = None;
+                    self.actions.push(ViewAction::RestoreDefaults);
+                } else if cancel.contains(x, y) {
+                    self.popup = None;
+                }
+            }
+            PopupKind::About => {
+                let btn = Rect::new(frame.x + 16.0, frame.bottom() - 44.0, 140.0, 28.0);
+                if btn.contains(x, y) {
+                    self.actions.push(ViewAction::CopyVersion);
+                    self.show_toast("common.copy_ok");
+                }
+            }
+        }
+    }
+
+    // -----------------------------------------------------------------
+    // 绘制
+    // -----------------------------------------------------------------
+
+    /// 画一帧。
+    pub fn paint(&self, ctx: &RenderCtx, p: &Palette, _mode: ThemeMode) {
+        let w = self.client.0.max(theme::MIN_WIDTH_DIP);
+        let h = self.client.1.max(theme::MIN_HEIGHT_DIP);
+        ctx.fill_rect(rd(Rect::new(0.0, 0.0, w, h)), p.window_bg);
+
+        self.paint_header(ctx, p, w);
+        match self.page {
+            Page::Taskbar => self.paint_taskbar_page(ctx, p),
+            Page::Sample => self.paint_sample_page(ctx, p),
+            Page::Tray => self.paint_tray_page(ctx, p),
+            Page::Diag => self.paint_diag_page(ctx, p),
+        }
+        self.paint_footer(ctx, p, w, h);
+
+        if let Some((msg, at)) = &self.toast {
+            if at.elapsed().as_secs_f32() < 3.0 {
+                self.paint_toast(ctx, p, msg, w, h);
+            }
+        }
+        if self.popup.is_some() {
+            self.paint_popup(ctx, p);
+        }
+    }
+
+    fn paint_header(&self, ctx: &RenderCtx, p: &Palette, w: f32) {
+        ctx.fill_rect(rd(Rect::new(0.0, HEADER_H - 1.0, w, 1.0)), p.card_border);
+
+        for (i, page) in Page::ALL.iter().enumerate() {
+            let r = self.tab_rects[i];
+            let active = *page == self.page;
+            let role = if active { TextRole::Subtitle } else { TextRole::Body };
+            let color = if active { p.text_primary } else { p.text_secondary };
+            self.label_center(ctx, text(page.title_key(), self.lang), Rect::new(r.x, r.y + 15.0, r.w, 18.0), role, color);
+            if active {
+                ctx.fill_rect(rd(Rect::new(r.x + 14.0, HEADER_H - 2.0, r.w - 28.0, 2.0)), p.accent);
+            }
+        }
+
+        // 暂停 / 继续
+        let paused = self.paused();
+        let label = text(if paused { "ui.resume" } else { "ui.pause" }, self.lang);
+        let hovered = self.hover == Hit::Pause;
+        let bg = if paused {
+            p.accent
+        } else if hovered {
+            p.card_alt
+        } else {
+            p.card_bg
+        };
+        let fg = if paused { p.accent_text } else { p.text_primary };
+        ctx.fill_rounded_rect(rd(self.pause_btn), 6.0, bg);
+        ctx.stroke_rounded_rect(rd(self.pause_btn), 6.0, if paused { p.accent } else { p.card_border }, 1.0);
+        self.label_center(
+            ctx,
+            label,
+            Rect::new(self.pause_btn.x, self.pause_btn.y + 7.0, self.pause_btn.w, 16.0),
+            TextRole::Body,
+            fg,
+        );
+
+        // 着色开关
+        let on = self.tint_on();
+        ctx.fill_rounded_rect(rd(self.tint_toggle), TOGGLE_H / 2.0, if on { p.accent } else { p.track_off });
+        let knob_x = if on {
+            self.tint_toggle.right() - TOGGLE_H + 2.0
+        } else {
+            self.tint_toggle.x + 2.0
+        };
+        ctx.fill_rounded_rect(
+            rd(Rect::new(knob_x, self.tint_toggle.y + 2.0, TOGGLE_H - 4.0, TOGGLE_H - 4.0)),
+            (TOGGLE_H - 4.0) / 2.0,
+            p.card_bg,
+        );
+        let tint_label = text("ui.tint", self.lang);
+        let tw = text_width(tint_label, 11.0);
+        self.label(
+            ctx,
+            tint_label,
+            Rect::new(self.tint_toggle.x - 8.0 - tw, 16.0, tw, 16.0),
+            TextRole::Caption,
+            p.text_secondary,
+        );
+
+        // Y 读数 + 状态 chip
+        let y_text = self.y_text();
+        let yw = text_width(&y_text, 11.0);
+        let chip = self.run_state();
+        let (chip_label, chip_color) = match chip {
+            RunState::Running => (text("ui.running", self.lang), p.ok),
+            RunState::Paused => (text("ui.paused", self.lang), p.text_secondary),
+            RunState::Limited => (text("ui.restricted", self.lang), p.warning),
+        };
+        let chip_w = text_width(chip_label, 11.0) + 22.0;
+        let chip_x = self.tint_toggle.x - 8.0 - tw - 14.0 - chip_w;
+        ctx.fill_rounded_rect(rd(Rect::new(chip_x, 14.0, chip_w, 20.0)), 10.0, p.card_alt);
+        ctx.fill_rounded_rect(rd(Rect::new(chip_x + 8.0, 21.5, 5.0, 5.0)), 2.5, chip_color);
+        self.label(
+            ctx,
+            chip_label,
+            Rect::new(chip_x + 17.0, 17.0, chip_w - 20.0, 15.0),
+            TextRole::Caption,
+            chip_color,
+        );
+        self.label(
+            ctx,
+            &y_text,
+            Rect::new(chip_x - 14.0 - yw, 17.0, yw, 15.0),
+            TextRole::Caption,
+            p.text_secondary,
+        );
+    }
+
+    fn y_text(&self) -> String {
+        if !self.diag.has_data {
+            return text("diag.no_data", self.lang).to_string();
+        }
+        let thr = self.cfg.get(SettingKey::S12) as f32 / 1000.0;
+        let y = self.diag.y_milli as f32 / 1000.0;
+        let side = match self.cfg.get(SettingKey::S10) {
+            1 => text("preview.light", self.lang),
+            2 => text("preview.dark", self.lang),
+            _ => {
+                if y < thr {
+                    text("preview.dark", self.lang)
+                } else {
+                    text("preview.light", self.lang)
+                }
+            }
+        };
+        format!("Y {y:.3} · {side}")
+    }
+
+    fn paint_taskbar_page(&self, ctx: &RenderCtx, p: &Palette) {
+        let enabled = self.tint_on() && !self.degraded;
+
+        // 预览
+        ctx.fill_rounded_rect(rd(self.preview), RADIUS, p.preview_wall);
+        let bar = self.preview_bar;
+        ctx.fill_rounded_rect(rd(bar), 7.0, p.preview_bar);
+        ctx.stroke_rounded_rect(rd(bar), 7.0, p.preview_line, 1.0);
+
+        // 背景模式下拉（自动 / 亮端 / 暗端）
+        let mode = self.cfg.get(SettingKey::S10);
+        for (i, label_key) in ["preview.auto", "preview.light", "preview.dark"].iter().enumerate() {
+            let r = self.mode_rects[i];
+            let active = mode == i as i64;
+            let bg = if active {
+                p.preview_ink
+            } else if enabled {
+                p.preview_line
+            } else {
+                p.preview_bar
+            };
+            let fg = if active { p.preview_bar } else { p.preview_muted };
+            ctx.fill_rounded_rect(rd(r), 6.0, bg);
+            self.label_center(
+                ctx,
+                text(label_key, self.lang),
+                Rect::new(r.x, r.y + 4.0, r.w, 14.0),
+                TextRole::Caption,
+                fg,
+            );
+        }
+
+        // 开始按钮（2×2 方格）
+        let sx = bar.x + 14.0;
+        let sy = bar.y + 14.0;
+        for row in 0..2 {
+            for col in 0..2 {
+                ctx.fill_rounded_rect(
+                    rd(Rect::new(
+                        sx + col as f32 * 9.0,
+                        sy + row as f32 * 9.0,
+                        7.0,
+                        7.0,
+                    )),
+                    1.0,
+                    p.preview_ink,
+                );
+            }
+        }
+
+        // 应用图标 + 图标区指示条
+        let icon_tint = self.zone_color(SettingKey::S50, p);
+        let icon_x = sx + 30.0;
+        for i in 0..4 {
+            let r = Rect::new(icon_x + i as f32 * 30.0, bar.y + 11.0, 22.0, 22.0);
+            let fill = if i % 2 == 0 {
+                Rgba::opaque(0x4A, 0x55, 0x63)
+            } else {
+                Rgba::opaque(0x2B, 0x32, 0x3D)
+            };
+            ctx.fill_rounded_rect(rd(r), 5.0, fill);
+            ctx.stroke_rounded_rect(rd(r), 5.0, p.preview_line, 1.0);
+            ctx.fill_rounded_rect(
+                rd(Rect::new(r.x + 7.0, r.y + 7.0, 8.0, 8.0)),
+                2.0,
+                icon_tint,
+            );
+        }
+        ctx.fill_rounded_rect(
+            rd(Rect::new(icon_x + 6.0, bar.bottom() - 5.0, 10.0, 2.0)),
+            1.0,
+            icon_tint,
+        );
+
+        // 托盘 + 时钟（时钟最右）
+        let clock_w = 62.0;
+        let clock = Rect::new(bar.right() - 12.0 - clock_w, bar.y + 8.0, clock_w, 28.0);
+        let tray_tint = self.zone_color(SettingKey::S49, p);
+        let mut gx = clock.x - 10.0 - 3.0 * 12.0 - 2.0 * 8.0 - 12.0;
+        for i in 0..3 {
+            let g = Rect::new(gx, bar.y + 16.0, 12.0, 12.0);
+            match i {
+                0 => ctx.stroke_rounded_rect(rd(g), 2.0, tray_tint, 1.0),
+                1 => {
+                    ctx.fill_rect(rd(Rect::new(g.x + 1.0, g.y + 7.0, 3.0, 4.0)), tray_tint);
+                    ctx.fill_rect(rd(Rect::new(g.x + 5.0, g.y + 4.0, 3.0, 7.0)), tray_tint);
+                    ctx.fill_rect(rd(Rect::new(g.x + 9.0, g.y + 1.0, 3.0, 10.0)), tray_tint);
+                }
+                _ => ctx.fill_rounded_rect(rd(Rect::new(g.x + 1.0, g.y + 1.0, 10.0, 10.0)), 5.0, tray_tint),
+            }
+            gx += 20.0;
+        }
+        self.label(
+            ctx,
+            "^",
+            Rect::new(gx, bar.y + 13.0, 10.0, 14.0),
+            TextRole::Caption,
+            p.preview_muted,
+        );
+        ctx.fill_rect(
+            rd(Rect::new(clock.x - 10.0, bar.y + 9.0, 1.0, bar.h - 18.0)),
+            p.preview_line,
+        );
+
+        let (time, date) = local_time();
+        let clock_tint = self.zone_color(SettingKey::S48, p);
+        ctx.draw_text_right(
+            &time,
+            rd(Rect::new(clock.x, clock.y, clock.w, 16.0)),
+            TextRole::Body,
+            clock_tint,
+        );
+        ctx.draw_text_right(
+            &date,
+            rd(Rect::new(clock.x, clock.y + 16.0, clock.w, 14.0)),
+            TextRole::Caption,
+            clock_tint,
+        );
+
+        // 区域标签（贴着预览，不额外解释）
+        let ly = bar.y - 18.0;
+        self.label(ctx, text("zone.icons", self.lang), Rect::new(bar.x + 8.0, ly, 80.0, 14.0), TextRole::Caption, p.preview_muted);
+        let tray_label = text("zone.tray", self.lang);
+        let tl_w = text_width(tray_label, 11.0);
+        self.label(ctx, tray_label, Rect::new(gx - tl_w - 6.0, ly, tl_w + 40.0, 14.0), TextRole::Caption, p.preview_muted);
+        let clock_label = text("zone.clock", self.lang);
+        let cl_w = text_width(clock_label, 11.0);
+        self.label(ctx, clock_label, Rect::new(bar.right() - 8.0 - cl_w, ly, cl_w, 14.0), TextRole::Caption, p.preview_muted);
+
+        // 三区卡片：图标 → 托盘 → 时钟
+        let zones = [
+            (SettingKey::S50, "zone.icons"),
+            (SettingKey::S49, "zone.tray"),
+            (SettingKey::S48, "zone.clock"),
+        ];
+        for (i, (key, label_key)) in zones.iter().enumerate() {
+            let r = self.zone_rects[i];
+            let on = self.cfg.get(*key) != 0;
+            ctx.fill_rounded_rect(rd(r), 7.0, p.card_bg);
+            ctx.stroke_rounded_rect(rd(r), 7.0, if self.hover == Hit::Zone(i) { p.accent } else { p.card_border }, 1.0);
+            let dot_bg = p.preview_bar;
+            let dot = self.zone_color(*key, p);
+            ctx.fill_rounded_rect(rd(Rect::new(r.x + 12.0, r.y + 14.0, 22.0, 16.0)), 4.0, dot_bg);
+            ctx.fill_rounded_rect(rd(Rect::new(r.x + 19.0, r.y + 19.0, 8.0, 6.0)), 2.0, dot);
+            self.label(
+                ctx,
+                text(label_key, self.lang),
+                Rect::new(r.x + 42.0, r.y + 13.0, r.w - 42.0 - TOGGLE_W - 24.0, 18.0),
+                TextRole::Body,
+                p.control_text(enabled),
+            );
+            let tr = Rect::new(r.right() - 12.0 - TOGGLE_W, r.y + (r.h - TOGGLE_H) / 2.0, TOGGLE_W, TOGGLE_H);
+            self.paint_toggle(ctx, p, tr, on, enabled);
+        }
+
+        self.paint_colors_card(ctx, p, enabled);
+    }
+
+    fn paint_colors_card(&self, ctx: &RenderCtx, p: &Palette, enabled: bool) {
+        let card = self.colors_card;
+        if card.w <= 0.0 {
+            return;
+        }
+        ctx.fill_rounded_rect(rd(card), RADIUS, p.card_bg);
+        ctx.stroke_rounded_rect(rd(card), RADIUS, p.card_border, 1.0);
+        let inner = card.inset(PAD);
+
+        self.label(
+            ctx,
+            text("card.colors", self.lang),
+            Rect::new(inner.x, inner.y + 3.0, 200.0, 16.0),
+            TextRole::Caption,
+            p.text_secondary,
+        );
+
+        // 判定粒度
+        let judge = self.cfg.get(SettingKey::S47);
+        let seg_total = self.judge_rects[1].right() - self.judge_rects[0].x;
+        ctx.fill_rounded_rect(rd(Rect::new(self.judge_rects[0].x, inner.y, seg_total, 26.0)), 6.0, p.card_alt);
+        for (i, key) in ["opt.judge.region", "opt.judge.global"].iter().enumerate() {
+            let r = self.judge_rects[i];
+            let active = judge == i as i64;
+            if active {
+                ctx.fill_rounded_rect(rd(r), 5.0, p.accent);
+            }
+            self.label_center(
+                ctx,
+                text(key, self.lang),
+                Rect::new(r.x, r.y + 5.0, r.w, 16.0),
+                TextRole::Caption,
+                if active { p.accent_text } else { p.text_secondary },
+            );
+        }
+
+        // 两块端色
+        for (i, (key, label_key)) in [(SettingKey::S14, "color.on_dark"), (SettingKey::S15, "color.on_light")]
+            .iter()
+            .enumerate()
+        {
+            let box_r = self.well_rects[i];
+            ctx.fill_rounded_rect(rd(box_r), 7.0, p.card_alt);
+            ctx.stroke_rounded_rect(
+                rd(box_r),
+                7.0,
+                if self.hover == Hit::Well(i) { p.accent } else { p.divider },
+                1.0,
+            );
+            let argb = self.cfg.get(*key);
+            let color = argb_to_rgba(argb);
+            let well = Rect::new(box_r.x + 8.0, box_r.y + 8.0, 60.0, 54.0);
+            ctx.fill_rounded_rect(rd(well), 6.0, color);
+            ctx.stroke_rounded_rect(rd(well), 6.0, p.card_border, 1.0);
+            let sample_color = if color_light(color) {
+                Rgba::opaque(0x1A, 0x1A, 0x1A)
+            } else {
+                Rgba::opaque(0xFF, 0xFF, 0xFF)
+            };
+            self.label_center(
+                ctx,
+                "Aa",
+                Rect::new(well.x, well.y + 15.0, well.w, 24.0),
+                TextRole::Sample,
+                sample_color,
+            );
+            self.label(
+                ctx,
+                text(label_key, self.lang),
+                Rect::new(well.right() + 12.0, box_r.y + 18.0, box_r.w - 84.0, 15.0),
+                TextRole::Caption,
+                p.control_text(enabled),
+            );
+            self.label(
+                ctx,
+                &hex_rgb(argb),
+                Rect::new(well.right() + 12.0, box_r.y + 36.0, box_r.w - 84.0, 18.0),
+                TextRole::Body,
+                p.control_text(enabled),
+            );
+        }
+
+        // 阈值
+        let thr = self.cfg.get(SettingKey::S12);
+        let track = self.thr_track;
+        let label_y = track.y - 24.0;
+        self.label(
+            ctx,
+            text("thr.title", self.lang),
+            Rect::new(inner.x, label_y, 200.0, 16.0),
+            TextRole::Caption,
+            p.control_text(enabled),
+        );
+        self.label_right(
+            ctx,
+            &format!("{:.2}", thr as f32 / 1000.0),
+            Rect::new(inner.right() - 60.0, label_y, 60.0, 16.0),
+            TextRole::Caption,
+            p.control_text(enabled),
+        );
+
+        let segments = 32;
+        for i in 0..segments {
+            let t = i as f32 / (segments - 1) as f32;
+            let v = (t * 255.0).round() as u8;
+            let seg = Rect::new(
+                track.x + track.w * i as f32 / segments as f32,
+                track.y,
+                track.w / segments as f32 + 0.5,
+                track.h,
+            );
+            ctx.fill_rect(rd(seg), Rgba::opaque(v, v, v));
+        }
+        ctx.stroke_rounded_rect(rd(track), 5.0, p.card_border, 1.0);
+
+        let ratio = ((thr - 300) as f32 / 400.0).clamp(0.0, 1.0);
+        let kx = track.x + track.w * ratio - 6.0;
+        ctx.fill_rounded_rect(rd(Rect::new(kx, track.y - 2.0, 12.0, 14.0)), 7.0, p.card_bg);
+        ctx.stroke_rounded_rect(rd(Rect::new(kx, track.y - 2.0, 12.0, 14.0)), 7.0, p.accent, 2.0);
+
+        self.label(ctx, "0", Rect::new(track.x, track.bottom() + 3.0, 20.0, 14.0), TextRole::Caption, p.text_secondary);
+        self.label_right(ctx, "1", Rect::new(track.right() - 20.0, track.bottom() + 3.0, 20.0, 14.0), TextRole::Caption, p.text_secondary);
+    }
+
+    fn paint_sample_page(&self, ctx: &RenderCtx, p: &Palette) {
+        let card = self.sample_card;
+        ctx.fill_rounded_rect(rd(card), RADIUS, p.card_bg);
+        ctx.stroke_rounded_rect(rd(card), RADIUS, p.card_border, 1.0);
+        let inner = card.inset(PAD);
+        self.label(
+            ctx,
+            text("sample.title", self.lang),
+            Rect::new(inner.x, inner.y + 2.0, 200.0, 16.0),
+            TextRole::Caption,
+            p.text_secondary,
+        );
+
+        let band = self.sample_band;
+        ctx.fill_rounded_rect(rd(band), 6.0, p.preview_wall);
+        let strip = Rect::new(band.x, band.y + 8.0, band.w, 34.0);
+        ctx.fill_rounded_rect(rd(strip), 4.0, p.preview_bar);
+
+        let start = self.cfg.get(SettingKey::S20) as f32 / 100.0;
+        let width = (self.cfg.get(SettingKey::S21).min(84) as f32 / 100.0).max(0.02);
+        let dy = (self.cfg.get(SettingKey::S22) as f32).min(14.0);
+        let seg = Rect::new(
+            band.x + band.w * start,
+            strip.y + dy,
+            (band.w * width).min(band.right() - (band.x + band.w * start)),
+            strip.h - dy,
+        );
+        let live = if self.diag.has_data {
+            self.diag.rep_color
+        } else {
+            p.card_alt
+        };
+        ctx.fill_rounded_rect(rd(seg), 3.0, live);
+        ctx.stroke_rounded_rect(rd(seg), 3.0, p.accent, 1.5);
+
+        // 实时色块与亮度
+        let chip = Rect::new(inner.x, card.y + 120.0, 20.0, 20.0);
+        ctx.fill_rounded_rect(rd(chip), 4.0, live);
+        ctx.stroke_rounded_rect(rd(chip), 4.0, p.card_border, 1.0);
+        let live_text = if self.diag.has_data {
+            format!(
+                "{} · {} {:.3}",
+                hex_rgb(i64::from(self.diag.rep_color.r) << 16
+                    | i64::from(self.diag.rep_color.g) << 8
+                    | i64::from(self.diag.rep_color.b)),
+                text("diag.y", self.lang),
+                self.diag.y_milli as f32 / 1000.0
+            )
+        } else {
+            text("diag.no_data", self.lang).to_string()
+        };
+        self.label(
+            ctx,
+            &live_text,
+            Rect::new(chip.right() + 10.0, card.y + 122.0, inner.w - 40.0, 18.0),
+            TextRole::Caption,
+            p.text_secondary,
+        );
+
+        self.paint_rows(ctx, p);
+    }
+
+    fn paint_tray_page(&self, ctx: &RenderCtx, p: &Palette) {
+        self.paint_rows(ctx, p);
+    }
+
+    fn paint_diag_page(&self, ctx: &RenderCtx, p: &Palette) {
+        let card = self.diag_card;
+        ctx.fill_rounded_rect(rd(card), RADIUS, p.card_bg);
+        ctx.stroke_rounded_rect(rd(card), RADIUS, p.card_border, 1.0);
+        let inner = card.inset(PAD);
+
+        self.label(
+            ctx,
+            text("diag.live", self.lang),
+            Rect::new(inner.x, inner.y + 2.0, 200.0, 16.0),
+            TextRole::Caption,
+            p.text_secondary,
+        );
+        self.label_right(
+            ctx,
+            &format!("{} {}", self.diag.samples, text("diag.sample_unit", self.lang)),
+            Rect::new(inner.right() - 160.0, inner.y + 2.0, 160.0, 16.0),
+            TextRole::Caption,
+            p.text_secondary,
+        );
+
+        if !self.diag.has_data {
+            self.label(
+                ctx,
+                text("diag.no_data", self.lang),
+                Rect::new(inner.x, inner.y + 42.0, inner.w, 24.0),
+                TextRole::Body,
+                p.text_secondary,
+            );
+        } else {
+            ctx.draw_text(
+                &format!("{:.3}", self.diag.y_milli as f32 / 1000.0),
+                rd(Rect::new(inner.x, inner.y + 26.0, 220.0, 30.0)),
+                TextRole::Metric,
+                p.text_primary,
+            );
+            self.label(
+                ctx,
+                text("diag.y", self.lang),
+                Rect::new(inner.x, inner.y + 58.0, 120.0, 14.0),
+                TextRole::Caption,
+                p.text_secondary,
+            );
+
+            let contrast_color = if self.diag.contrast_low() { p.danger } else { p.ok };
+            ctx.draw_text_right(
+                &format!("{:.1}:1", self.diag.contrast_milli as f32 / 1000.0),
+                rd(Rect::new(inner.right() - 220.0, inner.y + 26.0, 220.0, 30.0)),
+                TextRole::Metric,
+                contrast_color,
+            );
+            self.label_right(
+                ctx,
+                text("diag.contrast", self.lang),
+                Rect::new(inner.right() - 220.0, inner.y + 58.0, 220.0, 14.0),
+                TextRole::Caption,
+                p.text_secondary,
+            );
+
+            // 代表色 / 判定色
+            let rep_argb = (i64::from(self.diag.rep_color.r) << 16)
+                | (i64::from(self.diag.rep_color.g) << 8)
+                | i64::from(self.diag.rep_color.b);
+            let dec_argb = (i64::from(self.diag.decision_color.r) << 16)
+                | (i64::from(self.diag.decision_color.g) << 8)
+                | i64::from(self.diag.decision_color.b);
+            for (i, (color, argb, key)) in [
+                (self.diag.rep_color, rep_argb, "diag.rep_color"),
+                (self.diag.decision_color, dec_argb, "diag.decision_color"),
+            ]
+            .iter()
+            .enumerate()
+            {
+                let x = inner.x + i as f32 * 240.0;
+                let chip = Rect::new(x, inner.y + 78.0, 18.0, 18.0);
+                ctx.fill_rounded_rect(rd(chip), 4.0, *color);
+                ctx.stroke_rounded_rect(rd(chip), 4.0, p.card_border, 1.0);
+                self.label(
+                    ctx,
+                    &format!("{} {}", text(key, self.lang), hex_rgb(*argb)),
+                    Rect::new(chip.right() + 8.0, inner.y + 80.0, 210.0, 16.0),
+                    TextRole::Caption,
+                    p.text_secondary,
+                );
+            }
+
+            // 折线（10 根柱）
+            let spark = self.diag_spark;
+            let n = self.diag.recent_len.max(1);
+            let bar_w = 8.0;
+            let gap = ((spark.w - (n as f32 * bar_w)) / (n as f32 - 1.0).max(1.0)).clamp(2.0, 24.0);
+            for i in 0..n {
+                let v = self.diag.recent_y[i] as f32 / 1000.0;
+                let bh = (v * spark.h).max(2.0);
+                let r = Rect::new(
+                    spark.x + i as f32 * (bar_w + gap),
+                    spark.bottom() - bh,
+                    bar_w,
+                    bh,
+                );
+                let color = if self.diag.contrast_low() { p.danger } else { p.accent };
+                ctx.fill_rounded_rect(rd(r), 2.0, color);
+            }
+
+            let warn = if self.diag.region_suspect() {
+                Some((text("diag.region_suspect", self.lang), p.danger))
+            } else if self.diag.region_small() {
+                Some((i18n::text("diag.region_small", self.lang), p.warning))
+            } else if self.diag.contrast_low() {
+                Some((text("diag.contrast_low", self.lang), p.danger))
+            } else {
+                None
+            };
+            if let Some((msg, color)) = warn {
+                self.label(
+                    ctx,
+                    msg,
+                    Rect::new(inner.x, card.bottom() - 22.0, inner.w, 15.0),
+                    TextRole::Caption,
+                    color,
+                );
+            }
+        }
+
+        self.paint_rows(ctx, p);
+    }
+
+    fn paint_rows(&self, ctx: &RenderCtx, p: &Palette) {
+        let card = self.rows_card;
+        if card.w <= 0.0 || self.rows.is_empty() {
+            return;
+        }
+        ctx.fill_rounded_rect(rd(card), RADIUS, p.card_bg);
+        ctx.stroke_rounded_rect(rd(card), RADIUS, p.card_border, 1.0);
+
+        for (i, row) in self.rows.iter().enumerate() {
+            if i > 0 {
+                ctx.fill_rect(
+                    rd(Rect::new(row.rect.x + PAD, row.rect.y, row.rect.w - PAD * 2.0, 1.0)),
+                    p.divider,
+                );
+            }
+            if self.focus_visible && self.focus == i {
+                ctx.stroke_rounded_rect(
+                    rd(Rect::new(row.rect.x + 4.0, row.rect.y + 3.0, row.rect.w - 8.0, row.rect.h - 6.0)),
+                    6.0,
+                    p.accent,
+                    1.0,
+                );
+            }
+            self.paint_row(ctx, p, row, i);
+        }
+    }
+
+    fn paint_row(&self, ctx: &RenderCtx, p: &Palette, row: &RowWidget, index: usize) {
+        let key = row.key;
+        let meta = key.meta();
+        let enabled = row.enabled;
+        let label_color = p.control_text(enabled);
+        let hovered = self.hover == Hit::Row(index);
+
+        self.label(
+            ctx,
+            text(meta.label, self.lang),
+            Rect::new(row.rect.x + PAD, row.rect.y + 13.0, row.rect.w - PAD * 2.0 - 200.0, 18.0),
+            TextRole::Body,
+            label_color,
+        );
+
+        match meta.kind {
+            ControlKind::Toggle => {
+                let tr = Rect::new(
+                    row.rect.right() - PAD - TOGGLE_W,
+                    row.rect.y + (ROW_H - TOGGLE_H) / 2.0,
+                    TOGGLE_W,
+                    TOGGLE_H,
+                );
+                self.paint_toggle(ctx, p, tr, row.value != 0, enabled);
+            }
+            ControlKind::Dropdown => {
+                let bw = 180.0;
+                let br = Rect::new(row.rect.right() - PAD - bw, row.rect.y + 8.0, bw, 28.0);
+                ctx.fill_rounded_rect(rd(br), 6.0, p.card_alt);
+                ctx.stroke_rounded_rect(
+                    rd(br),
+                    6.0,
+                    if hovered { p.accent } else { p.card_border },
+                    1.0,
+                );
+                let option_key = meta.options.get(row.value as usize).copied().unwrap_or("");
+                self.label(
+                    ctx,
+                    text(option_key, self.lang),
+                    Rect::new(br.x + 9.0, br.y + 7.0, bw - 30.0, 16.0),
+                    TextRole::Body,
+                    label_color,
+                );
+                self.label(
+                    ctx,
+                    "v",
+                    Rect::new(br.right() - 17.0, br.y + 7.0, 10.0, 16.0),
+                    TextRole::Caption,
+                    p.text_secondary,
+                );
+            }
+            ControlKind::Slider => {
+                let track = slider_track(row.rect);
+                let meta = key.meta();
+                let ratio = ((row.value - meta.min) as f32 / (meta.max - meta.min).max(1) as f32)
+                    .clamp(0.0, 1.0);
+                ctx.fill_rounded_rect(rd(track), 2.0, p.track_off);
+                ctx.fill_rounded_rect(
+                    rd(Rect::new(track.x, track.y, track.w * ratio, track.h)),
+                    2.0,
+                    if enabled { p.accent } else { p.disabled_fill },
+                );
+                let kx = track.x + track.w * ratio - 7.0;
+                ctx.fill_rounded_rect(rd(Rect::new(kx, track.y - 5.0, 14.0, 14.0)), 7.0, p.card_bg);
+                ctx.stroke_rounded_rect(
+                    rd(Rect::new(kx, track.y - 5.0, 14.0, 14.0)),
+                    7.0,
+                    if enabled { p.accent } else { p.disabled_text },
+                    2.0,
+                );
+                self.label_right(
+                    ctx,
+                    &self.row_value_text(key, row.value),
+                    Rect::new(row.rect.right() - PAD - 120.0, row.rect.y + 12.0, 120.0, 16.0),
+                    TextRole::Caption,
+                    p.text_secondary,
+                );
+            }
+            ControlKind::Button => {
+                let br = Rect::new(row.rect.right() - PAD - 72.0, row.rect.y + 8.0, 72.0, 28.0);
+                ctx.fill_rounded_rect(rd(br), 6.0, p.accent);
+                self.label_center(
+                    ctx,
+                    text("action.export", self.lang),
+                    Rect::new(br.x, br.y + 7.0, br.w, 16.0),
+                    TextRole::Body,
+                    p.accent_text,
+                );
+            }
+            ControlKind::ReadOnly => {
+                self.label_right(
+                    ctx,
+                    VERSION_TEXT,
+                    Rect::new(row.rect.right() - PAD - 140.0, row.rect.y + 13.0, 140.0, 18.0),
+                    TextRole::Body,
+                    label_color,
+                );
+                if hovered {
+                    self.label_right(
+                        ctx,
+                        text("action.copy", self.lang),
+                        Rect::new(row.rect.right() - PAD - 210.0, row.rect.y + 14.0, 60.0, 15.0),
+                        TextRole::Caption,
+                        p.text_secondary,
+                    );
+                }
+            }
+            ControlKind::Color => {}
+        }
+    }
+
+    fn row_value_text(&self, key: SettingKey, value: i64) -> String {
+        match key {
+            SettingKey::S16 => {
+                if value < 1000 {
+                    format!("{value} ms")
+                } else {
+                    format!("{:.1} s", value as f32 / 1000.0)
+                }
+            }
+            SettingKey::S18 => format!("{:.2}", value as f32 / 1000.0),
+            SettingKey::S20 | SettingKey::S21 => format!("{value}%"),
+            SettingKey::S22 => format!("{value} px"),
+            _ => value.to_string(),
+        }
+    }
+
+    fn paint_toggle(&self, ctx: &RenderCtx, p: &Palette, r: Rect, on: bool, enabled: bool) {
+        let bg = if !enabled {
+            p.disabled_fill
+        } else if on {
+            p.accent
+        } else {
+            p.track_off
+        };
+        ctx.fill_rounded_rect(rd(r), r.h / 2.0, bg);
+        let knob = r.h - 4.0;
+        let kx = if on { r.right() - knob - 2.0 } else { r.x + 2.0 };
+        ctx.fill_rounded_rect(
+            rd(Rect::new(kx, r.y + 2.0, knob, knob)),
+            knob / 2.0,
+            if enabled { p.card_bg } else { p.disabled_text },
+        );
+    }
+
+    fn paint_footer(&self, ctx: &RenderCtx, p: &Palette, w: f32, h: f32) {
+        ctx.fill_rect(rd(Rect::new(0.0, h - FOOTER_H, w, 1.0)), p.card_border);
+        let labels = ["action.restore", "action.import_config", "action.export_config", "action.about"];
+        for (i, key) in labels.iter().enumerate() {
+            let r = self.foot_rects[i];
+            let hovered = self.hover == Hit::Footer(i);
+            if hovered {
+                ctx.fill_rounded_rect(rd(r), 6.0, p.card_alt);
+            }
+            self.label_center(
+                ctx,
+                text(key, self.lang),
+                Rect::new(r.x, r.y + 6.0, r.w, 16.0),
+                TextRole::Body,
+                if hovered { p.text_primary } else { p.text_secondary },
+            );
+        }
+    }
+
+    fn paint_toast(&self, ctx: &RenderCtx, p: &Palette, msg: &str, w: f32, h: f32) {
+        let tw = text_width(msg, TextRole::Body.size()) + 32.0;
+        let r = Rect::new((w - tw) / 2.0, h - FOOTER_H - 44.0, tw, 30.0);
+        ctx.fill_rounded_rect(rd(r), 6.0, p.card_bg);
+        ctx.stroke_rounded_rect(rd(r), 6.0, p.accent, 1.0);
+        self.label_center(
+            ctx,
+            msg,
+            Rect::new(r.x, r.y + 7.0, r.w, 16.0),
+            TextRole::Caption,
+            p.text_primary,
+        );
+    }
+
+    fn paint_popup(&self, ctx: &RenderCtx, p: &Palette) {
+        let Some(popup) = self.popup.as_ref() else {
+            return;
+        };
+        let frame = popup.frame;
+        ctx.fill_rounded_rect(rd(frame), 7.0, p.card_bg);
+        ctx.stroke_rounded_rect(rd(frame), 7.0, p.accent, 1.5);
+
+        match popup.kind {
+            PopupKind::Dropdown(key) => {
+                let meta = key.meta();
+                for (i, option) in meta.options.iter().enumerate() {
+                    let r = Rect::new(frame.x + 4.0, frame.y + 4.0 + i as f32 * 28.0, frame.w - 8.0, 28.0);
+                    if i == popup.selected {
+                        ctx.fill_rounded_rect(rd(r), 4.0, p.card_alt);
+                        ctx.fill_rounded_rect(rd(Rect::new(r.x + 3.0, r.y + 7.0, 3.0, 14.0)), 1.5, p.accent);
+                    }
+                    self.label(
+                        ctx,
+                        text(option, self.lang),
+                        Rect::new(r.x + 12.0, r.y + 6.0, r.w - 20.0, 16.0),
+                        TextRole::Body,
+                        p.text_primary,
+                    );
+                }
+            }
+            PopupKind::ColorPicker(key) => {
+                let group = if key == SettingKey::S14 { 0 } else { 1 };
+                let (title, colors) = i18n::COLOR_SWATCH_GROUPS[group];
+                self.label(
+                    ctx,
+                    text(title, self.lang),
+                    Rect::new(frame.x + 12.0, frame.y + 10.0, frame.w - 24.0, 16.0),
+                    TextRole::Caption,
+                    p.text_secondary,
+                );
+                let current = self.cfg.get(key);
+                for (i, hex) in colors.iter().enumerate() {
+                    let r = Rect::new(frame.x + 12.0 + i as f32 * 38.0, frame.y + 32.0, 32.0, 26.0);
+                    let argb = parse_hex(hex) | 0xFF00_0000;
+                    ctx.fill_rounded_rect(rd(r), 5.0, argb_to_rgba(argb));
+                    let selected = (current | 0xFF00_0000) == argb;
+                    ctx.stroke_rounded_rect(
+                        rd(r),
+                        5.0,
+                        if selected { p.accent } else { p.card_border },
+                        if selected { 2.0 } else { 1.0 },
+                    );
+                }
+                let more = Rect::new(frame.x + 12.0, frame.y + 70.0, frame.w - 24.0, 30.0);
+                ctx.fill_rounded_rect(rd(more), 6.0, p.card_alt);
+                self.label(
+                    ctx,
+                    text("picker.more", self.lang),
+                    Rect::new(more.x + 10.0, more.y + 7.0, more.w - 20.0, 16.0),
+                    TextRole::Body,
+                    p.text_primary,
+                );
+            }
+            PopupKind::ConfirmRestore => {
+                self.label(
+                    ctx,
+                    text("dlg.restore.title", self.lang),
+                    Rect::new(frame.x + 18.0, frame.y + 18.0, frame.w - 36.0, 20.0),
+                    TextRole::Subtitle,
+                    p.text_primary,
+                );
+                self.label(
+                    ctx,
+                    text("dlg.restore.body", self.lang),
+                    Rect::new(frame.x + 18.0, frame.y + 48.0, frame.w - 36.0, 18.0),
+                    TextRole::Caption,
+                    p.text_secondary,
+                );
+                let by = frame.bottom() - 46.0;
+                let cancel = Rect::new(frame.right() - 16.0 - 88.0, by, 88.0, 30.0);
+                let confirm = Rect::new(cancel.x - 8.0 - 96.0, by, 96.0, 30.0);
+                ctx.fill_rounded_rect(rd(confirm), 6.0, p.accent);
+                self.label(
+                    ctx,
+                    text("dlg.confirm", self.lang),
+                    Rect::new(confirm.x + 8.0, confirm.y + 7.0, confirm.w - 16.0, 16.0),
+                    TextRole::Body,
+                    p.accent_text,
+                );
+                ctx.fill_rounded_rect(rd(cancel), 6.0, p.card_alt);
+                ctx.stroke_rounded_rect(rd(cancel), 6.0, p.card_border, 1.0);
+                self.label(
+                    ctx,
+                    text("dlg.cancel", self.lang),
+                    Rect::new(cancel.x + 8.0, cancel.y + 7.0, cancel.w - 16.0, 16.0),
+                    TextRole::Body,
+                    p.text_primary,
+                );
+            }
+            PopupKind::About => {
+                self.label(
+                    ctx,
+                    text("about.title", self.lang),
+                    Rect::new(frame.x + 20.0, frame.y + 18.0, frame.w - 40.0, 22.0),
+                    TextRole::Title,
+                    p.text_primary,
+                );
+                self.label(
+                    ctx,
+                    &format!("{} {}", text("about.version", self.lang), VERSION_TEXT),
+                    Rect::new(frame.x + 20.0, frame.y + 50.0, frame.w - 40.0, 18.0),
+                    TextRole::Body,
+                    p.text_secondary,
+                );
+                self.label(
+                    ctx,
+                    text("about.license", self.lang),
+                    Rect::new(frame.x + 20.0, frame.y + 72.0, frame.w - 40.0, 16.0),
+                    TextRole::Caption,
+                    p.text_secondary,
+                );
+                self.label(
+                    ctx,
+                    text("about.known_limits", self.lang),
+                    Rect::new(frame.x + 20.0, frame.y + 90.0, frame.w - 40.0, 16.0),
+                    TextRole::Caption,
+                    p.text_secondary,
+                );
+                let btn = Rect::new(frame.x + 16.0, frame.bottom() - 44.0, 140.0, 28.0);
+                ctx.fill_rounded_rect(rd(btn), 6.0, p.card_alt);
+                ctx.stroke_rounded_rect(rd(btn), 6.0, p.card_border, 1.0);
+                self.label(
+                    ctx,
+                    text("about.copy_version", self.lang),
+                    Rect::new(btn.x + 8.0, btn.y + 6.0, btn.w - 16.0, 16.0),
+                    TextRole::Caption,
+                    p.text_primary,
+                );
+            }
+        }
+    }
+
+    // -----------------------------------------------------------------
+    // 文本
+    // -----------------------------------------------------------------
+
+    fn label(&self, ctx: &RenderCtx, text: &str, r: Rect, role: TextRole, color: Rgba) {
+        let size = role_size(role);
+        let s = ellipsize(text, size, r.w);
+        ctx.draw_text(&s, rd(r), role, color);
+    }
+
+    fn label_right(&self, ctx: &RenderCtx, text: &str, r: Rect, role: TextRole, color: Rgba) {
+        let size = role_size(role);
+        let s = ellipsize(text, size, r.w);
+        ctx.draw_text_right(&s, rd(r), role, color);
+    }
+
+    fn label_center(&self, ctx: &RenderCtx, text: &str, r: Rect, role: TextRole, color: Rgba) {
+        let size = role_size(role);
+        let s = ellipsize(text, size, r.w);
+        ctx.draw_text_center(&s, rd(r), role, color);
     }
 }
 
-/// `Rgba` → `0xAARRGGBB`（配置值口径）。
-fn rgba_to_argb(c: Rgba) -> i64 {
-    i64::from((u32::from(c.a) << 24) | rgb_of(c))
+// ---------------------------------------------------------------------
+// 纯函数
+// ---------------------------------------------------------------------
+
+fn rd(r: Rect) -> RectDip {
+    RectDip::new(r.x, r.y, r.w, r.h)
 }
 
-/// `Rgba` → `0x00RRGGBB`（丢 alpha，用于"当前色是否在板内"与命中比较）。
-fn rgb_of(c: Rgba) -> u32 {
-    (u32::from(c.r) << 16) | (u32::from(c.g) << 8) | u32::from(c.b)
+fn slider_track(row: Rect) -> Rect {
+    Rect::new(row.x + PAD, row.y + 31.0, row.w - PAD * 2.0, 4.0)
 }
 
-/// 取 `0xAARRGGBB` 的 alpha 字节。
-fn hex_alpha(argb: u32) -> u8 {
-    (argb >> 24) as u8
+fn role_size(role: TextRole) -> f32 {
+    role.size()
 }
 
-/// 某个 RGB 是否出现在给定色板里（决定 HEX 行左侧画「HEX」标签还是当前色块）。
-fn in_palette(groups: &[(&'static str, [&'static str; 6])], rgb: u32) -> bool {
-    groups
-        .iter()
-        .flat_map(|(_, colors)| colors.iter())
-        .any(|p| Rgba::parse_hex(p).is_some_and(|c| rgb_of(c) == rgb))
+fn parse_hex(s: &str) -> i64 {
+    i64::from_str_radix(s.trim_start_matches('#'), 16).unwrap_or(0) | 0xFF00_0000
+}
+
+/// 颜色是否偏亮（决定 "Aa" 用深色还是白色）。
+fn color_light(c: Rgba) -> bool {
+    let y = 0.299 * f32::from(c.r) + 0.587 * f32::from(c.g) + 0.114 * f32::from(c.b);
+    y > 140.0
+}
+
+fn local_time() -> (String, String) {
+    // SAFETY: GetLocalTime 无前置条件，只读系统时间。
+    let st: SYSTEMTIME = unsafe { GetLocalTime() };
+    (
+        format!("{:02}:{:02}", st.wHour, st.wMinute),
+        format!("{}/{}/{}", st.wYear, st.wMonth, st.wDay),
+    )
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn view() -> View {
-        View::new(&Config::default(), Lang::Zh, false)
+    fn make_view() -> View {
+        make_view_lang(Lang::Zh)
     }
 
-    /// 当前设置页可见项数（配置项总数 - 尚未落地的隐藏项）。
-    fn visible_rows() -> usize {
-        crate::config::SettingKey::ALL.iter().filter(|k| k.ui_visible()).count()
+    fn make_view_lang(lang: Lang) -> View {
+        let cfg = Config::default();
+        let mut v = View::new(&cfg, lang, false);
+        v.set_dpi(96);
+        v.set_client(theme::MIN_WIDTH_DIP, theme::MIN_HEIGHT_DIP);
+        v.rebuild(&cfg, &DiagView::default(), false);
+        v
     }
 
-    #[test]
-    fn view_builds_one_row_per_visible_setting_and_7_group_headers() {
-        let v = view();
-        assert_eq!(v.rows.len(), visible_rows());
-        assert_eq!(v.headers.len(), 7);
-        assert_eq!(v.row_ranges.len(), 7);
+    fn click(v: &mut View, x: f32, y: f32) {
+        let lp = LPARAM(((y as i32) << 16 | (x as i32 & 0xFFFF)) as isize);
+        v.on_message(HWND::default(), WM_LBUTTONDOWN, WPARAM(0), lp).unwrap();
+        v.on_message(HWND::default(), WM_LBUTTONUP, WPARAM(0), lp).unwrap();
     }
 
-    #[test]
-    fn layout_produces_7_cards_and_positive_content_height() {
-        let mut v = view();
-        v.set_client(720.0, 560.0);
-        assert_eq!(v.cards.len(), 7);
-        assert!(v.scroll.content_h > 560.0, "全部可见项必然需要滚动");
-        assert!(v.scroll.max_offset() > 0.0);
+    fn center(r: Rect) -> (f32, f32) {
+        (r.x + r.w / 2.0, r.y + r.h / 2.0)
     }
 
     #[test]
-    fn diag_card_is_collapsed_by_default_and_toggles_on_head_click() {
-        let mut v = view();
-        v.set_client(720.0, 560.0);
-        assert!(!v.diag_expanded, "诊断默认必须收起");
-        assert_eq!(v.diag_rect.h, DIAG_HEAD_H, "收起态只占标题行");
-        let collapsed_h = v.scroll.content_h;
-
-        let (x, y) = (v.diag_rect.x + 12.0, v.diag_rect.y + 8.0);
-        assert!(v.handle_row_event(&UiEvent::LButtonDown { x, y }, x, y), "抬头应消费点击");
-        assert!(v.diag_expanded);
-        assert_eq!(v.diag_rect.h, DIAG_HEAD_H + DIAG_CARD_H);
-        assert!(
-            v.scroll.content_h > collapsed_h + DIAG_CARD_H - 1.0,
-            "展开后内容高度必须增加一整块正文"
-        );
-        assert_eq!(v.scroll.offset, v.scroll.max_offset(), "展开后应自动滚到底，露出正文");
-
-        let (x2, y2) = (v.diag_rect.x + 12.0, v.diag_rect.y + 8.0);
-        assert!(v.handle_row_event(&UiEvent::LButtonDown { x: x2, y: y2 }, x2, y2));
-        assert!(!v.diag_expanded, "再点一次应收回");
-        assert_eq!(v.scroll.content_h, collapsed_h);
-    }
-
-    #[test]
-    fn rebuild_syncs_values_and_greys_only_degraded_elements() {
-        let mut cfg = Config::default();
-        assert!(cfg.set(SettingKey::S16, 3000));
-        let mut v = View::new(&cfg, Lang::Zh, true);
-        v.rebuild(&cfg, &DiagView::default(), true);
-        assert_eq!(
-            v.rows.iter().find(|r| r.key == SettingKey::S16).map_or(0, |r| r.value),
-            3000
-        );
-        assert!(!v.rows.iter().find(|r| r.key == SettingKey::S30).is_none_or(|r| r.enabled));
-        assert!(v.rows.iter().find(|r| r.key == SettingKey::S16).is_some_and(|r| r.enabled));
-    }
-
-    #[test]
-    fn language_switch_is_instant_and_keeps_pid_state() {
-        let mut v = view();
-        v.rebuild_texts(Lang::En);
-        assert_eq!(v.language(), Lang::En);
-        assert_eq!(v.rows.len(), visible_rows(), "语言切换不重建进程/不清空控件树");
-    }
-
-    #[test]
-    fn tab_moves_focus_through_all_rows() {
-        let mut v = view();
-        let wp = WPARAM(VK_TAB as usize);
-        for _ in 0..visible_rows() {
-            assert!(v.on_message(HWND::default(), MSG_KEYDOWN, wp, LPARAM(0)).is_some());
-        }
-        assert!(v.focus_index.is_some());
-    }
-
-    #[test]
-    fn wheel_scrolls_and_clamps() {
-        let mut v = view();
-        v.set_client(720.0, 560.0);
-        let wp = WPARAM(((-120i32) as u16 as usize) << 16);
-        assert!(v.on_message(HWND::default(), MSG_MOUSEWHEEL, wp, LPARAM(0)).is_some());
-        assert!(v.scroll.offset > 0.0);
-    }
-
-    #[test]
-    fn hex_parser_accepts_rgb_and_argb_and_rejects_garbage() {
-        let argb = |s: &str| Rgba::parse_hex(s).map(rgba_to_argb);
-        // 6 位 → a = 255
-        assert_eq!(argb("#FFFFFF"), Some(0x00FF_FFFF | 0xFF00_0000));
-        assert_eq!(Rgba::parse_hex("112233").map(|c| c.a), Some(255));
-        // 8 位 → 自带 alpha
-        assert_eq!(argb("#80112233"), Some(0x8011_2233));
-        assert_eq!(Rgba::parse_hex("38FFFFFF").map(|c| c.a), Some(0x38));
-        // 非法：3 位简写 / 7 位 / 空串 / 非十六进制
-        assert_eq!(argb("#FFF"), None);
-        assert_eq!(argb("#FFFFFFF"), None);
-        assert_eq!(argb(""), None);
-        assert_eq!(argb("#GGGGGG"), None);
-        // 非 ASCII 不得 panic（本地副本曾无守卫，切字符串时会崩）
-        assert_eq!(argb("颜颜"), None);
-        assert_eq!(argb("#颜色颜色"), None);
-    }
-
-    #[test]
-    fn picker_groups_are_selected_by_key_not_shared() {
-        // 端色 → 文字色两组（A 深底 / B 浅底）
-        assert_eq!(swatch_groups_for(SettingKey::S14).len(), 2);
-        assert_eq!(swatch_groups_for(SettingKey::S15).len(), 2);
-        // 填充色 → 一组
-        assert_eq!(swatch_groups_for(SettingKey::S35).len(), 1);
-        assert_eq!(swatch_groups_for(SettingKey::S37).len(), 1);
-        // 两组必须真的是 A + B，且不能混进填充色（C 组的 #E5484D 等）
-        let text_keys: Vec<&str> = swatch_groups_for(SettingKey::S14).iter().map(|(k, _)| *k).collect();
-        assert_eq!(text_keys, vec!["picker.on_dark", "picker.on_light"]);
-        assert_eq!(swatch_groups_for(SettingKey::S35)[0].0, "picker.fill");
-        assert!(!swatch_groups_for(SettingKey::S14)
-            .iter()
-            .any(|(_, cs)| cs.contains(&"#E5484D")));
-        // C 组必须是设计师定稿的 6 个具体色值，且一个都不能漏进文字色板
-        let fill: Vec<&str> = swatch_groups_for(SettingKey::S35)[0].1.to_vec();
-        assert_eq!(
-            fill,
-            vec!["#E5484D", "#C96A00", "#12855A", "#0E8D8D", "#3B82F6", "#8B5CF6"]
-        );
-        let text: Vec<&str> = swatch_groups_for(SettingKey::S14)
-            .iter()
-            .flat_map(|(_, cs)| cs.iter().copied())
-            .collect();
-        for c in fill {
-            assert!(!text.contains(&c), "填充色 {c} 混进了文字色板");
+    fn has_four_tabs_in_order() {
+        let v = make_view();
+        assert_eq!(v.tab_rects.len(), 4);
+        let labels: Vec<&str> = Page::ALL.iter().map(|p| text(p.title_key(), v.lang)).collect();
+        assert_eq!(labels, vec!["任务栏", "采样", "托盘", "诊断"]);
+        let mut last = -1.0;
+        for r in v.tab_rects {
+            assert!(r.x > last, "页签必须从左到右排列");
+            last = r.x;
         }
     }
 
+    /// 组 1 回归：所有固定文案都必须完整放进它的控件矩形，不能出现「恢复默…」。
     #[test]
-    fn picker_geometry_fits_inside_and_never_overlaps() {
-        let check = |frame: Rect, groups: usize| {
-            let mut rects: Vec<Rect> = Vec::new();
-            for gi in 0..groups {
-                for i in 0..6 {
-                    let r = swatch_rect(frame, gi, i);
-                    assert!(
-                        r.x >= frame.x && r.y >= frame.y
-                            && r.x + r.w <= frame.x + frame.w
-                            && r.y + r.h <= frame.y + frame.h,
-                        "色块越出弹层: {r:?}"
-                    );
-                    for other in &rects {
-                        let overlap_x = r.x < other.x + other.w && other.x < r.x + r.w;
-                        let overlap_y = r.y < other.y + other.h && other.y < r.y + r.h;
-                        assert!(!(overlap_x && overlap_y), "色块重叠: {r:?} / {other:?}");
-                    }
-                    rects.push(r);
-                }
+    fn control_labels_fit_without_ellipsis() {
+        for lang in [Lang::Zh, Lang::En] {
+            let v = make_view_lang(lang);
+            let fits = |s: &str, role: TextRole, w: f32| ellipsize(s, role.size(), w) == s;
+
+            let foot = [
+                "action.restore",
+                "action.import_config",
+                "action.export_config",
+                "action.about",
+            ];
+            for (i, key) in foot.iter().enumerate() {
+                let s = text(key, lang);
+                assert!(fits(s, TextRole::Body, v.foot_rects[i].w), "{lang:?} 底栏「{s}」被截断");
             }
-            // 一行 6 列刚好铺满内容宽度：12 + 6×32 + 5×8 + 12 = 256
-            let last = swatch_rect(frame, 0, 5);
-            assert!((last.x + last.w - (frame.x + frame.w - PICKER_PAD)).abs() < 1e-3);
-            let bottom = rects.iter().map(|r| r.y + r.h).fold(0.0_f32, f32::max);
-            let hr = picker_hex_rect(frame, groups);
-            let mr = picker_more_rect(frame, groups);
-            assert!((hr.y - bottom - PICKER_HEX_GAP).abs() < 1e-3, "色板↔HEX 必须是 10");
-            assert!((mr.y - hr.y - PICKER_HEX_H - PICKER_MORE_GAP).abs() < 1e-3);
-            assert!(mr.y >= bottom, "「更多颜色…」必须在色块下方");
-            assert!(mr.y + mr.h <= frame.y + frame.h, "底部按钮越出弹层");
-        };
-        // frame 用规格常量，不能用 picker_height() 自己当期望值（那是自我证明）
-        check(Rect::new(0.0, 0.0, 256.0, 226.0), 2);
-        check(Rect::new(0.0, 0.0, 256.0, 160.0), 1);
-        assert!((picker_height(2) - 226.0).abs() < 1e-3);
-        assert!((picker_height(1) - 160.0).abs() < 1e-3);
-    }
-
-    #[test]
-    fn every_swatch_click_writes_that_exact_colour_and_keeps_alpha() {
-        for key in [SettingKey::S14, SettingKey::S35] {
-            let mut v = view();
-            v.set_client(720.0, 560.0);
-            // 规格常量，不取运行时值：端色恒 0xFF，填充色默认 0x38
-            let alpha = if key == SettingKey::S14 {
-                0xFF00_0000_u32
-            } else {
-                0x3800_0000_u32
-            };
-            assert_eq!(v.current_color(key) & 0xFF00_0000, alpha);
-            let groups = swatch_groups_for(key);
-            for (gi, (_, colors)) in groups.iter().enumerate() {
-                for (i, p) in colors.iter().enumerate() {
-                    v.open_popup(PopupKind::ColorPicker(key), 80.0, 120.0);
-                    let rect = match &v.popup {
-                        PopupState::ColorPicker { rect, .. } => *rect,
-                        other => panic!("弹层没打开: {other:?}"),
-                    };
-                    let r = swatch_rect(rect, gi, i);
-                    let (cx, cy) = (r.x + r.w / 2.0, r.y + r.h / 2.0);
-                    assert!(v.handle_popup_click(cx, cy), "色块中心必须命中");
-                    let acts = v.take_actions();
-                    assert_eq!(acts.len(), 1, "点一格只产生一个动作");
-                    let want = i64::from(
-                        alpha | rgb_of(Rgba::parse_hex(p).unwrap_or(Rgba::opaque(0, 0, 0))),
-                    );
-                    assert_eq!(acts[0], ViewAction::Set(key, want), "{key:?} 的第 {gi}/{i} 格");
-                    let got = match acts[0] {
-                        ViewAction::Set(_, v) => v as u32,
-                        _ => 0,
-                    };
-                    assert_eq!(
-                        (got >> 24) as u8,
-                        if key == SettingKey::S14 { 0xFF } else { 0x38 },
-                        "点击后 alpha 不能被写成 0xFF"
-                    );
-                }
+            let pause = text("ui.pause", lang);
+            assert!(fits(pause, TextRole::Body, v.pause_btn.w), "{lang:?} 暂停「{pause}」被截断");
+            for (i, page) in Page::ALL.iter().enumerate() {
+                let s = text(page.title_key(), lang);
+                assert!(
+                    fits(s, TextRole::Subtitle, v.tab_rects[i].w),
+                    "{lang:?} 页签「{s}」被截断"
+                );
+            }
+            for (i, key) in ["preview.auto", "preview.light", "preview.dark"]
+                .iter()
+                .enumerate()
+            {
+                let s = text(key, lang);
+                assert!(
+                    fits(s, TextRole::Caption, v.mode_rects[i].w),
+                    "{lang:?} 模式胶囊「{s}」被截断"
+                );
+            }
+            for (i, key) in ["opt.judge.region", "opt.judge.global"].iter().enumerate() {
+                let s = text(key, lang);
+                assert!(
+                    fits(s, TextRole::Caption, v.judge_rects[i].w),
+                    "{lang:?} 判定分段「{s}」被截断"
+                );
             }
         }
     }
 
     #[test]
-    fn picker_keys_move_focus_and_apply() {
-        let mut v = view();
-        v.set_client(720.0, 560.0);
-        v.open_popup(PopupKind::ColorPicker(SettingKey::S14), 80.0, 120.0);
-        // 默认焦点落在 #FFFFFF（A 组第 1 格），右移一格到 #FFB4AB
-        let wp = |vk: u16| WPARAM(vk as usize);
-        assert!(v.on_message(HWND::default(), MSG_KEYDOWN, wp(VK_RIGHT), LPARAM(0)).is_some());
-        assert!(matches!(v.popup, PopupState::ColorPicker { focus: Some(1), .. }));
-        // 下移到 B 组同一列
-        assert!(v.on_message(HWND::default(), MSG_KEYDOWN, wp(VK_DOWN), LPARAM(0)).is_some());
-        assert!(matches!(v.popup, PopupState::ColorPicker { focus: Some(7), .. }));
-        assert!(v.on_message(HWND::default(), MSG_KEYDOWN, wp(VK_RETURN), LPARAM(0)).is_some());
-        assert!(matches!(v.popup, PopupState::None), "应用后必须关闭");
+    fn clicking_tab_switches_page_and_rows() {
+        let mut v = make_view();
+        let (x, y) = center(v.tab_rects[2]);
+        click(&mut v, x, y);
+        assert_eq!(v.page, Page::Tray);
+        assert_eq!(v.rows.len(), 5);
+        assert_eq!(v.rows[0].key, SettingKey::S40);
+    }
+
+    #[test]
+    fn tint_and_pause_write_expected_keys() {
+        let mut v = make_view();
+        let (x, y) = center(v.tint_toggle);
+        click(&mut v, x, y);
+        assert_eq!(v.take_actions(), vec![ViewAction::Set(SettingKey::S01, 0)]);
+
+        let (x, y) = center(v.pause_btn);
+        click(&mut v, x, y);
+        assert_eq!(v.take_actions(), vec![ViewAction::Set(SettingKey::S42, 1)]);
+    }
+
+    #[test]
+    fn zone_cards_follow_icons_tray_clock_order() {
+        let mut v = make_view();
+        let want = [SettingKey::S50, SettingKey::S49, SettingKey::S48];
+        for (i, key) in want.iter().enumerate() {
+            let (x, y) = center(v.zone_rects[i]);
+            click(&mut v, x, y);
+            assert_eq!(v.take_actions(), vec![ViewAction::Set(*key, 0)], "第 {i} 张卡片");
+        }
+        // 预览里托盘必须在时钟左侧
+        assert!(v.mode_rects[0].y < v.zone_rects[0].y);
+    }
+
+    #[test]
+    fn threshold_click_clamps_into_300_700() {
+        let mut v = make_view();
+        let t = v.thr_track;
+        click(&mut v, t.x + 0.5, t.y + 4.0);
+        assert_eq!(v.take_actions(), vec![ViewAction::Set(SettingKey::S12, 300)]);
+        click(&mut v, t.right() - 0.5, t.y + 4.0);
+        assert_eq!(v.take_actions(), vec![ViewAction::Set(SettingKey::S12, 700)]);
+    }
+
+    #[test]
+    fn color_well_opens_picker_and_swatch_writes_opaque_color() {
+        let mut v = make_view();
+        let (x, y) = center(v.well_rects[0]);
+        click(&mut v, x, y);
+        let popup = v.popup.as_ref().expect("色样应打开取色浮层");
+        assert_eq!(popup.kind, PopupKind::ColorPicker(SettingKey::S14));
+        let frame = popup.frame;
+
+        // 第 2 格（默认白色已生效，选它不会产生写入，故取相邻色）。
+        let swatch = Rect::new(frame.x + 12.0 + 38.0, frame.y + 32.0, 32.0, 26.0);
+        let (sx, sy) = center(swatch);
+        click(&mut v, sx, sy);
+        assert!(v.popup.is_none());
         assert_eq!(
             v.take_actions(),
-            vec![ViewAction::Set(SettingKey::S14, 0xFF00_0000 | 0x007A_1F2B)]
+            vec![ViewAction::Set(SettingKey::S14, 0xFFFF_B4AB)]
         );
     }
 
     #[test]
-    fn invalid_hex_closes_popup_with_toast_and_writes_nothing() {
-        let mut v = view();
-        v.set_client(720.0, 560.0);
-        v.open_popup(PopupKind::ColorPicker(SettingKey::S14), 80.0, 120.0);
-        // 敲 3 位（不支持简写）后回车
-        for ch in ['F', 'F', 'F'] {
-            let _ = v.on_message(HWND::default(), MSG_CHAR, WPARAM(ch as usize), LPARAM(0));
-        }
-        let _ = v.on_message(
-            HWND::default(),
-            MSG_KEYDOWN,
-            WPARAM(VK_RETURN as usize),
-            LPARAM(0),
-        );
-        assert!(matches!(v.popup, PopupState::None));
-        assert!(v.take_actions().is_empty(), "非法输入绝不写配置");
-        assert_eq!(v.toast.map(|t| t.0), Some("picker.invalid"));
+    fn footer_buttons_are_wired() {
+        let mut v = make_view();
+        let (x, y) = center(v.foot_rects[0]);
+        click(&mut v, x, y);
+        assert!(matches!(v.popup.as_ref().map(|p| p.kind), Some(PopupKind::ConfirmRestore)));
+        v.popup = None;
+
+        let (x, y) = center(v.foot_rects[1]);
+        click(&mut v, x, y);
+        assert_eq!(v.take_actions(), vec![ViewAction::ImportConfig]);
+
+        let (x, y) = center(v.foot_rects[2]);
+        click(&mut v, x, y);
+        assert_eq!(v.take_actions(), vec![ViewAction::ExportConfig]);
+
+        let (x, y) = center(v.foot_rects[3]);
+        click(&mut v, x, y);
+        assert!(matches!(v.popup.as_ref().map(|p| p.kind), Some(PopupKind::About)));
     }
 
     #[test]
-    fn valid_hex_submits_and_keeps_fill_alpha() {
-        let mut v = view();
-        v.set_client(720.0, 560.0);
-        // S-35 当前是 0x38FFFFFF（22%），输入 6 位后 alpha 必须还是 0x38
-        v.open_popup(PopupKind::ColorPicker(SettingKey::S35), 80.0, 120.0);
-        for ch in "#E5484D".chars() {
-            let _ = v.on_message(HWND::default(), MSG_CHAR, WPARAM(ch as usize), LPARAM(0));
+    fn diagnostics_rows_export_and_copy() {
+        let mut v = make_view();
+        let (x, y) = center(v.tab_rects[3]);
+        click(&mut v, x, y);
+        assert_eq!(v.rows.len(), 3);
+        assert_eq!(v.rows[0].key, SettingKey::S45);
+
+        let (x, y) = center(v.rows[1].rect);
+        click(&mut v, x, y);
+        assert!(v.take_actions().contains(&ViewAction::CopyVersion));
+
+        let (x, y) = center(v.rows[2].rect);
+        click(&mut v, x, y);
+        assert!(v.take_actions().contains(&ViewAction::ExportDiagnostics));
+    }
+
+    #[test]
+    fn sample_sliders_map_endpoints_to_min_and_max() {
+        let mut v = make_view();
+        let (x, y) = center(v.tab_rects[1]);
+        click(&mut v, x, y);
+        let row = v.rows.iter().find(|r| r.key == SettingKey::S16).unwrap().rect;
+        let track = slider_track(row);
+        click(&mut v, track.x, track.y);
+        assert_eq!(v.take_actions(), vec![ViewAction::Set(SettingKey::S16, 500)]);
+        click(&mut v, track.right(), track.y);
+        assert_eq!(v.take_actions(), vec![ViewAction::Set(SettingKey::S16, 5000)]);
+    }
+
+    #[test]
+    fn dropdown_row_opens_list_and_selects() {
+        let mut v = make_view();
+        let (x, y) = center(v.tab_rects[2]);
+        click(&mut v, x, y);
+        let row = v.rows.iter().find(|r| r.key == SettingKey::S04).unwrap().rect;
+        let (mx, my) = center(row);
+        click(&mut v, mx, my);
+        let popup = v.popup.as_ref().expect("下拉应打开列表");
+        let frame = popup.frame;
+        let item = Rect::new(frame.x + 4.0, frame.y + 4.0 + 28.0, frame.w - 8.0, 28.0);
+        let (ix, iy) = center(item);
+        click(&mut v, ix, iy);
+        assert_eq!(v.take_actions(), vec![ViewAction::Set(SettingKey::S04, 1)]);
+    }
+
+    #[test]
+    fn every_control_stays_inside_client_area() {
+        let mut v = make_view();
+        for (i, page) in Page::ALL.iter().enumerate() {
+            let (x, y) = center(v.tab_rects[i]);
+            click(&mut v, x, y);
+            let mut rects: Vec<Rect> = v.rows.iter().map(|r| r.rect).collect();
+            rects.extend_from_slice(&v.tab_rects);
+            rects.extend_from_slice(&v.foot_rects);
+            rects.extend_from_slice(&v.zone_rects);
+            rects.extend_from_slice(&v.well_rects);
+            rects.extend_from_slice(&v.judge_rects);
+            rects.extend_from_slice(&v.mode_rects);
+            rects.push(v.tint_toggle);
+            rects.push(v.pause_btn);
+            rects.push(v.preview);
+            rects.push(v.colors_card);
+            rects.push(v.sample_card);
+            rects.push(v.diag_card);
+            for r in rects {
+                assert!(r.x >= 0.0 && r.y >= 0.0, "控件越出左上角: {r:?}");
+                assert!(
+                    r.right() <= theme::MIN_WIDTH_DIP + 0.5 && r.bottom() <= theme::MIN_HEIGHT_DIP + 0.5,
+                    "控件越出客户区: {r:?} (页 {:?})",
+                    page
+                );
+            }
         }
-        let _ = v.on_message(
-            HWND::default(),
-            MSG_KEYDOWN,
-            WPARAM(VK_RETURN as usize),
-            LPARAM(0),
-        );
+    }
+
+    #[test]
+    fn keyboard_tab_moves_focus_and_arrows_nudge_slider() {
+        let mut v = make_view();
+        let (x, y) = center(v.tab_rects[1]);
+        click(&mut v, x, y);
+        v.handle_key(VK_TAB);
+        assert_eq!(v.focus, 0);
+        let before = v.rows[0].value;
+        v.handle_key(VK_RIGHT);
         assert_eq!(
             v.take_actions(),
-            vec![ViewAction::Set(SettingKey::S35, 0x38E5_484D)]
-        );
-        // 8 位则完全以用户输入为准
-        v.open_popup(PopupKind::ColorPicker(SettingKey::S35), 80.0, 120.0);
-        for ch in "80E5484D".chars() {
-            let _ = v.on_message(HWND::default(), MSG_CHAR, WPARAM(ch as usize), LPARAM(0));
-        }
-        let _ = v.on_message(
-            HWND::default(),
-            MSG_KEYDOWN,
-            WPARAM(VK_RETURN as usize),
-            LPARAM(0),
-        );
-        assert_eq!(
-            v.take_actions(),
-            vec![ViewAction::Set(SettingKey::S35, 0x80E5_484D)]
+            vec![ViewAction::Set(SettingKey::S16, before + 100)]
         );
     }
 
     #[test]
-    fn end_colour_change_prompts_once_for_strategy_switch() {
-        let mut v = view();
-        v.set_client(720.0, 560.0);
-        v.open_popup(PopupKind::ColorPicker(SettingKey::S14), 80.0, 120.0);
-        let rect = match &v.popup {
-            PopupState::ColorPicker { rect, .. } => *rect,
-            other => panic!("弹层没打开: {other:?}"),
+    fn popup_escape_closes_without_writing() {
+        let mut v = make_view();
+        let (x, y) = center(v.well_rects[0]);
+        click(&mut v, x, y);
+        assert!(v.popup.is_some());
+        v.handle_key(VK_ESCAPE);
+        assert!(v.popup.is_none());
+        assert!(v.take_actions().is_empty());
+    }
+
+    #[test]
+    fn y_readout_reflects_threshold_side() {
+        let mut v = make_view();
+        let diag = DiagView {
+            has_data: true,
+            y_milli: 100,
+            ..DiagView::default()
         };
-        let r = swatch_rect(rect, 0, 1); // #FFB4AB
-        assert!(v.handle_popup_click(r.x + r.w / 2.0, r.y + r.h / 2.0));
-        assert_eq!(v.take_actions().len(), 1);
-        assert_eq!(v.toast.map(|t| t.0), Some("picker.switched"), "策略自动切换时提示一次");
-        // 已是自定义之后不再提示
-        v.toast = None;
-        v.s13_custom = true;
-        v.open_popup(PopupKind::ColorPicker(SettingKey::S14), 80.0, 120.0);
-        let rect = match &v.popup {
-            PopupState::ColorPicker { rect, .. } => *rect,
-            other => panic!("弹层没打开: {other:?}"),
+        v.rebuild(&Config::default(), &diag, false);
+        assert!(v.y_text().contains("暗端"), "Y=0.1 应判为暗端: {}", v.y_text());
+        let diag = DiagView {
+            has_data: true,
+            y_milli: 900,
+            ..DiagView::default()
         };
-        let r = swatch_rect(rect, 1, 1); // #7A1F2B
-        assert!(v.handle_popup_click(r.x + r.w / 2.0, r.y + r.h / 2.0));
-        assert_ne!(v.toast.map(|t| t.0), Some("picker.switched"));
-    }
-
-    #[test]
-    fn clicking_restore_defaults_requires_confirmation_popup() {
-        let mut v = view();
-        v.set_client(720.0, 560.0);
-        let (cx, cy) = v
-            .rows
-            .iter()
-            .find(|r| r.key == SettingKey::S06)
-            .map_or((0.0, 0.0), |r| (r.control.x + 5.0, r.control.y + 5.0));
-        let handled = v.handle_row_event(&UiEvent::LButtonDown { x: cx, y: cy }, cx, cy);
-        assert!(handled);
-        assert!(matches!(v.popup, PopupState::Confirm { .. }), "必须有二次确认");
-        assert!(v.take_actions().is_empty(), "确认前不得写回默认值");
-    }
-
-    #[test]
-    fn overlay_escape_closes_popups() {
-        let mut v = view();
-        v.open_popup(PopupKind::About, 0.0, 0.0);
-        assert!(v.about_visible);
-        let wp = WPARAM(VK_ESCAPE as usize);
-        let _ = v.on_message(HWND::default(), MSG_KEYDOWN, wp, LPARAM(0));
-        assert!(!v.about_visible);
+        v.rebuild(&Config::default(), &diag, false);
+        assert!(v.y_text().contains("亮端"), "Y=0.9 应判为亮端: {}", v.y_text());
     }
 }

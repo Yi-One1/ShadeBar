@@ -427,7 +427,7 @@ fn dispatch_input(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> Option<LRESUL
                 unsafe { SetCursor(cursor) };
             }
         }
-        let result = state.view.on_message(hwnd, msg, wp, lp)?;
+        let result = state.view.on_message(hwnd, msg, wp, lp).ok().flatten()?;
         let mut actions = Vec::new();
         let mut pick_colors: Vec<(crate::config::SettingKey, u32)> = Vec::new();
         for action in state.view.take_actions() {
@@ -464,7 +464,24 @@ fn dispatch_input(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> Option<LRESUL
         let state = unsafe { state_mut(hwnd) }?;
         let mut changed = false;
         for action in actions {
-            changed |= state.app.apply_actions(vec![action]);
+            match action {
+                ViewAction::ExportConfig => match state.app.export_config() {
+                    Ok(path) => state.view.show_toast_text(format!(
+                        "{}: {}",
+                        crate::ui::i18n::text("config.export_ok", state.app.language()),
+                        path.display()
+                    )),
+                    Err(_) => state.view.show_toast("config.export_fail"),
+                },
+                ViewAction::ImportConfig => match state.app.import_config() {
+                    Ok(_) => {
+                        state.view.show_toast("config.import_ok");
+                        changed = true;
+                    }
+                    Err(_) => state.view.show_toast("config.import_fail"),
+                },
+                other => changed |= state.app.apply_actions(vec![other]),
+            }
         }
         if changed {
             state.app.sync_view(&mut state.view);

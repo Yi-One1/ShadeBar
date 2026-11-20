@@ -5,10 +5,11 @@
 //! v1.2.x 起本页顶部新增三个**分区自适应开关**（S-48~S-50）：关掉某区，
 //! 该区元素写回系统原色，其余分区不受影响。
 
-use crate::config::{Lang, SettingKey};
-use crate::ui::i18n;
+#[cfg(test)]
+use crate::config::SettingKey;
 
-/// 本页设置项。
+/// 区域相关设置项（页面归属由 `pages::SAMPLE_KEYS` 决定，这里供分组核对）。
+#[cfg(test)]
 pub const KEYS: &[SettingKey] = &[
     SettingKey::S48,
     SettingKey::S49,
@@ -25,12 +26,6 @@ pub const SMALL_REGION_VALID_PX: u32 = 1500;
 #[must_use]
 pub const fn needs_small_region_warning(valid_px: u32, has_data: bool) -> bool {
     has_data && valid_px < SMALL_REGION_VALID_PX
-}
-
-/// 预警文案（取自 i18n 表，不硬编码在 UI 逻辑里）。
-#[must_use]
-pub fn warning_text(lang: Lang) -> &'static str {
-    i18n::text("banner.region_small", lang)
 }
 
 #[cfg(test)]

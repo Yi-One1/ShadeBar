@@ -249,7 +249,17 @@ impl App {
                         note("clipboard write failed (version shown in About page)");
                     }
                 }
-                // 系统调色板需要 HWND，由窗口层在执行前拦下；走到这里是兜底。
+                ViewAction::ExportConfig => {
+                    if let Err(e) = self.export_config() {
+                        note(&format!("config export failed: {e:?}"));
+                    }
+                }
+                ViewAction::ImportConfig => {
+                    if let Err(e) = self.import_config() {
+                        note(&format!("config import failed: {e:?}"));
+                    }
+                }
+                // 系统调色板 / 关闭窗口需要 HWND，由窗口层在执行前拦下；这里是兜底。
                 ViewAction::PickColor(_) => note("PickColor 未在窗口层处理（已忽略）"),
             }
         }
@@ -332,6 +342,30 @@ impl App {
         let lang = st.config.language();
         drop(st);
         (lang, true)
+    }
+
+    /// 导出配置到 `%LOCALAPPDATA%\ShadeBar\config-export.json`（G5 固定操作条）。
+    pub fn export_config(&self) -> SbResult<PathBuf> {
+        let path = Config::export_file_path();
+        self.lock().config.export_to(&path)?;
+        note(&format!("config exported: {}", path.display()));
+        Ok(path)
+    }
+
+    /// 从 `config-export.json` 读回配置并落盘 / 热更新配色（G5 固定操作条）。
+    pub fn import_config(&self) -> SbResult<PathBuf> {
+        let path = Config::export_file_path();
+        let changed = {
+            let mut st = self.lock();
+            st.config.import_from(&path)?
+        };
+        if changed {
+            let cfg = self.config();
+            persist(&cfg);
+            self.sync_recolor();
+            note(&format!("config imported: {}", path.display()));
+        }
+        Ok(path)
     }
 
     /// 导出诊断包（S-46 / NFR-10）：零依赖 stored ZIP，含配置 + 环境 + 日志。

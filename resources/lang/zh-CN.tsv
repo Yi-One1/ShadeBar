@@ -139,7 +139,7 @@ diag.timestamp	时间戳
 diag.expand	展开详情
 diag.collapse	收起详情
 dlg.restore.title	恢复默认设置？
-dlg.restore.body	全部 35 项设置将写回默认值，此操作不可撤销。
+dlg.restore.body	全部设置将写回默认值，此操作不可撤销。
 dlg.confirm	确认恢复
 dlg.cancel	取消
 about.title	关于随影 ShadeBar
@@ -161,3 +161,43 @@ picker.fill	填充与描边色
 picker.more	更多颜色…
 picker.invalid	颜色格式不对：需要 6 位或 8 位十六进制
 picker.switched	已切换为自定义配色
+tier.basic	基础
+tier.advanced	高级
+ui.running	运行中
+ui.current	当前
+ui.close	关闭
+action.restore	恢复默认
+action.export_diag	导出诊断包
+action.export_config	导出配置
+action.import_config	导入配置
+config.export_ok	配置已导出至
+config.export_fail	配置导出失败
+config.import_ok	配置已导入
+config.import_fail	配置导入失败：文件不存在或格式不对
+# ---- 页签式设置窗口 ----
+tab.taskbar	任务栏
+tab.sample	采样
+tab.tray	托盘
+tab.diag	诊断
+ui.tint	着色
+ui.pause	暂停
+ui.resume	继续
+ui.paused	已暂停
+ui.restricted	受限
+preview.auto	自动
+preview.light	亮端
+preview.dark	暗端
+zone.icons	图标区
+zone.clock	时钟区
+zone.tray	托盘区
+card.colors	颜色与判定
+color.on_dark	背景偏暗
+color.on_light	背景偏亮
+thr.title	亮度阈值
+sample.title	采样带
+sample.live	实时采样
+diag.live	实时判定
+diag.sample_unit	次采样
+action.about	关于
+action.export	导出
+action.copy	复制

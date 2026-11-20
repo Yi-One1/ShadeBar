@@ -139,7 +139,7 @@ diag.timestamp	Timestamp
 diag.expand	Show details
 diag.collapse	Hide details
 dlg.restore.title	Restore defaults?
-dlg.restore.body	All 35 settings will be reset to their defaults. This cannot be undone.
+dlg.restore.body	All settings will be reset to their defaults. This cannot be undone.
 dlg.confirm	Restore
 dlg.cancel	Cancel
 about.title	About ShadeBar
@@ -161,3 +161,43 @@ picker.fill	Fill and stroke
 picker.more	More colours...
 picker.invalid	Invalid colour: use 6 or 8 hex digits
 picker.switched	Switched to custom colours
+tier.basic	Basic
+tier.advanced	Advanced
+ui.running	Running
+ui.current	Current
+ui.close	Close
+action.restore	Restore defaults
+action.export_diag	Export diagnostics
+action.export_config	Export config
+action.import_config	Import config
+config.export_ok	Config exported to
+config.export_fail	Config export failed
+config.import_ok	Config imported
+config.import_fail	Config import failed: file missing or invalid
+# ---- Tabbed settings window ----
+tab.taskbar	Taskbar
+tab.sample	Sampling
+tab.tray	Tray
+tab.diag	Diagnostics
+ui.tint	Tint
+ui.pause	Pause
+ui.resume	Resume
+ui.paused	Paused
+ui.restricted	Limited
+preview.auto	Auto
+preview.light	Light
+preview.dark	Dark
+zone.icons	Icons
+zone.clock	Clock
+zone.tray	Tray
+card.colors	Color & threshold
+color.on_dark	On dark
+color.on_light	On light
+thr.title	Brightness threshold
+sample.title	Sample band
+sample.live	Live sampling
+diag.live	Live judgment
+diag.sample_unit	samples
+action.about	About
+action.export	Export
+action.copy	Copy

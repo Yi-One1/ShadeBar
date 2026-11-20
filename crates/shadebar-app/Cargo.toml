@@ -72,9 +72,13 @@ windows = { version = "=0.58.0", features = [
     "Win32_System_Memory",
     "Win32_System_Power",
     "Win32_System_Registry",
+    # 设置页任务栏预览的实时时钟（GetLocalTime）
+    "Win32_System_SystemInformation",
     "Win32_System_Threading",
     "Win32_UI_Accessibility",
     "Win32_UI_HiDpi",
+    # 滑块拖拽的鼠标捕获（SetCapture / ReleaseCapture）
+    "Win32_UI_Input_KeyboardAndMouse",
     "Win32_UI_Shell",
     "Win32_UI_WindowsAndMessaging",
 ] }

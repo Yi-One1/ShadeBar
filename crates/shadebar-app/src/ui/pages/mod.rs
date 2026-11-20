@@ -1,64 +1,96 @@
-//! 六个分组页面（架构 §4 #32~#37 / §8.3 T03.4、T03.5）。
+//! 设置窗口的四个页面及其设置项归属。
 //!
-//! 页面本身只是「该分组有哪些 [`SettingKey`]」的静态表；真正的控件树、
-//! 布局、命中测试与重绘统一由 `ui::View` 驱动，避免 6 份重复实现。
-//! 每个页面单测核对项数与分组归属，防止设置项在绑定时漏项/串组。
+//! 页面结构按"作用对象"划分，而不是按需求文档的分组：
+//!
+//! | 页 | 内容 |
+//! |---|---|
+//! | 任务栏 | 实时预览 + 三区开关 + 颜色与判定 |
+//! | 采样 | 采样带可视化 + 间隔/平滑/区域微调 |
+//! | 托盘 | 托盘行为 + 启动 + 语言 |
+//! | 诊断 | 实时判定 + 日志级别 + 版本 + 诊断包 |
+//!
+//! 这里只列出"以设置行/控件形式出现"的键；S-05（版本）与 S-46（导出诊断包）
+//! 是诊断页上的固定动作，不参与设置行归属。
 
-pub mod behavior;
-pub mod color;
 pub mod diagnostics;
-pub mod elements;
-pub mod general;
 pub mod region;
 
-use crate::config::{Group, SettingKey};
+use crate::config::SettingKey as K;
 
-/// 按分组取该页的设置项（诊断页无设置项，返回空表）。
-#[must_use]
-pub fn keys_of(group: Group) -> &'static [SettingKey] {
-    match group {
-        Group::General => general::KEYS,
-        Group::Color => color::KEYS,
-        Group::Region => region::KEYS,
-        Group::Elements => elements::KEYS,
-        Group::Tray => behavior::TRAY_KEYS,
-        Group::Behavior => behavior::BEHAVIOR_KEYS,
-        Group::Diagnostics => &[],
-    }
-}
-
-/// 全部设置分组（不含诊断页）按显示顺序。
-pub const SETTING_GROUPS: [Group; 6] = [
-    Group::General, Group::Color, Group::Region,
-    Group::Elements, Group::Tray, Group::Behavior,
+/// 任务栏页。页面本身由预览/三区/颜色卡承载，这里仅供页面归属核对。
+#[cfg(test)]
+pub const TASKBAR_KEYS: &[K] = &[
+    K::S01, K::S10, K::S12, K::S14, K::S15, K::S47, K::S48, K::S49, K::S50,
 ];
+
+/// 采样页。
+pub const SAMPLE_KEYS: &[K] = &[K::S16, K::S18, K::S20, K::S21, K::S22];
+
+/// 托盘页。
+pub const TRAY_KEYS: &[K] = &[K::S40, K::S41, K::S02, K::S03, K::S04];
+
+/// 诊断页。
+#[cfg(test)]
+pub const DIAG_KEYS: &[K] = &[K::S45];
+
+/// 四个页面，顺序与页签一致。
+#[cfg(test)]
+pub const PAGES: [&[K]; 4] = [TASKBAR_KEYS, SAMPLE_KEYS, TRAY_KEYS, DIAG_KEYS];
+
+/// 设置项所在的页（不可见的项返回 `None`）。
+#[cfg(test)]
+#[must_use]
+pub fn page_of(key: K) -> Option<usize> {
+    PAGES.iter().position(|keys| keys.contains(&key))
+}
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn pages_cover_every_visible_setting_exactly_once() {
-        let mut seen = [false; crate::config::SETTING_COUNT];
-        let mut total = 0usize;
-        for g in SETTING_GROUPS {
-            for k in keys_of(g) {
-                assert_eq!(k.meta().group, g, "{} 串到了别的分组", k.id());
-                assert!(!seen[k.index()], "{} 重复绑定", k.id());
-                seen[k.index()] = true;
-                total += 1;
+    fn every_visible_key_appears_on_exactly_one_page() {
+        let mut seen = [0u8; crate::config::SETTING_COUNT];
+        for keys in PAGES {
+            for &k in keys {
+                seen[k.index()] += 1;
+                assert!(k.ui_visible(), "{} 已从 UI 收起，却仍绑在页面里", k.id());
             }
         }
-        // 页面表必须恰好等于「元数据 + 可见性」过滤的结果
-        let visible: usize = SettingKey::ALL.iter().filter(|k| k.ui_visible()).count();
-        assert_eq!(total, visible, "页面项数与可见项数不一致");
-        for k in SettingKey::ALL {
-            assert_eq!(seen[k.index()], k.ui_visible(), "{} 可见性绑定错误", k.id());
+        for k in crate::config::SettingKey::ALL {
+            assert_eq!(seen[k.index()], u8::from(k.ui_visible()), "{} 页面归属错误", k.id());
         }
     }
 
     #[test]
-    fn diagnostics_page_has_no_settings() {
-        assert!(keys_of(Group::Diagnostics).is_empty());
+    fn retired_keys_have_no_page() {
+        for k in [
+            crate::config::SettingKey::S05,
+            crate::config::SettingKey::S06,
+            crate::config::SettingKey::S11,
+            crate::config::SettingKey::S13,
+            crate::config::SettingKey::S17,
+            crate::config::SettingKey::S19,
+            crate::config::SettingKey::S23,
+            crate::config::SettingKey::S30,
+            crate::config::SettingKey::S34,
+            crate::config::SettingKey::S35,
+            crate::config::SettingKey::S36,
+            crate::config::SettingKey::S37,
+            crate::config::SettingKey::S42,
+            crate::config::SettingKey::S43,
+            crate::config::SettingKey::S44,
+            crate::config::SettingKey::S46,
+        ] {
+            assert_eq!(page_of(k), None, "{} 不应再出现在设置页", k.id());
+        }
+    }
+
+    #[test]
+    fn page_order_matches_tab_order() {
+        assert_eq!(page_of(crate::config::SettingKey::S48), Some(0));
+        assert_eq!(page_of(crate::config::SettingKey::S16), Some(1));
+        assert_eq!(page_of(crate::config::SettingKey::S40), Some(2));
+        assert_eq!(page_of(crate::config::SettingKey::S45), Some(3));
     }
 }

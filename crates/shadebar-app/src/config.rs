@@ -14,7 +14,7 @@
 //! * [`Config::to_engine_config`] 是设置与 core 引擎之间**唯一**的换算点，
 //!   每次设置变更递增 `version`，core `Engine::tick` 同拍比对生效（A-10）。
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use shadebar_core::color::Rgba;
 use shadebar_core::engine::{EngineConfig, RegionCfg};
@@ -171,21 +171,31 @@ impl SettingKey {
 
     /// 是否在设置页显示。
     ///
-    /// v1.1 把"尚未落地"的项从 UI 收起（配置字段保留，保证旧配置可平滑迁移）：
-    /// 主题联动（S-19）、悬停高亮块与固定色（S-34~S-37）、注入失败策略（S-44）。
-    /// 收起而不是删除，是为了不破坏 35 项编号与已落盘的配置文件。
+    /// 设置窗口只保留"用户真的会调、且当前版本真的生效"的 20 项。
+    /// 其余项**只从 UI 收起，配置字段与下标完全不动**，旧 `config.json` 可平滑迁移：
+    ///
+    /// | 键 | 收起原因 |
+    /// |---|---|
+    /// | S-05 / S-06 | 版本号与恢复默认改为诊断页/底栏的固定动作 |
+    /// | S-11 | 与 S-42 语义重复，顶栏「暂停」统一写 S-42 |
+    /// | S-13 | 用户改端色时自动切到自定义，无需再暴露策略 |
+    /// | S-17 | 变化阈值属于实现细节，行为由平滑系数决定 |
+    /// | S-19 | 主题联动未落地 |
+    /// | S-23 | 改为采样页的实时色块，不再是一行只读值 |
+    /// | S-30 ~ S-37 | 由三区开关（S-48~S-50）取代，细粒度元素不再单列 |
+    /// | S-42 | 由顶栏「暂停」承载 |
+    /// | S-43 / S-44 | 无视觉表现 / 未落地 |
+    /// | S-46 | 改为诊断页的「导出诊断包」动作 |
+    #[cfg_attr(not(test), allow(dead_code))]
     #[must_use]
     pub const fn ui_visible(self) -> bool {
         !matches!(
             self,
-            Self::S19 | Self::S23 | Self::S34 | Self::S35 | Self::S36 | Self::S37 | Self::S44
+            Self::S05 | Self::S06 | Self::S11 | Self::S13 | Self::S17 | Self::S19
+                | Self::S23 | Self::S30 | Self::S31 | Self::S32 | Self::S33 | Self::S34
+                | Self::S35 | Self::S36 | Self::S37 | Self::S42 | Self::S43 | Self::S44
+                | Self::S46
         )
-    }
-
-    /// 是否属于 L2/L3 降级时需要置灰的元素开关（§13-6：置灰但**保留用户值**）。
-    #[must_use]
-    pub const fn degraded_greyed(self) -> bool {
-        matches!(self, Self::S30 | Self::S31 | Self::S32 | Self::S33 | Self::S35 | Self::S37)
     }
 
     /// 颜色项的值规范化（写入路径 [`Config::set`] 与加载路径 [`Config::sanitize`] 共用）。
@@ -243,15 +253,6 @@ impl Group {
         }
     }
 
-    /// 该分组下的设置项。
-    #[must_use]
-    pub fn keys(self) -> Vec<SettingKey> {
-        SettingKey::ALL
-            .iter()
-            .copied()
-            .filter(|k| k.meta().group == self && k.ui_visible())
-            .collect()
-    }
 }
 
 /// 控件类型（§6 控件缩写 + T03.3 七类控件）。
@@ -565,6 +566,45 @@ impl Config {
         Self::data_dir().join("config.json")
     }
 
+    /// 配置导出文件路径（`%LOCALAPPDATA%\ShadeBar\config-export.json`）。
+    #[must_use]
+    pub fn export_file_path() -> PathBuf {
+        Self::data_dir().join("config-export.json")
+    }
+
+    /// 导出当前配置到指定路径（测试传临时路径，不污染真实配置）。
+    ///
+    /// # Errors
+    ///
+    /// 目录不可建或文件不可写时返回 `PathNotWritable` / `ConfigSerialize`。
+    pub fn export_to(&self, path: &Path) -> SbResult<()> {
+        let dir = path.parent().unwrap_or_else(|| Path::new("."));
+        std::fs::create_dir_all(dir).map_err(|e| SbError::PathNotWritable {
+            path: format!("{}: {e}", dir.display()),
+        })?;
+        std::fs::write(path, self.to_json()).map_err(|e| SbError::ConfigSerialize {
+            detail: format!("{}: {e}", path.display()),
+        })
+    }
+
+    /// 从指定路径读回配置（走同一个 `from_json` + `sanitize`，手改坏文件不崩）。
+    /// 返回配置值是否真的变了。
+    ///
+    /// # Errors
+    ///
+    /// 文件不可读或 JSON 结构非法时返回 `ConfigParse`。
+    pub fn import_from(&mut self, path: &Path) -> SbResult<bool> {
+        let text = std::fs::read_to_string(path).map_err(|e| SbError::ConfigParse {
+            detail: format!("{}: {e}", path.display()),
+        })?;
+        let next = Self::from_json(&text).ok_or_else(|| SbError::ConfigParse {
+            detail: format!("{} 结构非法", path.display()),
+        })?;
+        let changed = next.values != self.values;
+        *self = next;
+        Ok(changed)
+    }
+
     /// 从磁盘加载；损坏/越界/不可读时回退默认并把损坏文件改名为 `.bak`（NFR-16）。
     #[must_use]
     pub fn load() -> Self {
@@ -857,6 +897,74 @@ mod tests {
     fn argb_to_rgba_always_drops_alpha() {
         assert_eq!(argb_to_rgba(0x8012_3456).a, 255);
         assert_eq!(argb_to_rgba(0x8012_3456), Rgba::opaque(0x12, 0x34, 0x56));
+    }
+
+    #[test]
+    fn exactly_twenty_keys_are_visible() {
+        let visible: Vec<SettingKey> = SettingKey::ALL
+            .iter()
+            .copied()
+            .filter(|k| k.ui_visible())
+            .collect();
+        let want = [
+            SettingKey::S01, SettingKey::S02, SettingKey::S03, SettingKey::S04,
+            SettingKey::S10, SettingKey::S12, SettingKey::S14, SettingKey::S15,
+            SettingKey::S16, SettingKey::S18, SettingKey::S20, SettingKey::S21,
+            SettingKey::S22, SettingKey::S40, SettingKey::S41, SettingKey::S45,
+            SettingKey::S47, SettingKey::S48, SettingKey::S49, SettingKey::S50,
+        ];
+        assert_eq!(visible, want);
+        for key in [
+            SettingKey::S05, SettingKey::S06, SettingKey::S11, SettingKey::S13,
+            SettingKey::S17, SettingKey::S19, SettingKey::S23, SettingKey::S30,
+            SettingKey::S31, SettingKey::S32, SettingKey::S33, SettingKey::S34,
+            SettingKey::S35, SettingKey::S36, SettingKey::S37, SettingKey::S42,
+            SettingKey::S43, SettingKey::S44, SettingKey::S46,
+        ] {
+            assert!(!key.ui_visible(), "{} 应已从设置页收起", key.id());
+        }
+    }
+
+    #[test]
+    fn config_export_import_is_json_roundtrip_without_touching_real_path() {
+        let mut src = Config::default();
+        assert!(src.set(SettingKey::S16, 2400));
+        assert!(src.set(SettingKey::S14, 0x8011_2233));
+        let path = std::env::temp_dir().join(format!(
+            "shadebar-g5-export-{}-{}.json",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |d| d.as_nanos())
+        ));
+        src.export_to(&path).expect("导出到临时路径必须成功");
+        let text = std::fs::read_to_string(&path).expect("导出文件可读");
+        assert!(Config::from_json(&text).is_some(), "导出内容必须是合法 JSON");
+
+        let mut dst = Config::default();
+        assert!(dst.import_from(&path).expect("导入不崩"));
+        for k in SettingKey::ALL {
+            assert_eq!(dst.get(k), src.get(k), "{} 导入后不一致", k.id());
+        }
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn importing_corrupt_json_keeps_the_existing_config() {
+        let mut cfg = Config::default();
+        assert!(cfg.set(SettingKey::S16, 4321));
+        let path = std::env::temp_dir().join(format!(
+            "shadebar-g5-corrupt-{}-{}.json",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |d| d.as_nanos())
+        ));
+        std::fs::write(&path, "{\"values\":[1,2,3]}").expect("临时文件可写");
+        let before = cfg.clone();
+        assert!(cfg.import_from(&path).is_err(), "短数组必须被拒");
+        assert_eq!(cfg, before, "导入失败不得改变现有配置");
+        let _ = std::fs::remove_file(&path);
     }
 
     #[test]

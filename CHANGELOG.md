@@ -4,6 +4,29 @@ All notable changes to 随影 ShadeBar are documented here. The version is a sin
 source of truth in `Cargo.toml` (`[workspace.package] version`), also used for the
 artifact filename, the About page and the exe VERSIONINFO (FR-16 / A-16).
 
+## [1.3.0]
+
+### Added
+
+- **设置窗口重做为四页签布局**（720×560 dip）：任务栏 / 采样 / 托盘 / 诊断。
+  任务栏页用一块实时预览直接操作图标 → 托盘 → 时钟三区开关、亮端 / 暗端色与
+  亮度阈值，页面本身就是说明，不再有逐行标签与灰色注释。
+- **底部固定操作栏**：恢复默认（二次确认）、导入配置、导出配置、关于。
+  配置导入导出写 `%LOCALAPPDATA%\ShadeBar\config-export.json`，不弹文件对话框。
+- 设置页键盘操作：Tab 在控件间移动，方向键调整滑块，Enter / Space 激活。
+
+### Changed
+
+- 可见设置 32 → **20 项**：三区开关 S-48~S-50 取代 8 个细粒度元素开关，其余项
+  合并或移除；39 项编号与 `config.json` 下标保持不变。
+- 弹层（下拉 / 调色板 / 确认框）的绘制与命中共用同一份几何，去掉导航偏移。
+
+### Removed
+
+- 左侧导航与「基础 / 高级」分档取消：一屏四页签即可放下全部可见设置。
+- **S-43「托盘判定色」从设置 UI 移除**：G4 起托盘不再显示判定色，该开关已无视觉
+  表现；配置字段与下标保留，旧 `config.json` 原位读回。
+
 ## [1.2.0]
 
 ### Added

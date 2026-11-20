@@ -103,6 +103,17 @@ pub const UI_KEYS: &[&str] = &[
     // 颜色弹层（色板组标题 / HEX / 更多颜色 / 非法输入 / 策略自动切换）
     "picker.hex", "picker.more", "picker.on_dark", "picker.on_light", "picker.fill",
     "picker.invalid", "picker.switched",
+    // 页签 / 顶栏 / 底栏 / 状态 chip
+    "tab.taskbar", "tab.sample", "tab.tray", "tab.diag",
+    "ui.running", "ui.paused", "ui.restricted", "ui.tint", "ui.pause", "ui.resume",
+    "action.restore", "action.about", "action.export", "action.copy",
+    "action.export_diag", "action.export_config", "action.import_config",
+    "config.export_ok", "config.export_fail", "config.import_ok", "config.import_fail",
+    // 任务栏预览 / 三区 / 采样带 / 诊断摘要
+    "preview.auto", "preview.light", "preview.dark",
+    "zone.icons", "zone.clock", "zone.tray",
+    "card.colors", "color.on_dark", "color.on_light", "thr.title",
+    "sample.title", "sample.live", "diag.live", "diag.sample_unit",
     // 通用
     "common.on", "common.off", "common.enabled", "common.disabled",
     "common.copy_ok", "common.export_ok", "common.region_preview",

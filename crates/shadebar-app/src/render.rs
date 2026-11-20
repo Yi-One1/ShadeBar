@@ -47,7 +47,9 @@ use windows::Win32::Graphics::Direct2D::{
 use windows::Win32::Graphics::DirectWrite::{
     DWRITE_FACTORY_TYPE_SHARED, DWRITE_FONT_STRETCH_NORMAL, DWRITE_FONT_STYLE_NORMAL,
     DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_MEASURING_MODE_NATURAL,
-    DWriteCreateFactory, IDWriteFactory, IDWriteTextFormat,
+    DWRITE_TEXT_ALIGNMENT_CENTER, DWRITE_TEXT_ALIGNMENT_LEADING,
+    DWRITE_TEXT_ALIGNMENT_TRAILING, DWRITE_TEXT_ALIGNMENT,
+    DWRITE_WORD_WRAPPING_NO_WRAP, DWriteCreateFactory, IDWriteFactory, IDWriteTextFormat,
 };
 use windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT_B8G8R8A8_UNORM;
 
@@ -80,10 +82,34 @@ impl RectDip {
 /// 文本角色。字号与字重由角色决定，调用方不直接给字号（避免出现 13.5 px 这类漂移）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TextRole {
-    /// 标题（Semibold）。
+    /// 页面/对话框标题（15 px Semibold）。
     Title,
-    /// 正文。
+    /// 小节标题与我强调的行标签（13 px Semibold）。
+    Subtitle,
+    /// 正文行标签（12.5 px）。
     Body,
+    /// 辅助说明、单位、数值（11 px）。
+    Caption,
+    /// 大号数值（22 px Semibold，诊断页的 Y / 对比度）。
+    Metric,
+    /// 色样上的 "Aa" 示例（19 px Semibold）。
+    Sample,
+}
+
+impl TextRole {
+    /// 该角色的字号（dip）。布局宽度必须按这个值量，否则 12.0 量、12.5 画
+    /// 会把「恢复默认」截成「恢复默…」。
+    #[must_use]
+    pub const fn size(self) -> f32 {
+        match self {
+            Self::Title => 15.0,
+            Self::Subtitle => 13.0,
+            Self::Body => 12.5,
+            Self::Caption => 11.0,
+            Self::Metric => 22.0,
+            Self::Sample => 19.0,
+        }
+    }
 }
 
 /// dip → 像素的唯一换算点（§11.4）。
@@ -102,8 +128,7 @@ pub struct RenderCtx {
     target: ID2D1HwndRenderTarget,
     hwnd: HWND,
     dwrite: IDWriteFactory,
-    text_title: IDWriteTextFormat,
-    text_body: IDWriteTextFormat,
+    formats: TextFormats,
     dpi: u32,
     /// 每 dip 的像素数，`dpi / 96`。
     scale: f32,
@@ -137,9 +162,7 @@ impl RenderCtx {
             })?;
 
         let scale = dpi as f32 / 96.0;
-        let text_title =
-            create_text_format(&dwrite, theme::FONT_FAMILY_DISPLAY, 14.0 * scale, true)?;
-        let text_body = create_text_format(&dwrite, theme::FONT_FAMILY_BODY, 14.0 * scale, false)?;
+        let formats = TextFormats::build(&dwrite, scale)?;
 
         let size_px = (size_px.0.max(1), size_px.1.max(1));
         let target = create_hwnd_target(&factory, hwnd, size_px)?;
@@ -149,8 +172,7 @@ impl RenderCtx {
             target,
             hwnd,
             dwrite,
-            text_title,
-            text_body,
+            formats,
             dpi,
             scale,
             size_px,
@@ -174,10 +196,7 @@ impl RenderCtx {
         }
         self.scale = dpi as f32 / 96.0;
         self.dpi = dpi;
-        self.text_title =
-            create_text_format(&self.dwrite, theme::FONT_FAMILY_DISPLAY, 14.0 * self.scale, true)?;
-        self.text_body =
-            create_text_format(&self.dwrite, theme::FONT_FAMILY_BODY, 14.0 * self.scale, false)?;
+        self.formats = TextFormats::build(&self.dwrite, self.scale)?;
         Ok(())
     }
 
@@ -243,8 +262,22 @@ impl RenderCtx {
         };
     }
 
-    /// 画一行文本（单行、不换行；换行排版属 T03.2 `layout.rs`）。
+    /// 画一行文本（单行、不换行，超出矩形直接裁切）。
     pub fn draw_text(&self, text: &str, rect: RectDip, role: TextRole, color: Rgba) {
+        self.draw_in(text, rect, self.formats.of(role), color);
+    }
+
+    /// 右对齐画一行文本（数值列）。只有 `Subtitle`/`Body`/`Caption` 需要它。
+    pub fn draw_text_right(&self, text: &str, rect: RectDip, role: TextRole, color: Rgba) {
+        self.draw_in(text, rect, self.formats.of_right(role), color);
+    }
+
+    /// 水平居中画一行文本（胶囊 / 分段 / 按钮）。
+    pub fn draw_text_center(&self, text: &str, rect: RectDip, role: TextRole, color: Rgba) {
+        self.draw_in(text, rect, self.formats.of_center(role), color);
+    }
+
+    fn draw_in(&self, text: &str, rect: RectDip, format: &IDWriteTextFormat, color: Rgba) {
         let Some(brush) = self.solid(color) else {
             return;
         };
@@ -252,10 +285,6 @@ impl RenderCtx {
         if utf16.is_empty() {
             return;
         }
-        let format = match role {
-            TextRole::Title => &self.text_title,
-            TextRole::Body => &self.text_body,
-        };
         let r = self.to_d2d_rect(rect);
         // SAFETY: 目标处于绘制期间；utf16 在本次调用内存活。
         unsafe {
@@ -380,11 +409,80 @@ fn create_hwnd_target(
     Ok(target)
 }
 
+/// 全部文本格式。字号/字重集中在这里，`View` 只说角色。
+struct TextFormats {
+    title: IDWriteTextFormat,
+    subtitle: IDWriteTextFormat,
+    body: IDWriteTextFormat,
+    caption: IDWriteTextFormat,
+    metric: IDWriteTextFormat,
+    sample: IDWriteTextFormat,
+    subtitle_r: IDWriteTextFormat,
+    body_r: IDWriteTextFormat,
+    caption_r: IDWriteTextFormat,
+    subtitle_c: IDWriteTextFormat,
+    body_c: IDWriteTextFormat,
+    caption_c: IDWriteTextFormat,
+    sample_c: IDWriteTextFormat,
+}
+
+impl TextFormats {
+    fn build(dwrite: &IDWriteFactory, scale: f32) -> SbResult<Self> {
+        use theme::{FONT_FAMILY_BODY as BODY, FONT_FAMILY_DISPLAY as DISPLAY};
+        Ok(Self {
+            title: create_text_format(dwrite, DISPLAY, 15.0 * scale, true, DWRITE_TEXT_ALIGNMENT_LEADING)?,
+            subtitle: create_text_format(dwrite, BODY, 13.0 * scale, true, DWRITE_TEXT_ALIGNMENT_LEADING)?,
+            body: create_text_format(dwrite, BODY, 12.5 * scale, false, DWRITE_TEXT_ALIGNMENT_LEADING)?,
+            caption: create_text_format(dwrite, BODY, 11.0 * scale, false, DWRITE_TEXT_ALIGNMENT_LEADING)?,
+            metric: create_text_format(dwrite, DISPLAY, 22.0 * scale, true, DWRITE_TEXT_ALIGNMENT_LEADING)?,
+            sample: create_text_format(dwrite, DISPLAY, 19.0 * scale, true, DWRITE_TEXT_ALIGNMENT_LEADING)?,
+            subtitle_r: create_text_format(dwrite, BODY, 13.0 * scale, true, DWRITE_TEXT_ALIGNMENT_TRAILING)?,
+            body_r: create_text_format(dwrite, BODY, 12.5 * scale, false, DWRITE_TEXT_ALIGNMENT_TRAILING)?,
+            caption_r: create_text_format(dwrite, BODY, 11.0 * scale, false, DWRITE_TEXT_ALIGNMENT_TRAILING)?,
+            subtitle_c: create_text_format(dwrite, BODY, 13.0 * scale, true, DWRITE_TEXT_ALIGNMENT_CENTER)?,
+            body_c: create_text_format(dwrite, BODY, 12.5 * scale, false, DWRITE_TEXT_ALIGNMENT_CENTER)?,
+            caption_c: create_text_format(dwrite, BODY, 11.0 * scale, false, DWRITE_TEXT_ALIGNMENT_CENTER)?,
+            sample_c: create_text_format(dwrite, DISPLAY, 19.0 * scale, true, DWRITE_TEXT_ALIGNMENT_CENTER)?,
+        })
+    }
+
+    fn of(&self, role: TextRole) -> &IDWriteTextFormat {
+        match role {
+            TextRole::Title => &self.title,
+            TextRole::Subtitle => &self.subtitle,
+            TextRole::Body => &self.body,
+            TextRole::Caption => &self.caption,
+            TextRole::Metric => &self.metric,
+            TextRole::Sample => &self.sample,
+        }
+    }
+
+    fn of_right(&self, role: TextRole) -> &IDWriteTextFormat {
+        match role {
+            TextRole::Subtitle => &self.subtitle_r,
+            TextRole::Body => &self.body_r,
+            TextRole::Caption => &self.caption_r,
+            other => self.of(other),
+        }
+    }
+
+    fn of_center(&self, role: TextRole) -> &IDWriteTextFormat {
+        match role {
+            TextRole::Subtitle => &self.subtitle_c,
+            TextRole::Body => &self.body_c,
+            TextRole::Caption => &self.caption_c,
+            TextRole::Sample => &self.sample_c,
+            other => self.of(other),
+        }
+    }
+}
+
 fn create_text_format(
     dwrite: &IDWriteFactory,
     family: &str,
     size_px: f32,
     bold: bool,
+    align: DWRITE_TEXT_ALIGNMENT,
 ) -> SbResult<IDWriteTextFormat> {
     let weight = if bold {
         DWRITE_FONT_WEIGHT_SEMI_BOLD
@@ -392,7 +490,7 @@ fn create_text_format(
         DWRITE_FONT_WEIGHT_NORMAL
     };
     // SAFETY: 字体族/区域名字符串在调用期间存活。
-    unsafe {
+    let format = unsafe {
         dwrite.CreateTextFormat(
             &HSTRING::from(family),
             None,
@@ -406,7 +504,13 @@ fn create_text_format(
     .map_err(|e| SbError::HResult {
         op: "IDWriteFactory::CreateTextFormat",
         hr: e.code().0,
-    })
+    })?;
+    // SAFETY: format 刚创建，未被共享。
+    unsafe {
+        format.SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP).ok();
+        format.SetTextAlignment(align).ok();
+    }
+    Ok(format)
 }
 
 /// T03.1 的**渲染骨架帧**：证明"B3 上屏链路"完整可用。
