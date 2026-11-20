@@ -1975,7 +1975,7 @@ if ((Get-Item "dist\随影_ShadeBar_v1.0.0.exe").Length -gt 4194304) { throw "NF
 | **R6** | "`windows` crate 的 `Windows::UI::Xaml` 绑定够用" | **该 feature 根本不存在**：`features = ["UI_Xaml"]` 编译报 `windows does not have that feature`（列表里有 `UI`/`UI_Composition`/`UI_Core`/`UI_Input`，**没有** `UI_Xaml`）。`IFrameworkElement`/`ITextBlock`/`IDependencyObject`/`IDispatcherQueue` **必须手写 vtable + IID** | `xaml.rs` 400 → 620 行；T05.2 3.5 → **4.5 人日**；`Cargo.toml` 加构建门禁（§9.1 注、D4、T05.2） |
 | **R7** | GDI `AlphaBlend` 否决理由 = "破坏 DWM 表面 alpha + α=0.70 变 `#B3B3B3`" | **理由错，结论对。** `0.70×255 ≈ 0xB3`，`#B3B3B3` 是**正确的 70% 白合成**（截图验证下层文字可清楚透出），该结论**已由工程师撤回**；"永久破坏 alpha 通道"亦未经对照证实。**正确理由是**：①DWM backdrop 不进客户区（R4），"半透明叠在 Mica 上"在客户区不可达；②`WM_ERASEBKGND→TRUE` + 每帧 `AlphaBlend` 使不透明度按 `1 − 0.3ⁿ` 累积 | 否决结论不变、上屏方案不变（仍是 B3）；仅更正文档论据（§2.2 D1-7、§12 SP-1） |
 | **R8** | 接管 `WM_NCCALCSIZE` + 自绘标题栏 = 更 Fluent 的观感，且不影响 Mica | **错，两者互斥。** `backdrop=4` 的材质**画在 frame（非客户区）上**；把非客户区归零改自绘标题栏，那块材质就被客户区整块盖掉 → **B3 唯一的 Mica 收益归零** | **保留 DWM 标准标题栏**，不接管 `WM_NCCALCSIZE`；页面级标题作为客户区内容自绘 |
-| **R10**（v2.1 升级，正式风险项） | 「5 字节 `E9` 近跳转 fail-fast 是 AI 沙箱特异，真机可能不复现」 | **真机证伪，是真实机器缺陷。** A-29 Phase A（用户真机、脱离 AI 会话）**`EXPLORER_DIED`**，31 s 即死、未跑满 150 s；报告原文 `near-jump fail-fast reproduces on THIS machine too (not sandbox-specific)`。Phase B 亦在真机 `FAIL maxRed=0` 且 `t=22301ms explorer 31716 已消失`，证明 `OnApplyTemplate` 期间走查改色在真机同样崩 | 报告路径 **`E:\AI工作空间\随影ShadeBar\sp2_manual_report.txt`**，执行时间 **2026-11-13 12:55–12:57**；两阶段结果见 §12 SP-2 / 附录 C C.5 / §13.4。**结论：两条改色实现路线均关闭，T05 永久移出**（§8.0 / §8.5 / §8.8）；架构侧 ⑫（= 需求侧 K-08，README 按 K-01~K-08 共 8 条交付）。**注意：仅改色路线被证伪，定位链 / 14 字节绝对跳转 hook 等技术资产仍成立**（§12 SP-2 措辞纪律） |
+| **R10**（v2.1 升级，正式风险项） | 「5 字节 `E9` 近跳转 fail-fast 是 AI 沙箱特异，真机可能不复现」 | **真机证伪，是真实机器缺陷。** A-29 Phase A（用户真机、脱离 AI 会话）**`EXPLORER_DIED`**，31 s 即死、未跑满 150 s；报告原文 `near-jump fail-fast reproduces on THIS machine too (not sandbox-specific)`。Phase B 亦在真机 `FAIL maxRed=0` 且 `t=22301ms explorer 31716 已消失`，证明 `OnApplyTemplate` 期间走查改色在真机同样崩 | 报告路径 **`<repo>\sp2_manual_report.txt`**，执行时间 **2026-11-13 12:55–12:57**；两阶段结果见 §12 SP-2 / 附录 C C.5 / §13.4。**结论：两条改色实现路线均关闭，T05 永久移出**（§8.0 / §8.5 / §8.8）；架构侧 ⑫（= 需求侧 K-08，README 按 K-01~K-08 共 8 条交付）。**注意：仅改色路线被证伪，定位链 / 14 字节绝对跳转 hook 等技术资产仍成立**（§12 SP-2 措辞纪律） |
 
 > **R3/R7 的合并结论**：GDI `AlphaBlend` 上屏仍然**永久否决**，但论据换成 R7 的两条（可验证、有对照）。上屏方案由 SP-1 定稿为 **B3**：保留 DWM 标准标题栏承载 `backdrop=4` 材质 + 客户区 `BitBlt(SRCCOPY)` 覆盖上屏，**不走 DComp**。**不得**再引用"`#B3B3B3` 平板灰"或"破坏 alpha 通道"作为理由——这两条已被数据来源方撤回。
 
@@ -2021,7 +2021,7 @@ if ((Get-Item "dist\随影_ShadeBar_v1.0.0.exe").Length -gt 4194304) { throw "NF
 | **A-13 / A-14 flips** | **1 次**（段首切背景时发生）；稳态 **59/60 拍零抖动**，CPU 段 `flips=0` | **编排伪影，非引擎缺陷**；v1.4 数值判据**未放宽**（仍 60 s 翻转 0 次） | 按 v1.4 口径重跑：`flips` 只统计**稳态段**、排除段首切背景那一拍，纯黑/纯白各起**独立 `EngineSession`**（任务 #9）后再打勾 |
 | **UIA 时钟矩形（K-05）** | `CUIAutomation8 / INPROC_SERVER` 创建成功，`IUIAutomation2` 枚举 **30 个后代命中 0 个**时钟/日期文字 | **系统限制**（26H2 任务栏 XAML 树不向 UIA 暴露该文字元素）；**UIA 发现能力记为未取得** | **固定几何 fallback 生效、采样未中断**；设计层面的双防线不受影响（§2.2 D7 的 P50 统计量仍是主防线，UIA 遮罩退化为固定几何）；写入 README 已知限制 **K-05**（§8.6 ⑨） |
 
-**⛔ A-29 真机行（2026-11-13 12:55–12:57，用户执行，报告 `E:\AI工作空间\随影ShadeBar\sp2_manual_report.txt`）**
+**⛔ A-29 真机行（2026-11-13 12:55–12:57，用户执行，报告 `<repo>\sp2_manual_report.txt`）**
 
 | Phase | 实测 | 定性 |
 |---|---|---|
@@ -2102,7 +2102,7 @@ if ((Get-Item "dist\随影_ShadeBar_v1.0.0.exe").Length -gt 4194304) { throw "NF
 
 ## 附录 C — 人工验收项 A-29：SP-2 端到端像素验证（v1.8 新增，**v2.1 已执行并收敛**）
 
-> **⛔ 执行状态：已执行（2026-11-13 12:55–12:57，用户在真实桌面环境）**。三种结局分支**收敛到第三档**（最坏一档）：Phase A `EXPLORER_DIED`、Phase B `FAIL` → **T05 永久移出**。实际结果见 **C.5**；本报告路径 `E:\AI工作空间\随影ShadeBar\sp2_manual_report.txt`。
+> **⛔ 执行状态：已执行（2026-11-13 12:55–12:57，用户在真实桌面环境）**。三种结局分支**收敛到第三档**（最坏一档）：Phase A `EXPLORER_DIED`、Phase B `FAIL` → **T05 永久移出**。实际结果见 **C.5**；本报告路径 `<repo>\sp2_manual_report.txt`。
 
 ### C.1 为什么需要人工验收
 
@@ -2142,7 +2142,7 @@ if ((Get-Item "dist\随影_ShadeBar_v1.0.0.exe").Length -gt 4194304) { throw "NF
 
 - **执行时间**：2026-11-13 **12:55:58 – 12:57:15**（约 77 s）
 - **执行者 / 环境**：用户在**脱离 AI 会话的真实桌面环境**执行（非沙箱），medium IL
-- **报告**：`E:\AI工作空间\随影ShadeBar\sp2_manual_report.txt`
+- **报告**：`<repo>\sp2_manual_report.txt`
 - **截图**：`scratch/sp2_xaml_locate/shots/manual-clock-baseline.png`、`manual-clock-tNNN.png`、`manual-clock-after.png`
 
 | 时刻 | 日志原文 | 判定 |

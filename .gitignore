@@ -4,7 +4,14 @@
 # 载荷构建中间物（由 payload/build.sh 生成）
 /payload/build/*.dll
 /payload/build/*.log
+/payload/build/*.obj
+/payload/build/*.lib
+/payload/build/*.exp
 /payload/*.log
+
+# 发布产物走 GitHub Releases，不提交 exe
+/dist/*.exe
+.screenshots/
 
 # 开发期探针：可用但含大量截图/二进制，不进仓库
 /scratch/

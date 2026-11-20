@@ -1,11 +1,13 @@
 # 随影 ShadeBar · 项目进展快照
 
-> **最后更新**：2026-11-20 21:56 (GMT+8)
+> **最后更新**：2026-11-21 (GMT+8)
 > **用途**：跨对话续接。新对话看不到聊天记录，本文件是唯一状态依据。
 >
-> **状态一句话**：G1–G4 已提交并验收；G5 四页签设置窗口已提交（`6647ec5`），
-> 用户验收后进入 UI 细节修复阶段：组 2 托盘 `^`、组 3 预览清晰度、组 4 数值范围
-> （均已验收）、组 5 导出诊断包（已完成待验收）。每组单独测试 + 提交 + 验收。
+> **状态一句话**：设置窗口重做与 5 组 UI 细节修复**全部完成并经用户验收**；
+> 215 项测试全绿、零警告，`dist/随影ShadeBar_v1.3.0.exe`（672,768 B）已生成。
+> 收尾阶段已清理构建中间物 / 旧 exe / scratch，文档路径已脱敏，代码已推送 GitHub；
+> 剩下的是**用户在 GitHub Releases 手动发布 v1.3.0**（标题与说明见
+> `docs/release-notes-v1.3.0.md`）。
 >
 > 本文档 2026-11-20 整体重写：删掉了 v1.1.x 阶段的过时结论与已修缺陷的重复条目，
 > 只保留**仍然有效**的状态、决策、坑与参数。历史溯源见 CHANGELOG 与 `docs/03-recolor-mechanism.md`。
@@ -14,10 +16,12 @@
 
 ## 0. 新对话先做这三件事（五分钟上手）
 
-1. `git log -3 --oneline` —— 设置窗口重做与各组修复各自一条提交（见 §2.2）。
+1. `git log -8 --oneline` —— 设置窗口重做与 5 组修复各自一条提交。
 2. `cargo test --release` —— 应得 **116 + 97 + 2 = 215 通过 / 1 ignored / 0 失败**；
    `cargo check --release --all-targets` 零警告。
-3. 让用户双击 `1. 一键启动预览.bat` 验收 G5；确认后 **提交 → 更新 dist → tag/push**。
+3. 需要重新体验：双击 `1. 一键启动预览.bat`（重新编译启动，不动 `dist\`）。
+   发版：把 `dist/随影ShadeBar_v1.3.0.exe` 上传到 GitHub Releases，标题与说明用
+   `docs/release-notes-v1.3.0.md`。
 
 > **验收闸门**：用户明确要求——每组做完必须由他真机验收，他说「没问题」之后才允许
 > 更新文档并进入下一组。不要跳过，也不要替他判断"应该没问题"。
@@ -92,18 +96,20 @@ deliverables/settings-redesign-2026-11-20.html # 新增（选型稿）
 
 ### 2.4 质量证据
 - `cargo check --release --all-targets` 零警告。
-- `cargo test --release` = 109 + 97 + 2 = **208 通过 / 1 ignored / 0 失败**。
-- `cargo build --release` 成功，产物 668672 B（653 KB）。
-- 真机效果仍以用户验收为准。
+- `cargo test --release` = 116 + 97 + 2 = **215 通过 / 1 ignored / 0 失败**。
+- `cargo build --release` 成功，发布产物 **672,768 B（657 KB）**，
+  SHA-256 `95872DCEA4B8CD8224B6A4BE1064F6C8050B0CCD448C4D73DC8197CBEADF0543`。
+- 5 组 UI 细节均已由用户真机验收通过。
 
-### 2.5 提交前还要做
-- [x] README / CHANGELOG / 本文件按四页签现状收口（20 项可见、1.3.0、653 KB）。
-- [x] `cargo test --release` 215 通过 / 1 ignored / 0 失败；零警告。
-- [x] `cargo build --release` 成功，target 产物 668672 B（653 KB）。
-- [ ] 用 `1. 一键启动预览.bat` 让用户真机验收：4 页签、预览与三区、底栏四按钮、
-      颜色 / 下拉浮层位置是否与点击一致。
-- [ ] 通过后：提交上述文件 → 更新 `dist/随影ShadeBar_v1.3.0.exe` →
-  `git tag v1.3.0` + push。
+### 2.5 收尾清单
+- [x] README / CHANGELOG / 本文件按四页签现状收口（20 项可见、1.3.0、657 KB）。
+- [x] 5 组修复：文字居中/截断、托盘 `^`、预览端色与采样带、数值范围、导出诊断包。
+- [x] 清理构建中间物（payload/build 的 obj/lib/exp）与旧版 dist exe；
+      `dist/*.exe` 起改为只走 GitHub Releases，不再进仓库。
+- [x] 删除本地 `scratch/`（约 591 MB 探针产物）。
+- [x] 文档中的本机路径替换为 `<user>` / `<repo>`。
+- [x] 代码与文档提交并 push 到 `origin/main`。
+- [ ] 用户在 GitHub Releases 手动发布 v1.3.0（附件用 `dist/随影ShadeBar_v1.3.0.exe`）。
 
 ---
 
@@ -169,7 +175,7 @@ deliverables/settings-redesign-2026-11-20.html # 新增（选型稿）
 
 ### 6.1 构建与测试
 ```bash
-cd "E:/AI工作空间/随影ShadeBar"
+cd "<repo>"
 
 # 载荷（C++，必须先编，宿主编译期内嵌它）
 cd payload && bash build.sh && cd ..

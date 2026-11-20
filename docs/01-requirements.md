@@ -110,7 +110,7 @@
 | 已运行 | TranslucentTB（约 66 MB 内存） | 本产品需与其共存 |
 | 已安装 | CTM 工具 `D:\APP\CTM工具\`（CEF/Chromium 应用，`libcef.dll` 246 MB） | **已知干扰项**，见 §8 |
 | 编译工具链 | Rust 1.99.1 + MSVC BuildTools 2022 | — |
-| 安装包工具 | Inno Setup 6.7.3，`C:\Users\caihongyi\AppData\Local\Programs\Inno Setup 6\ISCC.exe` | 仅在明确要求时使用 |
+| 安装包工具 | Inno Setup 6.7.3，`<user>\AppData\Local\Programs\Inno Setup 6\ISCC.exe` | 仅在明确要求时使用 |
 | 代码签名 | 无证书，不做签名 | 首次运行会有 SmartScreen 提示，属预期行为 |
 
 **权限前提**：本产品**不需要管理员权限**，以普通用户权限（medium 完整性级别）运行即可完成全部功能（含注入 `explorer.exe`）；**全生命周期 UAC 弹窗次数为 0**。

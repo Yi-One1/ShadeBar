@@ -4,7 +4,7 @@ All notable changes to 随影 ShadeBar are documented here. The version is a sin
 source of truth in `Cargo.toml` (`[workspace.package] version`), also used for the
 artifact filename, the About page and the exe VERSIONINFO (FR-16 / A-16).
 
-## [1.3.0]
+## [1.3.0] - 2026-11-21
 
 ### Added
 
