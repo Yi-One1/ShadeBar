@@ -43,7 +43,7 @@ s19.help	Also changes Start menu and Control Center colors; fallback only, not t
 s20	Icon area start
 s20.help	Percentage of taskbar width; use it to skip strong colour blocks in the wallpaper
 s21	Icon area width
-s21.help	Width of the icon-area sample band as a percentage of the taskbar; 100% stops at the tray edge (84%)
+s21.help	Width of the icon-area sample band as a percentage of the taskbar; capped at the tray edge (84%)
 s22	Sample band offset
 s22.help	Pixels to shift the sample band down from the taskbar top edge
 s23	Sample region preview

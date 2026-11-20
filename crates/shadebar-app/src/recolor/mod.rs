@@ -608,7 +608,7 @@ impl TaskbarRect {
 pub struct RegionCfg {
     /// 图标区起点（占任务栏宽度百分比，0~50）。
     pub icons_start_pct: u8,
-    /// 图标区宽度（占任务栏宽度百分比，10~100）。
+    /// 图标区宽度（占任务栏宽度百分比，10~84；上限为托盘区起点）。
     pub icons_width_pct: u8,
     /// 采样带相对任务栏顶边的垂直偏移（像素，0~45）。
     pub top_offset_px: u8,
@@ -623,9 +623,8 @@ pub const ICONS_SPAN_MAX: f32 = TRAY_SPAN.0;
 
 impl Default for RegionCfg {
     fn default() -> Self {
-        // 默认起点 0 / 宽度 100，由 `icons_span` 卡到托盘区起点，
-        // 不会把时钟与托盘一起平均进来（详见 icons_span 的注释）。
-        Self { icons_start_pct: 0, icons_width_pct: 100, top_offset_px: 0 }
+        // 默认起点 0 / 宽度 84（= 托盘区起点），不会把时钟与托盘一起平均进来。
+        Self { icons_start_pct: 0, icons_width_pct: 84, top_offset_px: 0 }
     }
 }
 
@@ -645,8 +644,8 @@ impl RegionCfg {
     fn icons_span(self) -> (f32, f32) {
         let start = (self.icons_start_pct as f32 / 100.0).clamp(0.0, 0.5);
         let width = (self.icons_width_pct as f32 / 100.0).clamp(0.1, 1.0);
-        // 上限卡在托盘区起点（84%）。默认 S-20=0 / S-21=100 时若一路放到 100%，
-        // 图标区会把时钟与托盘一起平均进来，左深右浅的壁纸下判定会被右侧带偏。
+        // 上限卡在托盘区起点（84%）。旧配置里的 S-21=100 也在这里被收口，
+        // 否则图标区会把时钟与托盘一起平均进来，左深右浅的壁纸下判定会被右侧带偏。
         (start, (start + width).min(ICONS_SPAN_MAX))
     }
 }

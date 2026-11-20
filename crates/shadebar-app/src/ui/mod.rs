@@ -420,6 +420,18 @@ impl View {
         }
     }
 
+    /// 采样段：与 recolor 的真实生效范围一致 —— 起点 ≤50%、宽度 10~84%，
+    /// 末端不超过托盘区起点（84%）。预览不能画出实际采不到的区域。
+    fn sample_segment(&self) -> Rect {
+        let bar = self.sample_bar;
+        let start = (self.cfg.get(SettingKey::S20) as f32 / 100.0).clamp(0.0, 0.5);
+        let width = (self.cfg.get(SettingKey::S21) as f32 / 100.0).clamp(0.1, 0.84);
+        let dy = (self.cfg.get(SettingKey::S22) as f32).clamp(0.0, bar.h - 12.0);
+        let x0 = bar.x + bar.w * start;
+        let end = (bar.x + bar.w * (start + width)).min(bar.x + bar.w * 0.84);
+        Rect::new(x0, bar.y + dy, (end - x0).max(4.0), bar.h - dy)
+    }
+
     fn row_enabled(&self, key: SettingKey) -> bool {
         match self.page {
             Page::Sample => self.tint_on() && !self.degraded && key.meta().kind == ControlKind::Slider,
@@ -1489,8 +1501,9 @@ impl View {
         ctx.fill_rounded_rect(rd(Rect::new(kx, track.y - 2.0, 12.0, 14.0)), 7.0, p.card_bg);
         ctx.stroke_rounded_rect(rd(Rect::new(kx, track.y - 2.0, 12.0, 14.0)), 7.0, p.accent, 2.0);
 
-        self.label(ctx, "0", Rect::new(track.x, track.bottom() + 3.0, 20.0, 14.0), TextRole::Caption, p.text_secondary);
-        self.label_right(ctx, "1", Rect::new(track.right() - 20.0, track.bottom() + 3.0, 20.0, 14.0), TextRole::Caption, p.text_secondary);
+        let (lo, hi) = threshold_range_labels();
+        self.label(ctx, &lo, Rect::new(track.x, track.bottom() + 3.0, 40.0, 14.0), TextRole::Caption, p.text_secondary);
+        self.label_right(ctx, &hi, Rect::new(track.right() - 40.0, track.bottom() + 3.0, 40.0, 14.0), TextRole::Caption, p.text_secondary);
     }
 
     fn paint_sample_page(&self, ctx: &RenderCtx, p: &Palette) {
@@ -1567,16 +1580,8 @@ impl View {
 
         // 采样区：起点 / 宽度 / 偏移都作用在迷你任务栏上；区外盖回壁纸色，
         // 只留下被采样的那一段任务栏，比一条纯色块更能说明"采的是哪一块"。
-        let start = (self.cfg.get(SettingKey::S20) as f32 / 100.0).clamp(0.0, 1.0);
-        let width = (self.cfg.get(SettingKey::S21) as f32 / 100.0).clamp(0.02, 1.0);
         let dy = (self.cfg.get(SettingKey::S22) as f32).clamp(0.0, bar.h - 12.0);
-        let seg_x = bar.x + bar.w * start;
-        let seg = Rect::new(
-            seg_x,
-            bar.y + dy,
-            (bar.w * width).min(bar.right() - seg_x).max(4.0),
-            bar.h - dy,
-        );
+        let seg = self.sample_segment();
         ctx.fill_rect(
             rd(Rect::new(bar.x, bar.y, seg.x - bar.x, bar.h)),
             p.preview_wall,
@@ -2138,6 +2143,16 @@ fn role_size(role: TextRole) -> f32 {
     role.size()
 }
 
+/// 阈值滑杆两端的刻度文案，必须来自 `S-12` 的真实范围（0.30~0.70），
+/// 不能写死 0 / 1。
+fn threshold_range_labels() -> (String, String) {
+    let m = SettingKey::S12.meta();
+    (
+        format!("{:.2}", m.min as f32 / 1000.0),
+        format!("{:.2}", m.max as f32 / 1000.0),
+    )
+}
+
 fn parse_hex(s: &str) -> i64 {
     i64::from_str_radix(s.trim_start_matches('#'), 16).unwrap_or(0) | 0xFF00_0000
 }
@@ -2355,6 +2370,41 @@ mod tests {
         let bottom_gap = v.sample_band.bottom() - v.sample_bar.bottom();
         assert!((top_gap - bottom_gap).abs() <= 0.5, "上下留白不一致：{top_gap} vs {bottom_gap}");
         assert!((top_gap - 10.0).abs() <= 0.5, "留白应为 10 dip，实际 {top_gap}");
+    }
+
+    /// 组 4 回归：阈值刻度必须显示真实范围，而不是 0 / 1。
+    #[test]
+    fn threshold_scale_matches_actual_range() {
+        assert_eq!(threshold_range_labels(), ("0.30".to_string(), "0.70".to_string()));
+    }
+
+    /// 组 4 回归：采样段范围必须与 recolor 的真实生效范围一致（10~84%，末端不越托盘）。
+    #[test]
+    fn sample_segment_matches_real_range() {
+        let mut v = make_view();
+        let (tx, ty) = center(v.tab_rects[1]);
+        click(&mut v, tx, ty);
+        let bar = v.sample_bar;
+
+        let seg = v.sample_segment();
+        assert!((seg.x - bar.x).abs() <= 0.5, "默认起点应为 0%");
+        assert!(
+            (seg.right() - (bar.x + bar.w * 0.84)).abs() <= 0.5,
+            "默认宽度应在托盘区起点 84% 收口，实际 {}",
+            (seg.right() - bar.x) / bar.w
+        );
+
+        let mut cfg = v.cfg.clone();
+        cfg.set(SettingKey::S20, 40);
+        cfg.set(SettingKey::S21, 84);
+        v.rebuild(&cfg, &DiagView::default(), false);
+        let seg = v.sample_segment();
+        assert!((seg.right() - (bar.x + bar.w * 0.84)).abs() <= 0.5, "起点 40% 时末端仍不得越过 84%");
+
+        cfg.set(SettingKey::S20, 0);
+        cfg.set(SettingKey::S21, 10);
+        v.rebuild(&cfg, &DiagView::default(), false);
+        assert!((v.sample_segment().w - bar.w * 0.10).abs() <= 0.5, "宽度 10% 必须画成 10%");
     }
 
     #[test]

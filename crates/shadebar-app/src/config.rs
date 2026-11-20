@@ -146,7 +146,9 @@ impl SettingKey {
             Self::S49 => SettingMeta::toggle(G::Region, "s49", "s49.help", 1),
             Self::S50 => SettingMeta::toggle(G::Region, "s50", "s50.help", 1),
             Self::S20 => SettingMeta::slider(G::Region, "s20", "s20.help", 0, 0, 50, 1),
-            Self::S21 => SettingMeta::slider(G::Region, "s21", "s21.help", 100, 10, 100, 1),
+            // 上限 84 = 托盘区起点（recolor::ICONS_SPAN_MAX）。以前写 100 只是
+            // 在采样侧再卡回 84，滑杆却显示 0~100%，与实际生效范围不一致。
+            Self::S21 => SettingMeta::slider(G::Region, "s21", "s21.help", 84, 10, 84, 1),
             Self::S22 => SettingMeta::slider(G::Region, "s22", "s22.help", 0, 0, 45, 1),
             Self::S23 => SettingMeta::readonly(G::Region, "s23", "s23.help"),
             Self::S30 => SettingMeta::toggle(G::Elements, "s30", "s30.help", 1),
@@ -741,7 +743,7 @@ mod tests {
         assert_eq!(c.get(SettingKey::S17), 3);
         assert_eq!(c.get(SettingKey::S18), 300);
         assert_eq!(c.get(SettingKey::S19), 0);
-        assert_eq!(c.get(SettingKey::S21), 100);
+        assert_eq!(c.get(SettingKey::S21), 84);
         assert_eq!(c.get(SettingKey::S41), 0);
         assert_eq!(c.get(SettingKey::S45), 2);
         assert_eq!(c.get(SettingKey::S35), 0x38FF_FFFF);
