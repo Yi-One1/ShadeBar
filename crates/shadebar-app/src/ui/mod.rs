@@ -197,6 +197,9 @@ pub struct View {
     pause_btn: Rect,
     preview: Rect,
     preview_bar: Rect,
+    preview_clock: Rect,
+    tray_chevron: Rect,
+    tray_glyphs: [Rect; 3],
     mode_rects: [Rect; 3],
     zone_rects: [Rect; 3],
     colors_card: Rect,
@@ -237,6 +240,9 @@ impl View {
             pause_btn: Rect::default(),
             preview: Rect::default(),
             preview_bar: Rect::default(),
+            preview_clock: Rect::default(),
+            tray_chevron: Rect::default(),
+            tray_glyphs: [Rect::default(); 3],
             mode_rects: [Rect::default(); 3],
             zone_rects: [Rect::default(); 3],
             colors_card: Rect::default(),
@@ -466,6 +472,9 @@ impl View {
         let top = HEADER_H + PAD;
         self.preview = Rect::default();
         self.preview_bar = Rect::default();
+        self.preview_clock = Rect::default();
+        self.tray_chevron = Rect::default();
+        self.tray_glyphs = [Rect::default(); 3];
         self.colors_card = Rect::default();
         self.sample_card = Rect::default();
         self.sample_band = Rect::default();
@@ -475,6 +484,25 @@ impl View {
             Page::Taskbar => {
                 self.preview = Rect::new(PAD, top, cw, 150.0);
                 self.preview_bar = Rect::new(PAD + 10.0, top + 150.0 - 54.0, cw - 20.0, 44.0);
+                let bar = self.preview_bar;
+                // 时钟区固定在最右；托盘组（^ + 3 个图标）整组贴在其左侧，
+                // 与时钟之间只留 10 dip 和一条 1 px 分界线，界线上不放任何内容。
+                self.preview_clock = Rect::new(bar.right() - 12.0 - 62.0, bar.y + 8.0, 62.0, 28.0);
+                let chev_w = 16.0;
+                let glyph_w = 12.0;
+                let glyph_gap = 8.0;
+                // 末尾 6 dip 是图标与分界线之间的留白，避免最后一个图标贴线。
+                let tray_w = chev_w + glyph_gap + 3.0 * glyph_w + 2.0 * glyph_gap + 6.0;
+                let tray_x = self.preview_clock.x - 10.0 - tray_w;
+                self.tray_chevron = Rect::new(tray_x, bar.y + 14.0, chev_w, 12.0);
+                for (i, g) in self.tray_glyphs.iter_mut().enumerate() {
+                    *g = Rect::new(
+                        tray_x + chev_w + glyph_gap + i as f32 * (glyph_w + glyph_gap),
+                        bar.y + 16.0,
+                        glyph_w,
+                        glyph_w,
+                    );
+                }
 
                 let chip_w = 48.0;
                 let chip_gap = 6.0;
@@ -1210,15 +1238,19 @@ impl View {
             icon_tint,
         );
 
-        // 托盘 + 时钟（时钟最右）
-        let clock_w = 62.0;
-        let clock = Rect::new(bar.right() - 12.0 - clock_w, bar.y + 8.0, clock_w, 28.0);
+        // 托盘（^ 在最左）+ 时钟（最右）
+        let chev = self.tray_chevron;
+        // 用阶梯小块画一个 12×8 的向上箭头：字体里的 "^" 太窄，右侧还会压到分界线。
+        for i in 0..4 {
+            let dx = i as f32 * 2.0;
+            let y = chev.y + 8.0 - dx;
+            ctx.fill_rect(rd(Rect::new(chev.x + 2.0 + dx, y, 2.0, 2.0)), p.preview_muted);
+            ctx.fill_rect(rd(Rect::new(chev.right() - 4.0 - dx, y, 2.0, 2.0)), p.preview_muted);
+        }
         let tray_tint = self.zone_color(SettingKey::S49, p);
-        let mut gx = clock.x - 10.0 - 3.0 * 12.0 - 2.0 * 8.0 - 12.0;
-        for i in 0..3 {
-            let g = Rect::new(gx, bar.y + 16.0, 12.0, 12.0);
+        for (i, g) in self.tray_glyphs.iter().enumerate() {
             match i {
-                0 => ctx.stroke_rounded_rect(rd(g), 2.0, tray_tint, 1.0),
+                0 => ctx.stroke_rounded_rect(rd(*g), 2.0, tray_tint, 1.0),
                 1 => {
                     ctx.fill_rect(rd(Rect::new(g.x + 1.0, g.y + 7.0, 3.0, 4.0)), tray_tint);
                     ctx.fill_rect(rd(Rect::new(g.x + 5.0, g.y + 4.0, 3.0, 7.0)), tray_tint);
@@ -1226,15 +1258,8 @@ impl View {
                 }
                 _ => ctx.fill_rounded_rect(rd(Rect::new(g.x + 1.0, g.y + 1.0, 10.0, 10.0)), 5.0, tray_tint),
             }
-            gx += 20.0;
         }
-        self.label(
-            ctx,
-            "^",
-            Rect::new(gx, bar.y + 13.0, 10.0, 14.0),
-            TextRole::Caption,
-            p.preview_muted,
-        );
+        let clock = self.preview_clock;
         ctx.fill_rect(
             rd(Rect::new(clock.x - 10.0, bar.y + 9.0, 1.0, bar.h - 18.0)),
             p.preview_line,
@@ -1258,9 +1283,14 @@ impl View {
         // 区域标签（贴着预览，不额外解释）
         let ly = bar.y - 18.0;
         self.label(ctx, text("zone.icons", self.lang), Rect::new(bar.x + 8.0, ly, 80.0, 14.0), TextRole::Caption, p.preview_muted);
-        let tray_label = text("zone.tray", self.lang);
-        let tl_w = text_width(tray_label, 11.0);
-        self.label(ctx, tray_label, Rect::new(gx - tl_w - 6.0, ly, tl_w + 40.0, 14.0), TextRole::Caption, p.preview_muted);
+        // 托盘区标签与 ^ 左边缘对齐，让"托盘区从箭头开始"一眼可见。
+        self.label(
+            ctx,
+            text("zone.tray", self.lang),
+            Rect::new(self.tray_chevron.x, ly, 120.0, 14.0),
+            TextRole::Caption,
+            p.preview_muted,
+        );
         let clock_label = text("zone.clock", self.lang);
         let cl_w = text_width(clock_label, 11.0);
         self.label(ctx, clock_label, Rect::new(bar.right() - 8.0 - cl_w, ly, cl_w, 14.0), TextRole::Caption, p.preview_muted);
@@ -2131,6 +2161,32 @@ mod tests {
         }
         // 预览里托盘必须在时钟左侧
         assert!(v.mode_rects[0].y < v.zone_rects[0].y);
+    }
+
+    /// 组 2 回归：^ 必须在托盘组最左、足够宽，且分界线上不能压任何内容。
+    #[test]
+    fn tray_chevron_is_leftmost_and_clear_of_divider() {
+        let v = make_view();
+        let chev = v.tray_chevron;
+        let divider_x = v.preview_clock.x - 10.0;
+        assert!(chev.w >= 14.0, "^ 必须比原来的 10 px 宽");
+        assert!(chev.x < v.tray_glyphs[0].x, "^ 必须在托盘图标左侧");
+        assert!(
+            chev.x + chev.w <= divider_x - 4.0,
+            "^ 不能压到托盘/时钟分界线（chev right={}, divider={divider_x}）",
+            chev.right()
+        );
+        for pair in v.tray_glyphs.windows(2) {
+            assert!(pair[0].right() < pair[1].x, "托盘图标不能重叠");
+        }
+        assert!(
+            v.tray_glyphs[2].right() <= divider_x - 4.0,
+            "托盘图标不能越过分界线"
+        );
+        assert!(
+            chev.y >= v.preview_bar.y && chev.bottom() <= v.preview_bar.bottom(),
+            "^ 必须落在预览条内"
+        );
     }
 
     #[test]
