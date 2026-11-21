@@ -85,7 +85,7 @@ CoreDispatcher 编组到 XAML UI 线程 → IVisualTreeService::SetProperty 改�
 | 运行库 | **无需安装 VC++ 运行库**（静态 CRT） |
 | 权限 | 普通用户（Medium IL），`asInvoker`，**全生命周期 UAC = 0** |
 | 网络 | 完全离线，无任何出站连接 |
-| 体积 | 单 exe **653 KB**（668672 B；载荷 DLL 内嵌，运行时释放到 `%LOCALAPPDATA%\ShadeBar\`） |
+| 体积 | 单 exe **662 KB**（678400 B；载荷 DLL 内嵌，运行时释放到 `%LOCALAPPDATA%\ShadeBar\`） |
 | 常驻内存 | 托盘常驻（未打开过设置）**约 15 MB 工作集 / 4 MB 私有**；打开过设置页后收进托盘约 **8–12 MB 工作集**（NFR-02 要求 ≤ 20 MB）。注意：绘制过一帧后私有提交约 41 MB 不再归还，见 §内存口径 |
 | CPU | 托盘常驻 **0.05%**（NFR-03 要求 ≤ 0.1%） |
 
@@ -158,7 +158,8 @@ target/x86_64-pc-windows-msvc/release/shadebar-app.exe
 7. **历史记录**：v1.0.0 曾判定「任务栏改色不可用」。被证伪的是当时的两条自制路线
    （叶函数 `E9` 近跳转、`OnApplyTemplate` 期间走查 XAML），共同错误是在任务栏构建期
    重入并跨时点持有瞬态指针。v1.1 改用官方 `IXamlDiagnostics` + `IVisualTreeService`
-   在 XAML UI 线程改画刷，已跑通。旧结论作废，过程记录保留在 `sp2_manual_report.txt`。
+   在 XAML UI 线程改画刷，已跑通；旧结论作废，过程与踩坑记录见
+   [`docs/03-recolor-mechanism.md`](docs/03-recolor-mechanism.md) 与 `docs/spike-report.md`。
 
 ## 目录
 
@@ -167,9 +168,10 @@ crates/shadebar-core/     共享核心库（无 UI / 无窗口 / 可单测）：
 crates/shadebar-app/      主程序：Win32/COM 适配、设置页、托盘、单实例、注入与 IPC
 payload/                  C++ 注入载荷（TAP + XAML 诊断 + 画刷改写），编进 exe
 resources/                图标、清单、Win32 资源脚本、内嵌双语文案（lang/*.tsv）
+tools/                    回归检查（check_payload_sync.py）、探针与验证脚本
 docs/03-recolor-mechanism.md  改色机制、元素定位表与全部踩坑记录
 evidence/recolor-spike/   真机证据（改色/还原截图 + 载荷日志）
-scratch/tap_probe/        开发期探针（不进产品、不参与构建）
+dist/                     发布产物（不进仓库，只走 GitHub Releases）
 ```
 
 ## 许可

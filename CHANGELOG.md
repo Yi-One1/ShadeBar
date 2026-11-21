@@ -34,11 +34,12 @@ artifact filename, the About page and the exe VERSIONINFO (FR-16 / A-16).
 ### Added
 
 - `tools/check_payload_sync.py`：着色链路回归检查（C1 指示条有写入 / C2 订阅成功 /
-  C3 未整片失效 / C4 重放后确实着色），只读 `payload.log`，不改系统。
+  C3 未整片失效 / C4 重放后确实着色 / C5 正常态指示条共用同一画刷），只读 `payload.log`，
+  不改系统。
 - 载荷诊断日志：`[Tree]`（树组成）、`[Replay]`（重放耗时）、`[IndFail]`（写入失败原因）、
-  `[Add]`（限流）。
+  `[Shared]`（共享画刷句柄）、`[Add]`（限流）。
 
-
+## [1.3.0] - 2026-11-21
 
 ### Added
 

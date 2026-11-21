@@ -3,35 +3,51 @@
 > **最后更新**：2026-11-22 (GMT+8)
 > **用途**：跨对话续接。新对话看不到聊天记录，本文件是唯一状态依据。
 >
-> **状态一句话**：v1.3.0 已发布并验收；**v1.3.1 两个真机缺陷都已修完并验收**——
-> G1「指示条漏改 / 整片失效」（`42ed030`）、G2「所有正常态指示条共用一个画刷」（`59f3251`）。
-> 测试 215 项全绿；等最终发布（打 tag + 上传 exe）。
->
-> 本文档 2026-11-20 整体重写：删掉了 v1.1.x 阶段的过时结论与已修缺陷的重复条目，
-> 只保留**仍然有效**的状态、决策、坑与参数。历史溯源见 CHANGELOG 与 `docs/03-recolor-mechanism.md`。
+> **状态一句话**：代码到 **v1.3.1**（两组真机缺陷已修并验收），产物已打包
+> `dist/随影ShadeBar_v1.3.1.exe`（678,400 B），五道门禁全绿、测试 215 项全绿。
+> **只剩发布动作**：`git push` + 打 tag `v1.3.1` + 在 GitHub Releases 上传附件
+> （标题与说明用 `docs/release-notes-v1.3.1.md`）。
 
 ---
 
 ## 0. 新对话先做这三件事（五分钟上手）
 
-1. `git log -8 --oneline` —— 设置窗口重做与 5 组修复各自一条提交。
+1. `git log -8 --oneline` —— 最近提交应能看到 v1.3.1 的两组修复与文档收口。
 2. `cargo test --release` —— 应得 **116 + 97 + 2 = 215 通过 / 1 ignored / 0 失败**；
    `cargo check --release --all-targets` 零警告。
-3. 需要重新体验：双击 `1. 一键启动预览.bat`（重新编译启动，不动 `dist\`）。
-   发版：把 `dist/随影ShadeBar_v1.3.0.exe` 上传到 GitHub Releases，标题与说明用
-   `docs/release-notes-v1.3.0.md`。
+3. 需要重新体验：双击 `1. 一键启动预览.bat`（重新编译并启动 `target\` 最新版，
+   **不覆盖 dist**）。重新打包发版：`powershell -ExecutionPolicy Bypass -File build.ps1`。
 
 > **验收闸门**：用户明确要求——每组做完必须由他真机验收，他说「没问题」之后才允许
 > 更新文档并进入下一组。不要跳过，也不要替他判断"应该没问题"。
 
 ---
 
-## 0.5 v1.3.1（进行中）：指示条漏改与注入可靠性
+## 1. 当前版本与产物
+
+| 项 | 值 |
+|---|---|
+| 版本 | **1.3.1**（PATCH：两组都是缺陷修复） |
+| 版本唯一来源 | `Cargo.toml` → `[workspace.package] version` |
+| 发布产物 | `dist/随影ShadeBar_v1.3.1.exe` |
+| 体积 | 678,400 B（662.5 KB；NFR-01 软目标 400 KB / 硬上限 4096 KB） |
+| SHA-256 | `17D3D53C45C3FBC7F7B7E40F49717B9AC3C40166098ED4E7D726DA3B169C7E73` |
+| FileVersion | `1.3.1.0`（`--version` 输出 `随影 ShadeBar v1.3.1`） |
+| 门禁 | 5/5 全绿（体积 / 无 VC++ 运行时 / 版本资源 / 清单 PerMonitorV2+asInvoker / 图标）；verify 与 no-en 双产物同样全绿，双语资源差 8 KB（预算 40 KB） |
+| git tag | **尚未打**（`git tag -l` 为空；v1.3.0 当时也没打） |
+| GitHub Release | v1.3.0 已发布；**v1.3.1 待上传**（本机无 `gh`，需手动建 Release） |
+
+构建产物命名规则：`<中文名><英文名>_v<版本>.exe`，即 `随影ShadeBar_v1.3.1.exe`
+（`build.ps1` 的 `$productBase`，2026-11-22 去掉了中文与英文之间多余的下划线）。
+
+---
+
+## 2. v1.3.1：两组真机缺陷（均已验收）
 
 **触发**：用户真机反馈两条——①部分【正常态指示条】不改色（选中态 / 新开窗口等）；
 ②偶尔整片不着色（时间 / 日期 / 托盘 / 指示条全都不变），重启软件也无法完全恢复。
 
-### G1（已提交 `42ed030`，用户已验收）
+### 2.1 G1（`42ed030`）：指示条漏改与整片失效
 
 | 根因 | 证据 | 修法 |
 |---|---|---|
@@ -39,238 +55,169 @@
 | 宿主重启不会重新订阅（DLL 驻留，`DllMain` 不再执行） | 重启软件后仍漏改 | 重放由载荷自己发起，不依赖重新注入 |
 | 旧副本退位不退订；新副本 `Advise` 拿 `E_UNEXPECTED` 后放弃；初始化重试 60 次后线程退出 | `[Loop] 代际 N 已被 M 取代，退位` + `Advise hr=0x8000FFFF` | 退位前先退订；初始化无限重试（60 次后 10 s 退避） |
 
-- 轮询节奏：用户 15 s 内有输入 → 5 s；否则 30 s。实测重放中位 **4.2 ms** / p95 5.5 ms。
-- 回归检查：`python tools/check_payload_sync.py`（C1 指示条有写入 / C2 订阅成功 /
-  C3 未整片失效 / C4 重放后确实着色），只读 `payload.log`。
-- 真机结论：新开设置窗口 `ind 7→8`；强杀宿主还原 25 个元素（选中态画刷回系统强调色），重启后恢复。
+- 重放节奏自适应：用户 15 s 内有键鼠输入 → 5 s；空闲 → 30 s（重放实测中位 4.2 ms、
+  p95 5.5 ms，后期 1.4–2.7 ms；5 s 节奏约 0.08% 单核，贴 NFR-03 的 0.1% 预算）。
+- 回归检查：`python tools/check_payload_sync.py`，只读 `payload.log`，不改系统。
+- 真机：新开设置窗口 `ind 7→8`；强杀宿主还原 25 个元素（选中态画刷回系统强调色），
+  重启后着色恢复。
 
-### G2（已提交 `59f3251`，用户已验收）
+### 2.2 G2（`59f3251`）：正常态指示条共用一个画刷
 
-- 按用户选定的 **B：共用一个画刷** 实现：`CreateInstance` 出一个 `SolidColorBrush`，
-  逐条 `SetProperty` 赋给正常态指示条的 `Fill`；换色只改该对象 `Color`，全部同刻变色。
+- 用户选定 **B：结构统一**——`CreateInstance` 出一个 `SolidColorBrush`，逐条
+  `SetProperty` 赋给正常态指示条的 `Fill`；换色只改该对象 `Color`，全部同刻变色。
 - 选中态仍走"元素 `Fill` + 画刷 `Color`"双写 + 逐层染色（视觉状态会覆盖 `Fill`）。
 - 树重放后 / 还原后丢弃画刷句柄（元素重建会让句柄失效），下一拍重建。
 - 日志：`[Shared] b=.. color=.. assigned=N`、`[Ind] ... b=..`；检查脚本加 **C5**
   （同一拍内正常态画刷只能有 1 个句柄）。
 - 真机：C1–C5 全 PASS（`2D7D4178` → 重放后 `2D90EDE8`，重建属预期）；强杀 `restored=22`。
-- 顺带修掉诊断盲点：`inject` 失败以前静默，现在记 `inject failed: …` / `inject ok: pid=…`。
+
+### 2.3 本轮顺带修掉的工程问题
+
+| 问题 | 处置 |
+|---|---|
+| `payload/build.sh` 写死别人机器的 MSVC `14.44` 路径 | 改为自动探测 VS / SDK（`MSVC_ROOT` / `SDK_ROOT` / `SDK_VER` 可覆盖）；依赖检查用 `dumpbin`；链接补 `user32` |
+| `inject` 失败完全静默（只把 `injected_pid` 归零） | 记 `inject failed: …`（同错只记一次）与 `inject ok: explorer pid=` |
+| `build.ps1` 里混进一行中文注释，违反它自己的"纯 ASCII"约定，Gate 0 直接拦死构建 | 注释改英文；`tools/verify-indicators.ps1` 需中文正则，改为带 UTF-8 BOM |
+| `resources/app.manifest` 注释仍称"注册计划任务需 `ShellExecuteExW(runas)` 提权" | 改为事实口径：全生命周期不提权，自启写 HKCU Run |
 
 **本轮不处理**：悬停高亮块（生产载荷零处 `BackgroundElement`）、副屏任务栏、
 崩溃恢复、日志轮转。
 
 ---
 
-## 1. 已完成（均已提交，用户已验收）
+## 3. 历史里程碑
 
-| 组 | 覆盖需求 | 提交 | 关键产出 |
-|---|---|---|---|
-| G1 | #1 指示条一致改色 / #7 深色壁纸漏改 | `0a4de88` | 状态切换置脏（250 ms 节流）、选中态逐层染色、还原对称、**写完回读**；`tools/verify-indicators.ps1` |
-| G2 | #4 分区独立开关（兼答 #5） | `7125d8a` | 新增 S-48/49/50 三区开关；`mask = 元素开关 AND 分区开关`；图标区采样上限卡到托盘起点 84% |
-| G3 | #6 任意颜色 | `08ce53e` + 文档 `dddd002` | 三组 18 色推荐色板（带对比度实测）、HEX 输入、comdlg32 系统调色板、S-13 自动切自定义、alpha 语义修正、消除 `"颜颜"` panic |
-| G4 | #3 图标重设计 | `7b6c672` + 返工 `f531f87` + 文档 `2a13a91` | 九套预览选 **A·对分**；三色对角方砖；托盘 / exe / 窗口标题三处统一；去白点、`#595959` 深灰轮廓；`resources/gen_app_ico.py` 纯标准库生成 ICO |
-| — | 一键启动预览脚本 | 含在 `f531f87` | `1. 一键启动预览.bat`：`cargo build --release` 后启动 `target\` 最新版，**不覆盖 dist** |
-
-**当前能力**（v1.2.0 + G1–G4，真机验证过）：
-- 时间 / 日期 / 托盘字形图标 / 指示条（正常态 + 选中态）随背景明暗自适应着色；
-- 三区（时钟 93–99% / 托盘 84–93% / 图标区 0–84%）各自判定，可单独开关；
-- 亮端色 / 暗端色任意取色（色板 + HEX + 系统调色板）；
-- 常驻工作集 8–15 MB、CPU 约 0.052%（v1.2.0 实测，G5 后未复测）；
-- 退出 / 被强杀都能完整还原系统原色。
+| 版本 | 内容 |
+|---|---|
+| v1.0.0 | 只采样不落地。曾判定"任务栏改色不可用"，后被证伪（见 §6） |
+| v1.1.0 | 改用官方 `IXamlDiagnostics` + `IVisualTreeService`，在 XAML UI 线程改画刷，跑通 |
+| v1.1.2 | 常驻内存 92 MB → 8–15 MB |
+| v1.1.3 | 补上指示条**选中态**（改画刷 `Color`，穿透 VisualState 优先级槽） |
+| v1.2.0 | 判定粒度（分区 / 全任务栏）、诊断面板可折叠、颜色任意取（色板 + HEX + 系统调色板） |
+| v1.3.0 | 设置窗口重做为四页签（720×560）+ 任务栏直控预览；可见设置收敛到 20 项（39 项编号保留） |
+| **v1.3.1** | **指示条漏改 / 整片失效（G1）+ 指示条共用一个画刷（G2）** |
 
 ---
 
-## 2. 进行中：G5 设置窗口重做（四页签版，代码+文档完成，待真机验收）
+## 4. 待办
 
-### 2.1 方案与范围
-用户从四套外观预览里选定 **1 · 任务栏直控**，并要求元素开关**合并为三区**、
-顺序为 **图标 → 托盘 → 时钟**。选型稿：`deliverables/settings-redesign-2026-11-20.html`。
+### 4.1 发布收尾（唯一剩下的硬动作）
+- [x] 版本升 **1.3.1**（`Cargo.toml` / `Cargo.lock` / README / CHANGELOG / 本文件）。
+- [x] `build.ps1` 打包，五道门禁全绿，产物 `dist/随影ShadeBar_v1.3.1.exe`。
+- [x] 仓库体检：无用户名 / 家目录 / 邮箱 / 令牌；`.gitignore` 覆盖 `target`、`dist/*.exe`、`.workbuddy`、载荷中间物。
+- [ ] `git push origin main`。
+- [ ] `git tag v1.3.1 && git push origin v1.3.1`。
+- [ ] GitHub Releases 新建 `v1.3.1`，附件 `随影ShadeBar_v1.3.1.exe`，
+      标题与正文见 `docs/release-notes-v1.3.1.md`（本机无 `gh`，走网页手动上传）。
 
-- 720×560 dip，**无自绘标题栏**（系统标题栏 + Mica Alt），头部 **48**、内容区手工
-  排布**不滚动**、底栏 **48**，行高 **44**。
-- 头部：4 个页签（任务栏 / 采样 / 托盘 / 诊断）+ Y 读数 + 状态 chip + 着色开关 + 暂停。
-- **任务栏页**：150 px 实时预览（开始按钮 → 应用图标 → 托盘 → 竖分隔 → 时钟，
-  时钟最右）+ 三区卡片（S-50 图标 / S-49 托盘 / S-48 时钟）+ 颜色与判定卡
-  （S-14 亮端色 / S-15 暗端色、S-47 判定粒度、S-12 阈值 32 段条）。
-- **采样页**：采样带（160）+ 间隔 / 平滑 / 起点 / 宽度 / 偏移（S-16/18/20/21/22）。
-- **托盘页**：左键行为 / 关闭行为 / 开机自启 / 启动最小化 / 语言（S-40/41/02/03/04）。
-- **诊断页**：实时判定摘要 + 迷你趋势 + 日志级别（S-45）+ 版本 + 导出诊断包。
-- 可见设置 **20 项**（39 项编号与 `config.json` 下标不变）；S-43 继续不在 UI。
-
-### 2.2 已提交的文件（`6647ec5`）
-```
-Cargo.toml  Cargo.lock                         # 1.3.0
-crates/shadebar-app/Cargo.toml                 # + Win32_System_SystemInformation / UI_Input_KeyboardAndMouse
-crates/shadebar-app/src/app.rs
-crates/shadebar-app/src/config.rs              # ui_visible 20 项、删 Tier
-crates/shadebar-app/src/render.rs              # 新文本角色 / 右对齐
-crates/shadebar-app/src/ui/theme.rs            # 预览色、尺寸常量
-crates/shadebar-app/src/ui/layout.rs           # Rect + 文本度量（滚动/导航已删）
-crates/shadebar-app/src/ui/mod.rs              # 四页签视图（整体重写）
-crates/shadebar-app/src/ui/pages/mod.rs        # 页面归属表
-crates/shadebar-app/src/ui/pages/diagnostics.rs
-crates/shadebar-app/src/ui/pages/region.rs
-crates/shadebar-app/src/ui/widgets.rs          # 仅留 VK / 浮层类型
-crates/shadebar-app/src/ui/pages/{behavior,color,elements,general}.rs   # 删除
-crates/shadebar-app/src/window.rs
-resources/lang/en-US.tsv  resources/lang/zh-CN.tsv
-README.md  CHANGELOG.md  progress.md           # 收口文档
-deliverables/settings-redesign-2026-11-20.html # 新增（选型稿）
-```
-
-### 2.3 这一组踩过的坑（已修，别回退）
-1. **三区顺序**：用户指出正确顺序是 **图标 → 托盘 → 时钟**；预览 DOM、卡片数组、
-   命中映射三处必须同序，否则"看得见、点得着、但改错区"。
-2. **windows 0.58 路径**：`GetLocalTime` 在 `Win32::System::SystemInformation`、
-   `SYSTEMTIME` 在 `Win32::Foundation`，`SetCapture/ReleaseCapture` 在
-   `Win32::UI::Input::KeyboardAndMouse`；`Win32::System::Time` 不存在。
-3. **测试与默认值**：S-14 默认就是白色，点白色色块不会产生写入；阈值条测试要点在
-   轨道内端点，点轨道外不属于命中区。
-
-### 2.4 质量证据
-- `cargo check --release --all-targets` 零警告。
-- `cargo test --release` = 116 + 97 + 2 = **215 通过 / 1 ignored / 0 失败**。
-- `cargo build --release` 成功，发布产物 **672,768 B（657 KB）**，
-  SHA-256 `95872DCEA4B8CD8224B6A4BE1064F6C8050B0CCD448C4D73DC8197CBEADF0543`。
-- 5 组 UI 细节均已由用户真机验收通过。
-
-### 2.5 收尾清单
-- [x] README / CHANGELOG / 本文件按四页签现状收口（20 项可见、1.3.0、657 KB）。
-- [x] 5 组修复：文字居中/截断、托盘 `^`、预览端色与采样带、数值范围、导出诊断包。
-- [x] 清理构建中间物（payload/build 的 obj/lib/exp）与旧版 dist exe；
-      `dist/*.exe` 起改为只走 GitHub Releases，不再进仓库。
-- [x] 删除本地 `scratch/`（约 591 MB 探针产物）。
-- [x] 文档中的本机路径替换为 `<user>` / `<repo>`。
-- [x] 代码与文档提交并 push 到 `origin/main`。
-- [ ] 用户在 GitHub Releases 手动发布 v1.3.0（附件用 `dist/随影ShadeBar_v1.3.0.exe`）。
-
----
-
-## 3. 关键决策（含理由，别重新发明）
-
-| 决策 | 结论 | 理由 |
-|---|---|---|
-| 协作方式 | G3 起小队（架构/设计/前端/测试），lead 编排不代写 | 用户明确要求团队协作；单兵只用于 G1/G2 那种单点改动 |
-| 指示条两态 | **目标色一致、写入路径不同** | 选中态 `Fill` 被 VisualState 压住，必须改画刷 `Color`；正常态画刷被 29 处共享，不能逐层染 |
-| 颜色选择 | 色板 + HEX + 系统调色板 | 用户三选一拍板；端色 alpha 恒 `0xFF`（`argb_to_rgba` 本就丢 alpha） |
-| 改色联动 | 改 S-14/S-15 时自动把 S-13 切「自定义」并提示 | 双门控会让选色完全无效；用户在 A/B 方案中选 A（自动切） |
-| 图标 | 九套预览 → 最终选 A·对分；三色；去白点 | 用户先要彩色、再要自由发挥，最终仍选 A；但要求轮廓清晰、不要点 |
-| 设置布局 | 四页签 + 任务栏直控预览，无左侧导航 / 无分档 | 用户从四套预览选定方案 1；原痛点是"排版混乱、显示区与交互区不一致" |
-| 打包产物 | 新 exe 只新增，**不删除旧 exe** | 用户要求保留历史版本，便于回滚与对比；`build.ps1` 已移除清理 dist 的逻辑 |
-| 三区顺序 | **图标 → 托盘 → 时钟** | 用户明确纠正；预览、卡片、命中三处同序 |
-| S-35/S-37 | 继续隐藏 | 悬停高亮块从未做 60 s 稳定性验证，不把未验证能力摆到用户面前 |
-| 验收方式 | 一律用 `1. 一键启动预览.bat`，**不覆盖 dist** | 用户明确要求；dist 只在发布时更新 |
-| 版本 | 每组提交不改号，全部完成后统一 **1.3.0（MINOR）** | 严格 SemVer：新功能 MINOR；修 bug 是 PATCH |
-| 分支 | 直接提交本地 `main`，全部完成后再推送 | 用户未要求中间推送 |
-
----
-
-## 4. 未完成的待办
-
-### 4.1 立刻要做（G5 收尾）
-- [x] 更新 `README.md`：20 项可见 / 39 编号、四页签、配置导入导出、S-43 移除、1.3.0。
-- [x] 更新 `CHANGELOG.md`：1.3.0 条目改为四页签。
-- [x] 更新本文件，G5 标为"代码+文档完成，待验收"。
-- [x] **全量测试 + 构建**：`cargo test --release` 208 通过 / 1 ignored / 0 失败；
-  `cargo check --release --all-targets` 零警告；`cargo build --release` 成功。
-- [ ] 用户用 `1. 一键启动预览.bat` 验收 G5，确认布局与点击一致。
-- [ ] 验收通过后提交 §2.2 的文件（别漏 `resources/lang/*.tsv`、`Cargo.lock`、删除的旧页面）。
-
-### 4.2 发布收尾
-- [x] 版本升 **1.3.0**：`Cargo.toml`、`Cargo.lock`、README 横幅、CHANGELOG、本文件。
-- [ ] 验收通过后更新 `dist/随影ShadeBar_v1.3.0.exe`（此时才动 dist）。
-- [ ] `git tag v1.3.0` + `git push`。
-- [ ] 用户终验签字。
-
-### 4.3 长期缺口（用户没催，不要主动扩范围）
+### 4.2 长期缺口（用户没催，不要主动扩范围）
 - 悬停高亮块（S-34~S-37）：**生产载荷尚未实现**（`payload/` 零处 `BackgroundElement`），
   需先实现再做 60 s 稳定性验证，通过后才能放回 UI。
 - 多显示器（副屏任务栏元素契约未用探针确认）。
-- 深色壁纸对照证据归档。
+- 崩溃恢复（`RegisterApplicationRestart` 仅出现在注释里，未接线）。
+- 日志轮转（7 天轮转未实现，当前按天切分）。
+- 载荷副本累积：`%LOCALAPPDATA%\ShadeBar\` 下每次载荷内容变化留一份
+  `ShadeBarTap_v<ver>_<指纹>.dll`，目前无清理机制（防 explorer 复用旧模块，属有意设计）。
 
 ---
 
-## 5. 踩坑清单（本项目最贵的资产）
+## 5. 关键决策（含理由，别重新发明）
+
+| 决策 | 结论 | 理由 |
+|---|---|---|
+| 指示条两态 | **目标色一致、写入路径不同** | 选中态 `Fill` 被 VisualState 压住，必须改画刷 `Color`；正常态画刷被 29 处共享，不能逐层染 |
+| 正常态指示条一致性 | **结构统一：共用一个画刷**（v1.3.1 G2） | 用户要求"统一、同时修改"；逐条写只能保证最终一致，共享对象才能同刻变 |
+| 元素树更新 | **重放（Unadvise+Advise）而不是增量** | XAML 诊断接口没有遍历整棵树的 API，新窗口也不产生可用的 Add 事件 |
+| 重放节奏 | 有输入 5 s / 空闲 30 s | 5 s 重放约 4 ms，恒定 5 s 会吃掉 NFR-03 的 0.1% CPU 预算 |
+| 颜色选择 | 色板 + HEX + 系统调色板 | 用户三选一拍板；端色 alpha 恒 `0xFF` |
+| 改色联动 | 改 S-14/S-15 时自动把 S-13 切「自定义」并提示 | 双门控会让选色完全无效；用户在 A/B 方案中选 A（自动切） |
+| 图标 | 九套预览 → 选 A·对分；三色；去白点 | 用户先要彩色、再要自由发挥，最终仍选 A；但要求轮廓清晰、不要点 |
+| 设置布局 | 四页签 + 任务栏直控预览，无左侧导航 / 无分档 | 用户从四套预览选定方案 1；原痛点是"排版混乱、显示区与交互区不一致" |
+| 打包产物 | 新 exe 只新增，**不删除旧 exe** | 用户要求保留历史版本，便于回滚与对比 |
+| 三区顺序 | **图标 → 托盘 → 时钟** | 用户明确纠正；预览、卡片、命中三处同序 |
+| 验收方式 | 一律用 `1. 一键启动预览.bat`，**不覆盖 dist** | 用户明确要求；dist 只在发布时更新 |
+| 版本 | 修 bug = PATCH，新功能 = MINOR（严格 SemVer 2.0.0） | 用户长期规则 |
+
+---
+
+## 6. 踩坑清单（本项目最贵的资产）
 
 | 症状 | 真因 | 处置 |
 |---|---|---|
 | "新版本没修好旧问题" | explorer 同时驻留多版载荷，**旧副本在生效** | 注入类测试收尾必须清场；**日志格式与源码对不上 = 跑的不是这份代码** |
+| 一部分指示条永久不改色 | 订阅时只给一次全量树，之后只认带名字的 Add；新窗口 0 条 Add | v1.3.1：定时 / 触发式全量重放 |
+| 整片不着色且只有重启 explorer 能恢复 | 旧副本退位不退订 → 新副本 `Advise` 拿 `E_UNEXPECTED` 后放弃；初始化重试耗尽后线程退出但 DLL 仍驻留 | v1.3.1：退位前退订 + 无限重试 |
 | 以为写入成功就生效 | `SetProperty` 返回 `S_OK` 只代表写进去 | 写完**回读**画刷 `Color`；`tools/verify-indicators.ps1` 做断言 |
+| `build.ps1` 直接 `BUILD FAILED: ps1 encoding guard` | 文件里混入中文注释，而脚本要求纯 ASCII（PS 5.1 无 BOM 时会按 ANSI 解析整份脚本） | 脚本注释只用 ASCII；确实需要中文正则的脚本存成 UTF-8 **带 BOM** |
 | 图标"模糊" | 白半融进白桌面、黑半融进深色栏，细浅灰边撑不住 | 轮廓改 `#595959`、16 px 框 1 px / 缝 2 px |
 | exe 图标改了没变 | Windows 图标缓存 | `ie4uinit -show` + 重启 explorer；用二进制搜 PNG 签名确认资源已更新 |
 | 界面能看见但点不中 | 绘制/命中两套坐标（内容 vs 客户区） | 统一坐标语义 + 纯 frame 函数；**用变异测试证明断言有效** |
 | 输入 `"颜颜"` 崩溃 | 自写 `parse_hex` 缺 ASCII 守卫，在非 char 边界切片 | 收敛到 `shadebar_core::color::Rgba::parse_hex` |
-| 指示条漏改 | 正常↔选中不产生 Add 事件，`OnElementStateChanged` 空实现不置脏 | 置脏 + 250 ms 节流 |
+| 指示条漏改（v1.2 已修） | 正常↔选中不产生 Add 事件，`OnElementStateChanged` 空实现不置脏 | 置脏 + 250 ms 节流 |
 | 还原留色 | 应用逐层染、还原只改一层 | 还原与应用对称（`SetAllBrushColorsOfProp`） |
 
 ---
 
-## 6. 环境、命令与限制
+## 7. 环境、命令与限制
 
-### 6.1 构建与测试
+### 7.1 构建与测试
 ```bash
 cd "<repo>"
 
 # 载荷（C++，必须先编，宿主编译期内嵌它）
 cd payload && bash build.sh && cd ..
 
-# 宿主（release，~8 s 增量）
+# 宿主（release，增量约 7–10 s）
 cargo build --release
 
-# 测试（当前 253 项）
+# 测试（215 通过 / 1 ignored）
 cargo test --release
 
-# 一键启动预览（用户验收用；先 build 再启动 target 最新版）
+# 打包发版（五道门禁 + verify/no-en 双产物对比）
+powershell -ExecutionPolicy Bypass -File build.ps1
+
+# 一键启动预览（验收用；先 build 再启动 target 最新版，不动 dist）
 cmd //c "1. 一键启动预览.bat"
 ```
 
-### 6.2 本机环境的硬限制（踩过）
+`dist/verify/`、`dist/compare/` 是门禁用的对照产物，每次打包都会重新生成，
+**不进仓库**，可在打包后删掉。
+
+### 7.2 本机环境的硬限制（踩过）
 - **GUI 进程活不过一次命令调用**：`Start-Process` / `&` 起的随影会在工具调用结束时被收掉。
-  需要真机观察时让用户自己双击 bat；单次 Bash 内可用 `./exe & ... kill $!` 抓一张图。
-- **PowerShell 的 `Add-Type` 被安全策略拦截**：`resources/gen-app-ico.ps1` 跑不了，
-  所以 ICO 改用纯 Python 标准库 `resources/gen_app_ico.py` 生成。
+  需要真机观察时让用户自己双击 bat。
+- **PowerShell 的 `Add-Type` 被安全策略拦截**（工具调用内）：截图与
+  `resources/gen-app-ico.ps1` 都跑不了，所以 ICO 改用纯 Python 标准库生成。
+  （`build.ps1` 里 Gate 5 的 `Add-Type` 在它自己的 powershell 子进程里可正常执行。）
 - **Bash 里不要调 PowerShell**（会被拦）；用 PowerShell 工具或纯 Python。
 - **截图必须先征得用户同意**，且同意有时限，过期需重新问。
-- `dist/` 里的 exe 只有发布时才更新，日常验收走 bat。
+- 本机工具链：VS `D:\APP\VS2026`（MSVC 14.52.37025）、Windows SDK 10.0.26100.0。
+- 本机**没有 `gh` CLI**，GitHub Release 只能网页手动建；`git push` 走 SSH（已可用）。
 
-### 6.3 数据与路径
+### 7.3 数据与路径
 - 配置：`%LOCALAPPDATA%\ShadeBar\config.json`（39 项编号；缺失尾部按默认补，不判损坏）
 - 日志：`%LOCALAPPDATA%\ShadeBar\payload.log`（载荷）、`shadebar.log`（宿主）
 - 载荷副本：`%LOCALAPPDATA%\ShadeBar\ShadeBarTap_v<ver>_<指纹>.dll`
 - 采样分区：时钟 93–99%、托盘 84–93%、图标区 0–84%（`CLOCK_SPAN / TRAY_SPAN / ICONS_SPAN_MAX`）
 
-### 6.4 关键技术参数（改代码前必看）
+### 7.4 关键技术参数（改代码前必看）
 - IPC 结构 `ShadeBarIpc` 80 字节；`reserved[0]` 是元素掩码（TIME/DATE/TRAY/INDICATOR）。
 - 队列位序：`SettingKey as usize`，**新增项只能追加在末尾**（`SETTING_COUNT` 当前 39）。
 - 载荷文件名带内容指纹，避免 explorer 复用旧模块；注入失败要收手，不要反复重试。
 - 采样必须用屏幕 DC，不能用窗口 DC（TranslucentTB 模糊结果拿不到）。
-- 体积门禁：单 exe 约 650 KB 量级；不得引入新 crate（windows 锁 `=0.58.0`）。
+- 体积：单 exe 约 660 KB；不得引入新 crate（windows 锁 `=0.58.0`）。
 
 ---
 
-## 7. 用户偏好（长期有效，别违反）
+## 8. 用户偏好（长期有效，别违反）
 
 - 语言：简体中文。
 - **截图**：任何截图前必须询问并取得同意，同意有时限，过期需重新问。
 - **安装应用**：必须先问、由用户选路径。
+- **删除文件**：先列清单、说明影响，得到授权后才删。
 - **版本号**：严格 SemVer 2.0.0；修 bug 是 PATCH，新功能是 MINOR。
 - **验收**：每组必须真机验收；他说「没问题」才继续。汇报要带任务清单与进度。
 - 不要替他做"这个不重要"的判断；发现问题先说清根因，再给方案。
-
----
-
-## 8. 团队协作（会话级）
-
-上一轮用专家团「MVP开发专家团」的小队模式（架构师 / 设计师 / 前端 / 测试），
-团队名 `shadebar-g3-color`。**团队是会话级的**，新对话不会继承：
-
-- 若继续用小队：重新建团队、重新派单；成员不记得上一轮上下文，施工单必须写全。
-- 若单干：G5 只剩"提交 + 文档 + 版本收尾"，一个人更快，不必拉人。
-
-**上一轮有效的做法**（值得保留）：
-1. 施工单写死文件、行号、期望值，不复述需求。
-2. 每个成员交付必须带"改了哪些行 + 测试数字 + 风险"。
-3. 测试员做**变异测试**（故意改坏一处，看测试是否 FAIL），专治假断言。
-4. 复核不通过就定点返工，不整组重做。
 
 ---
 
@@ -287,5 +234,6 @@ powershell -c "Get-Process *ShadeBar* -ErrorAction SilentlyContinue | Stop-Proce
 cargo build --release
 cmd //c "1. 一键启动预览.bat"
 
-# 4) 看三处：时间/日期颜色是否跟随背景、指示条正常态与选中态是否同色、托盘图标是否为新 A 图标
+# 4) 看三处：时间/日期颜色是否跟随背景、所有指示条是否同色、托盘图标是否为 A 图标
+# 5) 日志侧回归：python tools/check_payload_sync.py
 ```
