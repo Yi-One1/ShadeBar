@@ -30,6 +30,10 @@ APPLY_RE = re.compile(
 )
 REPLAY_RE = re.compile(r"\[Replay\] #(?P<n>\d+) reason=(?P<reason>\S+) hr=0x(?P<hr>[0-9A-Fa-f]+) tree=(?P<tree>\d+)(?: (?:ms=(?P<ms>\d+)|us=(?P<us>\d+)))?")
 ADVISE_RE = re.compile(r"\[Tap\] Advise hr=0x(?P<hr>[0-9A-Fa-f]+)")
+IND_RE = re.compile(
+    r"\[Ind\] h=0x(?P<h>[0-9A-Fa-f]+) w=(?P<w>[\d.]+) (?P<state>选中|正常) "
+    r"b=0x(?P<b>[0-9A-Fa-f]+) -> (?P<color>[0-9A-Fa-f]+)"
+)
 
 MASK_INDICATOR = 0x8
 WINDOW = 20
@@ -60,6 +64,9 @@ def main() -> int:
     # 记录每次重放之后是否真的着色：以行号为序，末尾重放可能还没来得及应用
     replay_marks: list[int] = []
     apply_seq: list[tuple[int, int]] = []
+    # 共享画刷检查：每个 [Apply] 之前的 [Ind] 块里，正常态应当只有一个画刷句柄
+    block_brushes: set[str] = set()
+    last_block: dict | None = None
 
     with open(args.log, encoding="utf-8", errors="replace") as fh:
         for line in fh:
@@ -79,6 +86,14 @@ def main() -> int:
                      ("seq", "mask", "time", "date", "tray", "ind", "undo")}
                 applies.append(d)
                 apply_seq.append((apply_seq[-1][0] + 1 if apply_seq else 1, d["ind"]))
+                if d["ind"] > 0:
+                    last_block = {"seq": d["seq"], "ind": d["ind"], "brushes": set(block_brushes)}
+                block_brushes = set()
+                continue
+            m = IND_RE.search(line)
+            if m:
+                if m.group("state") == "正常" and m.group("b") != "0":
+                    block_brushes.add(m.group("b"))
                 continue
             m = REPLAY_RE.search(line)
             if m:
@@ -125,6 +140,14 @@ def main() -> int:
             break
     results.append(("C4 重放后确实着色", ind_after > 0,
                     f"最后一次有效重放后 {ind_after}/{total_after} 拍写过指示条"))
+
+    # C5：所有正常态指示条必须指向同一个画刷对象（方案 B 的结构性证据）
+    if last_block is None:
+        results.append(("C5 指示条共用画刷", False, "没有 ind>0 的 Apply 记录"))
+    else:
+        nb = last_block["brushes"]
+        results.append(("C5 指示条共用画刷", len(nb) == 1,
+                        f"seq={last_block['seq']} 正常态画刷 {len(nb)} 个：{', '.join(sorted(nb))[:60]}"))
 
     def pct(vals: list[float], q: float) -> float:
         if not vals:

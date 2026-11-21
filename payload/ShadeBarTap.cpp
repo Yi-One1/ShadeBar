@@ -149,6 +149,10 @@ static int g_replayCount = 0;
 static int g_addLogBudget = 60;          // Add 事件诊断日志预算（防刷屏）
 static int g_indFailBudget = 30;         // 指示条写入失败日志预算
 
+// 定义在下方（共享画刷一节）；重放/还原后必须丢弃句柄，这里先声明。
+static void ResetSharedBrush();
+static bool SetBrushColorDirect(InstanceHandle brushH, unsigned argb);
+
 static std::wstring GuidToStr(REFIID r) {
     wchar_t b[64];
     StringFromGUID2(r, b, 64);
@@ -247,6 +251,8 @@ public:
         LogW(L"[Replay] #%d reason=%s hr=0x%08X tree=%d us=%llu",
              g_replayCount, reason, (unsigned)hr, treeN,
              (unsigned long long)(NowUs() - t0));
+        // 重放会重建元素，旧画刷句柄可能已经失效：下一拍重新造一个。
+        if (SUCCEEDED(hr)) ResetSharedBrush();
         return SUCCEEDED(hr);
     }
 
@@ -500,6 +506,60 @@ static bool SetColorProp(InstanceHandle h, const wchar_t* propName, unsigned arg
     return SUCCEEDED(hr);
 }
 
+// ---------------------------------------------------------------- 共享指示条画刷
+//
+// 用户选定方案 B：所有"正常态"指示条指向**同一个** SolidColorBrush，
+// 之后只改这一个对象的 Color，全部指示条就在同一刻变色，不会出现"改了一半"。
+//
+// 三条约束（都来自现有机制）：
+//   * 画刷句柄在树重放 / 还原后可能失效 → 一律丢弃重建（ResetSharedBrush）；
+//   * 选中态会被 VisualState 换成它自己的画刷，仍走原有的逐条写入；
+//   * 还原时逐条写回原色（会替换掉共享画刷），所以还原后也要丢弃句柄。
+static InstanceHandle g_sharedIndBrush = 0;
+static unsigned       g_sharedIndColor = 0;
+
+static void ResetSharedBrush() {
+    g_sharedIndBrush = 0;
+    g_sharedIndColor = 0;
+}
+
+static InstanceHandle NewSolidBrush(unsigned argb) {
+    IVisualTreeService* svc = VtsBase();
+    if (!svc) return 0;
+    wchar_t colorStr[16];
+    swprintf_s(colorStr, L"#%08X", argb);
+    InstanceHandle brush = 0;
+    BSTR tn = SysAllocString(L"Windows.UI.Xaml.Media.SolidColorBrush");
+    BSTR val = SysAllocString(colorStr);
+    HRESULT hr = svc->CreateInstance(tn, val, &brush);
+    SysFreeString(tn); SysFreeString(val);
+    return SUCCEEDED(hr) ? brush : 0;
+}
+
+/// 把已有画刷对象赋给元素的画刷属性（不新建画刷）。
+static bool SetBrushProp(InstanceHandle elem, const wchar_t* propName, InstanceHandle brush) {
+    IVisualTreeService* svc = VtsBase();
+    if (!svc || !elem || !brush) return false;
+    unsigned int idx = 0;
+    if (!IndexFromChain(elem, propName, &idx)) return false;
+    return SUCCEEDED(svc->SetProperty(elem, brush, idx));
+}
+
+/// 取共享画刷并保证它的颜色是 argb；返回句柄（0 = 失败）。
+static InstanceHandle EnsureSharedBrush(unsigned argb) {
+    if (g_sharedIndBrush && g_sharedIndColor == argb) return g_sharedIndBrush;
+    if (g_sharedIndBrush && SetBrushColorDirect(g_sharedIndBrush, argb)) {
+        // 只改这一个对象：所有指向它的指示条同刻变色
+        g_sharedIndColor = argb;
+        return g_sharedIndBrush;
+    }
+    InstanceHandle b = NewSolidBrush(argb);
+    if (!b) { ResetSharedBrush(); return 0; }
+    g_sharedIndBrush = b;
+    g_sharedIndColor = argb;
+    return b;
+}
+
 static bool ClearColorProp(InstanceHandle h, const wchar_t* propName) {
     IVisualTreeService* svc = VtsBase();
     if (!svc || !h) return false;
@@ -636,7 +696,7 @@ static void ApplyColors() {
     const unsigned mask = cmd.reserved[0];
 
     auto v = Snapshot();
-    int nTime = 0, nDate = 0, nTray = 0, nInd = 0, nUndo = 0;
+    int nTime = 0, nDate = 0, nTray = 0, nInd = 0, nUndo = 0, nShared = 0;
 
     // 树组成诊断：只在变化时打一行，用来区分"元素没进树"和"进了树但写不进去"。
     {
@@ -704,13 +764,21 @@ static void ApplyColors() {
                     if (ReadBrushColor(e.handle, L"Fill", &a)) g_restore.indNormal = a;
                 }
 
-                // 两条路一起走，**不依赖状态判定**：
-                //   写元素 Fill      -> 正常态生效（选中态会被 VisualState 的更高优先级槽压住）
-                //   改 Fill 指向画刷 -> 选中态生效（正常态写入无视觉影响，但把共享画刷预染成
-                //                       目标色，使「选中→正常」切换的瞬间不再闪系统色）
-                // 任何一条成功都算改到了，避免因 ActualWidth 判定偏差导致整条漏改。
-                bool wroteElem = SetColorProp(e.handle, L"Fill", cmd.indicatorNormalColor);
-                bool wroteBrush = SetBrushColorOfProp(e.handle, L"Fill", cmd.indicatorNormalColor);
+                // 正常态：把**同一个**共享画刷赋给它（方案 B）。之后换色只改那个
+                //        对象的 Color，全部指示条同刻变；SetProperty 本身是幂等的，
+                //        重复赋同一个画刷不会造成视觉变化。
+                // 选中态：VisualState 会把 Fill 换成它自己的画刷，共享画刷在这里无效，
+                //        仍走"元素 Fill + 画刷 Color"双写 + 逐层染色。
+                const InstanceHandle shared = EnsureSharedBrush(cmd.indicatorNormalColor);
+                bool wroteElem = false;
+                bool wroteBrush = false;
+                if (!selected && shared) {
+                    wroteElem = SetBrushProp(e.handle, L"Fill", shared);
+                    if (wroteElem) ++nShared;
+                } else {
+                    wroteElem = SetColorProp(e.handle, L"Fill", cmd.indicatorNormalColor);
+                    wroteBrush = SetBrushColorOfProp(e.handle, L"Fill", cmd.indicatorNormalColor);
+                }
 
                 // 写完必须回读。SetProperty 返回 S_OK 只代表"写进去了"，
                 // 不代表渲染层取的是这个值（v1.1.3 的根因就是写进被压住的层）。
@@ -726,9 +794,10 @@ static void ApplyColors() {
                 }
                 if (wroteElem || wroteBrush || nAll) {
                     ++nInd;
-                    LogW(L"[Ind] h=0x%llX w=%.1f %s -> %08X (elem=%d brush=%d all=%d rb=%08X ok=%d)",
+                    LogW(L"[Ind] h=0x%llX w=%.1f %s b=0x%llX -> %08X (elem=%d brush=%d all=%d rb=%08X ok=%d)",
                          (unsigned long long)e.handle, w,
                          selected ? L"选中" : L"正常",
+                         (unsigned long long)(selected ? 0 : shared),
                          cmd.indicatorNormalColor, (int)wroteElem, (int)wroteBrush, nAll,
                          nowCol, (int)rbOk);
                 } else if (g_indFailBudget > 0) {
@@ -755,6 +824,18 @@ static void ApplyColors() {
             }
         }
     }
+    // 共享画刷状态：只在变化时打一行，用来证明"所有正常态指示条指向同一个对象"。
+    if (mask & kMaskIndicator) {
+        static InstanceHandle lastB = 0;
+        static unsigned lastC = 0;
+        static int lastN = -1;
+        if (g_sharedIndBrush != lastB || g_sharedIndColor != lastC || nShared != lastN) {
+            lastB = g_sharedIndBrush; lastC = g_sharedIndColor; lastN = nShared;
+            LogW(L"[Shared] b=0x%llX color=%08X assigned=%d",
+                 (unsigned long long)g_sharedIndBrush, g_sharedIndColor, nShared);
+        }
+    }
+
     g_activeMask = mask;
     if (nTime + nDate + nTray + nInd > 0) InterlockedExchange(&g_touched, 1);
     InterlockedExchange(&g_lastIndCount, nInd);
@@ -832,6 +913,8 @@ static void RestoreAll() {
     LogW(L"[Restore] restored=%d (cache t=%08X d=%08X g=%08X n=%08X s=%08X)",
          n, g_restore.time, g_restore.date, g_restore.tray,
          g_restore.indNormal, g_restore.indSelected);
+    // 还原已把共享画刷从元素上换下来，句柄不要留到下一轮。
+    ResetSharedBrush();
     InterlockedExchange(&g_applied, 0);
 }
 

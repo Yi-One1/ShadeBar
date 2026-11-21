@@ -943,6 +943,7 @@ fn run_loop(
     let mut j_tray = RegionJudge::default();
     let mut j_icons = RegionJudge::default();
     let mut injected_pid = 0u32;
+    let mut last_inject_err: Option<String> = None;
     let mut last_plan = ColorPlan::NONE;
     let mut ticks: u32 = 0;
     let mut sampler = RegionSampler::new();
@@ -967,13 +968,23 @@ fn run_loop(
         // 1) 保活注入：explorer 重启后 pid 会变，必须重新注入
         let cur = taskbar_pid().unwrap_or(0);
         if cur != 0 && cur != injected_pid {
+            // 注入失败以前是**静默**的（只把 injected_pid 归零），现场表现就是
+            // "改色整片失效、日志里什么都没有"。这里至少留一行，便于定位是
+            // 杀软拦截、架构不匹配，还是路径被占用。
             match inject(dll_path) {
                 Ok(pid) => {
                     injected_pid = pid;
                     last_plan = ColorPlan::NONE;
+                    if last_inject_err.take().is_some() || pid != 0 {
+                        crate::config::note(&format!("inject ok: explorer pid={pid}"));
+                    }
                 }
-                Err(_) => {
+                Err(e) => {
                     injected_pid = 0;
+                    if last_inject_err.as_deref() != Some(e.as_str()) {
+                        crate::config::note(&format!("inject failed: {e}"));
+                        last_inject_err = Some(e);
+                    }
                 }
             }
         }
