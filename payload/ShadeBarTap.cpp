@@ -99,6 +99,24 @@ static BOOL CALLBACK TreeInit_(PINIT_ONCE, PVOID, PVOID*) {
 }
 
 static ShadeBarIpc* g_ipc = nullptr;
+
+// 微秒级计时：GetTickCount64 分辨率约 15.6 ms，重放明明很快也会显示 0/16。
+static ULONGLONG NowUs() {
+    static LARGE_INTEGER freq{};
+    if (freq.QuadPart == 0) QueryPerformanceFrequency(&freq);
+    LARGE_INTEGER c{};
+    QueryPerformanceCounter(&c);
+    return (ULONGLONG)(c.QuadPart * 1000000ULL / freq.QuadPart);
+}
+
+// 最近 15 s 内是否有键盘/鼠标输入。用来给"树重放"定节奏：
+// 有新窗口 = 用户正在操作；空闲时没必要每 5 s 扫一遍整棵树。
+static bool UserActiveRecently() {
+    LASTINPUTINFO li{};
+    li.cbSize = sizeof(li);
+    if (!GetLastInputInfo(&li)) return true;
+    return (GetTickCount() - li.dwTime) < 15000;
+}
 /* 代际令牌：同一 explorer 里可能同时驻留多个版本的载荷（升级、重复注入）。
  * 它们共享同一块 IPC，谁都能写 —— 旧副本会用旧逻辑持续覆盖新副本的结果，
  * 现象就是"改了没反应"。约定：最后注入的实例把 reserved[1] 递增并记为自己的
@@ -107,6 +125,29 @@ static unsigned g_generation = 0;
 // 是否真的向任务栏写过颜色。未写过时禁止执行还原：
 // RunningIndicator 的 Fill 一旦被 ClearProperty 会变全透明（v1.1 生产事故）。
 static volatile LONG g_touched = 0;
+
+/* 树同步（v1.3.1 修「一部分指示条永远不改色 / 重启软件也不恢复」）
+ *
+ * 事实：XAML 诊断接口只给两条获取元素的途径 —— 订阅时的**一次全量重放**，
+ * 以及之后的 Add/Remove 增量事件；没有"遍历整棵树"的接口。
+ * 实测（26H2 26300）：打开一个新的应用窗口时，日志里**一条 [Add] 都没有**，
+ * 但任务栏确实多了一条指示条 —— 说明新按钮不会以可用的 Add 事件到达，
+ * 于是这条指示条永远进不了 g_tree。宿主重启时 DLL 已驻留、DllMain 不再执行，
+ * 也就**不会重新订阅** —— 漏掉的元素永远漏掉，表现成"一部分改色、一部分不改"，
+ * 而且重启软件只能靠运气恢复。
+ *
+ * 对策：需要时 Unadvise + Advise 重新全量重放（必须是 XAML UI 线程）。
+ * 触发点：①宿主重新连接/心跳恢复；②本拍想要指示条却一条都没命中；
+ * ③兜底轮询——用户有输入时 5 s、空闲时 30 s（没有输入就不会有新窗口）。
+ */
+static volatile LONG g_needResync = 1;   // 1 = 下一拍强制重放
+static volatile LONG g_replayReq = 0;    // 主循环置位，UI 线程消费
+static volatile LONG g_clearOnAdd = 0;   // 重放的第一个 Add 到来时清空旧树（避免重复与失效句柄）
+static volatile LONG g_lastIndCount = -1;// 上一拍改到的指示条条数
+static ULONGLONG g_lastReplayTick = 0;
+static int g_replayCount = 0;
+static int g_addLogBudget = 60;          // Add 事件诊断日志预算（防刷屏）
+static int g_indFailBudget = 30;         // 指示条写入失败日志预算
 
 static std::wstring GuidToStr(REFIID r) {
     wchar_t b[64];
@@ -177,11 +218,46 @@ public:
         return E_NOTIMPL;
     }
 
+    /// 重新订阅，强制 XAML 重放整棵树。**必须在 XAML UI 线程调用**。
+    ///
+    /// 旧树不在这里清：清空后若重放是异步投递的，中间会出现"空树拍"，
+    /// 那一拍会把该改色的元素当成不存在。改为让重放的第一个 Add 清空（g_clearOnAdd）。
+    bool ReplayTree(const wchar_t* reason) {
+        if (!g_vts3 && !g_vts2) return false;
+        InitOnceExecuteOnce(&g_treeOnce, TreeInit_, nullptr, nullptr);
+        const ULONGLONG t0 = NowUs();
+        InterlockedExchange(&g_clearOnAdd, 1);
+        HRESULT hr = S_OK;
+        if (g_vts3) {
+            g_vts3->UnadviseVisualTreeChange(this);
+            hr = g_vts3->AdviseVisualTreeChange(this);
+        } else {
+            g_vts2->UnadviseVisualTreeChange(this);
+            hr = g_vts2->AdviseVisualTreeChange(this);
+        }
+        g_lastReplayTick = GetTickCount64();
+        ++g_replayCount;
+        // 重放失败时撤销"清树"标记：否则下一次无关的 Add 会把旧树清掉，
+        // 而这一次并没有重放来补全它。
+        if (FAILED(hr)) InterlockedExchange(&g_clearOnAdd, 0);
+        int treeN = 0;
+        EnterCriticalSection(&g_treeCs);
+        treeN = (int)g_tree.size();
+        LeaveCriticalSection(&g_treeCs);
+        LogW(L"[Replay] #%d reason=%s hr=0x%08X tree=%d us=%llu",
+             g_replayCount, reason, (unsigned)hr, treeN,
+             (unsigned long long)(NowUs() - t0));
+        return SUCCEEDED(hr);
+    }
+
     HRESULT STDMETHODCALLTYPE OnVisualTreeChange(
         ParentChildRelation relation, VisualElement element, VisualMutationType type) override {
         InitOnceExecuteOnce(&g_treeOnce, TreeInit_, nullptr, nullptr);
         EnterCriticalSection(&g_treeCs);
         if (type == Add) {
+            // 重放开始：第一个 Add 到达时清掉旧树，之后重新累积。
+            if (InterlockedExchange(&g_clearOnAdd, 0)) g_tree.clear();
+
             VisEntry e;
             e.handle = element.Handle;
             e.parent = relation.Parent;
@@ -189,11 +265,23 @@ public:
             e.name = element.Name ? element.Name : L"";
             const std::wstring& N = e.name;
             const std::wstring& T = e.type;
+
+            if (g_addLogBudget > 0) {
+                --g_addLogBudget;
+                LogW(L"[Add] name=\"%s\" type=\"%s\" parent=0x%llX",
+                     N.c_str(), T.c_str(), (unsigned long long)relation.Parent);
+            }
+
             if (N == L"TimeInnerTextBlock" || N == L"DateInnerTextBlock" ||
                 N == L"RunningIndicator" || N == L"Underlay" ||
                 N == L"Base" || N == L"AccentOverlay" ||
                 T.find(L"AdaptiveTextBlock") != std::wstring::npos) {
-                g_tree.push_back(e);
+                // 重放时同一个句柄可能被再发一次，去重，避免 g_tree 无限增长。
+                bool dup = false;
+                for (auto& it : g_tree) {
+                    if (it.handle == e.handle) { it = e; dup = true; break; }
+                }
+                if (!dup) g_tree.push_back(e);
                 InterlockedExchange(&g_dirty, 1);
             }
         } else {
@@ -550,6 +638,25 @@ static void ApplyColors() {
     auto v = Snapshot();
     int nTime = 0, nDate = 0, nTray = 0, nInd = 0, nUndo = 0;
 
+    // 树组成诊断：只在变化时打一行，用来区分"元素没进树"和"进了树但写不进去"。
+    {
+        int cT = 0, cD = 0, cG = 0, cI = 0, cO = 0;
+        for (const auto& e : v) {
+            if (e.name == L"TimeInnerTextBlock") ++cT;
+            else if (e.name == L"DateInnerTextBlock") ++cD;
+            else if (e.type.find(L"AdaptiveTextBlock") != std::wstring::npos) ++cG;
+            else if (e.name == L"RunningIndicator") ++cI;
+            else ++cO;
+        }
+        static int lastSig = -1;
+        const int sig = ((((cT * 31 + cD) * 31 + cG) * 31 + cI) * 31 + cO);
+        if (sig != lastSig) {
+            lastSig = sig;
+            LogW(L"[Tree] n=%d time=%d date=%d tray=%d ind=%d other=%d",
+                 (int)v.size(), cT, cD, cG, cI, cO);
+        }
+    }
+
     for (auto& e : v) {
         if (e.name == L"TimeInnerTextBlock") {
             if (mask & kMaskTime) {
@@ -624,6 +731,16 @@ static void ApplyColors() {
                          selected ? L"选中" : L"正常",
                          cmd.indicatorNormalColor, (int)wroteElem, (int)wroteBrush, nAll,
                          nowCol, (int)rbOk);
+                } else if (g_indFailBudget > 0) {
+                    // 元素在树里、但两条写入路径都失败：Fill 索引取不到 / 画刷句柄取不到 /
+                    // SetProperty 被拒。打出来才知道该补哪条兜底路径。
+                    --g_indFailBudget;
+                    unsigned int fillIdx = 0;
+                    const bool fillFound = IndexFromChain(e.handle, L"Fill", &fillIdx);
+                    const bool brushFound = BrushHandleOfProp(e.handle, L"Fill") != 0;
+                    LogW(L"[IndFail] h=0x%llX w=%.1f fillFound=%d idx=%u brushFound=%d",
+                         (unsigned long long)e.handle, w,
+                         (int)fillFound, fillIdx, (int)brushFound);
                 }
             } else if (g_activeMask & kMaskIndicator) {
                 if (selected) {
@@ -640,6 +757,7 @@ static void ApplyColors() {
     }
     g_activeMask = mask;
     if (nTime + nDate + nTray + nInd > 0) InterlockedExchange(&g_touched, 1);
+    InterlockedExchange(&g_lastIndCount, nInd);
     LogW(L"[Apply] seq=%ld mask=%X time=%d date=%d tray=%d ind=%d undo=%d",
          (long)cmd.seq, mask, nTime, nDate, nTray, nInd, nUndo);
     InterlockedExchange(&g_applied, cmd.seq);
@@ -718,7 +836,25 @@ static void RestoreAll() {
 }
 
 static void UiApplyProc() {
+    // 重放请求由主循环置位、这里（UI 线程）消费：Advise 必须在 UI 线程调用。
+    if (InterlockedExchange(&g_replayReq, 0) && g_tap) {
+        g_tap->ReplayTree(L"apply");
+    }
     ApplyColors();
+    if (g_uiDoneEvent) SetEvent(g_uiDoneEvent);
+}
+
+/// 退订：退位副本必须调用，否则回调仍挂在 XAML 上。
+/// 实测后果：新副本 AdviseVisualTreeChange 返回 E_UNEXPECTED 并放弃改色，
+/// 表现是整片不着色，且重启宿主无用（DLL 常驻、DllMain 不再执行）。
+static void UiUnadviseProc() {
+    bool ok = false;
+    if (g_tap) {
+        if (g_vts3) ok = SUCCEEDED(g_vts3->UnadviseVisualTreeChange(g_tap));
+        else if (g_vts2) ok = SUCCEEDED(g_vts2->UnadviseVisualTreeChange(g_tap));
+    }
+    InterlockedExchange(&g_advised, 0);
+    LogW(L"[Tap] 退位副本已退订 ok=%d tid=%lu", (int)ok, GetCurrentThreadId());
     if (g_uiDoneEvent) SetEvent(g_uiDoneEvent);
 }
 
@@ -727,9 +863,13 @@ static void UiRestoreProc() {
     if (g_uiDoneEvent) SetEvent(g_uiDoneEvent);
 }
 
+/// UI 线程上要执行的动作。原来只有 apply/restore 两态，退位退订是第三态；
+/// 用 bool 已经表达不清，改枚举。
+enum UiOp { UiApply = 0, UiRestore = 1, UiUnadvise = 2 };
+
 class DispatchedHandler final : public ABI::Windows::UI::Core::IDispatchedHandler {
 public:
-    explicit DispatchedHandler(bool restore) : m_restore(restore) {}
+    explicit DispatchedHandler(UiOp op) : m_op(op) {}
     HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void** ppv) override {
         if (!ppv) return E_POINTER;
         if (riid == __uuidof(IUnknown) ||
@@ -749,16 +889,21 @@ public:
         return r;
     }
     HRESULT STDMETHODCALLTYPE Invoke() override {
-        if (m_restore) UiRestoreProc(); else UiApplyProc();
+        switch (m_op) {
+        case UiRestore:  UiRestoreProc();  break;
+        case UiUnadvise: UiUnadviseProc(); break;
+        case UiApply:
+        default:         UiApplyProc();    break;
+        }
         Release();
         return S_OK;
     }
 private:
     LONG m_ref = 1;
-    bool m_restore;
+    UiOp m_op;
 };
 
-static HRESULT PostToUi(bool restore) {
+static HRESULT PostToUi(UiOp op) {
     if (!g_diag) return E_FAIL;
     // 每投递前复位：手动重置事件不复位会导致下一次 Wait 立即返回，
     // 从而在 UI 线程真正执行前就继续往下走（v1.1 实测踩坑）。
@@ -771,7 +916,7 @@ static HRESULT PostToUi(bool restore) {
     hr = dispInsp->QueryInterface(__uuidof(ABI::Windows::UI::Core::ICoreDispatcher), (void**)&cd);
     if (FAILED(hr) || !cd) { dispInsp->Release(); return hr; }
 
-    DispatchedHandler* h = new (std::nothrow) DispatchedHandler(restore);
+    DispatchedHandler* h = new (std::nothrow) DispatchedHandler(op);
     if (!h) { cd->Release(); dispInsp->Release(); return E_OUTOFMEMORY; }
 
     ABI::Windows::Foundation::IAsyncAction* act = nullptr;
@@ -855,9 +1000,17 @@ static DWORD WINAPI Worker(LPVOID) {
     int staleLoops = 0;
 
     for (;;) {
-        // 被更新的副本取代：静默退出，不还原（还原会抹掉新副本刚写的颜色）
+        // 被更新的副本取代：不还原（还原会抹掉新副本刚写的颜色），但**必须先退订**。
+        // 退订是 v1.3.1 的关键修复：旧副本不退订时，新副本的 Advise 会拿到
+        // E_UNEXPECTED 并"放弃改色"，屏幕上什么都不变；而宿主重启不会重载 DLL，
+        // 于是这个状态再也恢复不了 —— 正是"改色失败、重启软件也没用"的成因。
         if (g_ipc->reserved[1] != g_generation) {
             LogW(L"[Loop] 代际 %u 已被 %u 取代，退位", g_generation, g_ipc->reserved[1]);
+            if (g_advised) {
+                if (SUCCEEDED(PostToUi(UiUnadvise)) && g_uiDoneEvent) {
+                    WaitForSingleObject(g_uiDoneEvent, 3000);
+                }
+            }
             return 0;
         }
         if (g_ipc->shutdown) {
@@ -868,7 +1021,7 @@ static DWORD WINAPI Worker(LPVOID) {
             // 也不能 Unadvise：那会丢掉订阅，恢复时拿不到树。
             LogW(L"[Loop] 宿主退出，还原后转入待命");
             if (ready && g_touched) {
-                if (SUCCEEDED(PostToUi(true)) && g_uiDoneEvent) {
+                if (SUCCEEDED(PostToUi(UiRestore)) && g_uiDoneEvent) {
                     WaitForSingleObject(g_uiDoneEvent, 3000);
                 }
                 InterlockedExchange(&g_touched, 0);
@@ -876,18 +1029,27 @@ static DWORD WINAPI Worker(LPVOID) {
             }
             g_activeMask = 0;
             g_ipc->status = SHADEBAR_STATUS_IDLE;
+            // 宿主下次连上来时重放一次：期间可能有窗口增删，旧树已经不准了。
+            InterlockedExchange(&g_needResync, 1);
             Sleep(200);
             continue;
         }
 
         if (!ready) {
-            if (++initAttempts > 60) { LogW(L"[Loop] 初始化重试耗尽"); break; }
+            // 曾经这里重试 60 次就 break：线程退出，但 DLL 仍驻留 explorer，
+            // 后续注入命中已加载模块、DllMain 不再执行 → 永久失效，只能重启 explorer。
+            // 现在改为无限重试（后段退避），让"旧副本释放 / 任务栏重建"之后能自愈。
+            ++initAttempts;
+            if (initAttempts == 60) {
+                LogW(L"[Loop] 初始化连续失败 60 次，转为每 10 s 重试（不再永久放弃）");
+            }
             ready = InitTap();
             if (ready) {
                 g_ipc->status = SHADEBAR_STATUS_READY;
+                initAttempts = 0;
             } else {
                 g_ipc->status = SHADEBAR_STATUS_FAILED;
-                Sleep(2000);
+                Sleep(initAttempts >= 60 ? 10000 : 2000);
             }
             continue;
         }
@@ -901,14 +1063,28 @@ static DWORD WINAPI Worker(LPVOID) {
             static ULONGLONG lastApplyTick = 0;
             const ULONGLONG nowTick = GetTickCount64();
             if (seq != g_applied || (g_dirty && nowTick - lastApplyTick >= 250)) {
-                if (SUCCEEDED(PostToUi(false)) && g_uiDoneEvent) {
+                // 树同步：①宿主重连后强制重放；②想要指示条却一条没命中（说明新窗口没进树）；
+                // ③每 5 s 兜底一次，保证"新开的窗口最迟 5 s 内被收进树"。
+                const bool wantInd = (g_ipc->reserved[0] & kMaskIndicator) != 0;
+                const bool needNow = InterlockedExchange(&g_needResync, 0) != 0;
+                const bool indMissing = wantInd && g_lastIndCount == 0 &&
+                                        (nowTick - g_lastReplayTick) >= 2000;
+                // 新窗口不产生可用的 Add 事件（实测：打开设置窗口 0 条 Add），
+                // 只能靠定时重放兜住。但 5 s 一次重放约 4 ms，折合 0.08% CPU，
+                // 会把 NFR-03 的 0.1% 预算吃满。改为自适应：用户最近有输入（15 s 内）
+                // 才用 5 s 节奏，空闲时降到 30 s——没有输入，就不会有新窗口。
+                const ULONGLONG cadence = UserActiveRecently() ? 5000ULL : 30000ULL;
+                const bool periodic = (nowTick - g_lastReplayTick) >= cadence;
+                if (needNow || indMissing || periodic) InterlockedExchange(&g_replayReq, 1);
+
+                if (SUCCEEDED(PostToUi(UiApply)) && g_uiDoneEvent) {
                     WaitForSingleObject(g_uiDoneEvent, 3000);
                 }
                 lastApplyTick = GetTickCount64();
             }
             wasEnabled = true;
         } else if (wasEnabled || g_applied != 0) {
-            if (SUCCEEDED(PostToUi(true)) && g_uiDoneEvent) {
+            if (SUCCEEDED(PostToUi(UiRestore)) && g_uiDoneEvent) {
                 WaitForSingleObject(g_uiDoneEvent, 3000);
             }
             wasEnabled = false;
@@ -929,13 +1105,14 @@ static DWORD WINAPI Worker(LPVOID) {
             // 因此这里转为"常驻待命"：还原 → 清零缓存 → 继续等心跳恢复。
             LogW(L"[Loop] 宿主心跳超时（%d 轮），还原并转入待命", staleLoops);
             if (ready && g_touched) {
-                if (SUCCEEDED(PostToUi(true)) && g_uiDoneEvent) {
+                if (SUCCEEDED(PostToUi(UiRestore)) && g_uiDoneEvent) {
                     WaitForSingleObject(g_uiDoneEvent, 3000);
                 }
                 InterlockedExchange(&g_touched, 0);
                 g_restore = RestoreColors{};
                 g_appliedIndColor = 0;
                 wasEnabled = false;
+                InterlockedExchange(&g_needResync, 1);
                 // 关键：把 seq 标记为"已处理"。
                 // RestoreAll 内部会把 g_applied 归零，而共享内存里的 seq 仍是最后一条，
                 // 下一轮主循环看到 seq != g_applied 就会立刻重新上色 ——
