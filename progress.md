@@ -3,10 +3,10 @@
 > **最后更新**：2026-11-22 (GMT+8)
 > **用途**：跨对话续接。新对话看不到聊天记录，本文件是唯一状态依据。
 >
-> **状态一句话**：代码到 **v1.3.1**（两组真机缺陷已修并验收），产物已打包
-> `dist/随影ShadeBar_v1.3.1.exe`（678,400 B），五道门禁全绿、测试 215 项全绿。
-> **只剩发布动作**：`git push` + 打 tag `v1.3.1` + 在 GitHub Releases 上传附件
-> （标题与说明用 `docs/release-notes-v1.3.1.md`）。
+> **状态一句话**：**v1.3.1 已发布**（2026-11-22，GitHub Releases，tag `v1.3.1`）。
+> 两组真机缺陷（指示条漏改 / 整片失效、指示条颜色不统一）已修并验收；
+> 产物 `dist/随影ShadeBar_v1.3.1.exe` 678,400 B，测试 215 项全绿、五道门禁全绿。
+> 下一版从 §4.1 末尾的发版链路接着走。
 
 ---
 
@@ -34,11 +34,16 @@
 | SHA-256 | `17D3D53C45C3FBC7F7B7E40F49717B9AC3C40166098ED4E7D726DA3B169C7E73` |
 | FileVersion | `1.3.1.0`（`--version` 输出 `随影 ShadeBar v1.3.1`） |
 | 门禁 | 5/5 全绿（体积 / 无 VC++ 运行时 / 版本资源 / 清单 PerMonitorV2+asInvoker / 图标）；verify 与 no-en 双产物同样全绿，双语资源差 8 KB（预算 40 KB） |
-| git tag | **尚未打**（`git tag -l` 为空；v1.3.0 当时也没打） |
-| GitHub Release | v1.3.0 已发布；**v1.3.1 待上传**（本机无 `gh`，需手动建 Release） |
+| git tag | `v1.3.1` → `d2bed34`（annotated，已推）；`v1.3.0` → `93c6402`（此前由网页建，已同步到本地） |
+| GitHub Release | **v1.3.1 已发布**（2026-11-22）；附件名 `ShadeBar_v1.3.1.exe`，663 KB，哈希 `17d3d53c…` 与本地一致 |
 
-构建产物命名规则：`<中文名><英文名>_v<版本>.exe`，即 `随影ShadeBar_v1.3.1.exe`
-（`build.ps1` 的 `$productBase`，2026-11-22 去掉了中文与英文之间多余的下划线）。
+发布资产命名：本地是 `随影ShadeBar_v1.3.1.exe`，**上传到 GitHub 后中文前缀会被去掉**，
+变成 `ShadeBar_v1.3.1.exe`（v1.3.0 同样如此，属既成口径，不必纠正）。
+构建产物命名规则：`<中文名><英文名>_v<版本>.exe`（`build.ps1` 的 `$productBase`，
+2026-11-22 去掉了中文与英文之间多余的下划线）。
+
+**dist/ 永远保留历史版本 exe**（用户明确要求）：`dist/` 里会有多个版本并存，
+新版本只新增、不删除旧版本，便于回滚与对比；`dist/*.exe` 不进仓库，只走 Releases。
 
 ---
 
@@ -101,14 +106,17 @@
 
 ## 4. 待办
 
-### 4.1 发布收尾（唯一剩下的硬动作）
+### 4.1 发布收尾（**已全部完成**，2026-11-22）
 - [x] 版本升 **1.3.1**（`Cargo.toml` / `Cargo.lock` / README / CHANGELOG / 本文件）。
 - [x] `build.ps1` 打包，五道门禁全绿，产物 `dist/随影ShadeBar_v1.3.1.exe`。
 - [x] 仓库体检：无用户名 / 家目录 / 邮箱 / 令牌；`.gitignore` 覆盖 `target`、`dist/*.exe`、`.workbuddy`、载荷中间物。
-- [ ] `git push origin main`。
-- [ ] `git tag v1.3.1 && git push origin v1.3.1`。
-- [ ] GitHub Releases 新建 `v1.3.1`，附件 `随影ShadeBar_v1.3.1.exe`，
-      标题与正文见 `docs/release-notes-v1.3.1.md`（本机无 `gh`，走网页手动上传）。
+- [x] `git push origin main`（`93c6402 → d2bed34`）。
+- [x] `git tag -a v1.3.1` 并推送（指向 `d2bed34`）。
+- [x] GitHub Releases 发布 `v1.3.1`，附件 `ShadeBar_v1.3.1.exe`（哈希与本地一致）。
+
+下一版发版照抄这条链路：`build.ps1` → 提交 → `git tag -a vX.Y.Z` → push main+tag →
+网页建 Release（正文写进 `docs/release-notes-vX.Y.Z.md`）。本机无 `gh` CLI、无 token，
+Release 只能网页手动建。
 
 ### 4.2 长期缺口（用户没催，不要主动扩范围）
 - 悬停高亮块（S-34~S-37）：**生产载荷尚未实现**（`payload/` 零处 `BackgroundElement`），
