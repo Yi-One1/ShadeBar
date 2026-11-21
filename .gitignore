@@ -11,7 +11,11 @@
 
 # 发布产物走 GitHub Releases，不提交 exe
 /dist/*.exe
+# build.ps1 每次打包都会重新生成的门禁对照产物
+/dist/verify/
+/dist/compare/
 .screenshots/
+.build-*.log
 
 # 开发期探针：可用但含大量截图/二进制，不进仓库
 /scratch/

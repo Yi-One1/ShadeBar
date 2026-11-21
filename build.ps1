@@ -101,7 +101,10 @@ Write-Host "    version = $version"
 # Chinese product name, assembled from code points to keep this file ASCII:
 #   U+968F U+5F71 = the two characters of the Chinese product name
 $productCn = [string][char]0x968F + [char]0x5F71
-$productBase = "${productCn}_ShadeBar_v$version"
+# Artifact name: <cn product name><en product name>_v<version>.exe
+# No underscore between the Chinese and English halves, so it matches the
+# already-published v1.3.0 asset name and the documented download name.
+$productBase = "${productCn}ShadeBar_v$version"
 
 $distDir = Join-Path $Root 'dist'
 $distExe = Join-Path $distDir "$productBase.exe"
@@ -201,7 +204,7 @@ if (-not (Test-Path $built)) { Fail "build artifact not found: $built" }
 # ---------------------------------------------------------------------------
 Write-Step 'Copy to dist\'
 if (-not (Test-Path $distDir)) { New-Item -ItemType Directory -Path $distDir | Out-Null }
-# 用户要求：打包新版本时**保留旧 exe**，仅供同名版本覆盖（便于回滚和对比）。
+# Keep prior versions: only the SAME version is overwritten (rollback / diff).
 Copy-Item $built $distExe -Force
 Write-Host "    $distExe"
 $formalSize = (Get-Item $distExe).Length

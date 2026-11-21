@@ -1,4 +1,4 @@
-# 随影 ShadeBar - indicator recolor verification (log based)
+﻿# 随影 ShadeBar - indicator recolor verification (log based)
 #
 # Purpose: turn "look at the taskbar and tell me" into a repeatable assertion.
 # The payload logs one [Ind] line per indicator per apply pass:

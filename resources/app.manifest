@@ -3,14 +3,16 @@
 
      要点：
        1. PerMonitorV2：DPI 变化必须收到 WM_DPICHANGED（NFR-08 / FR-42）。
-       2. asInvoker：正常启动绝不触发 UAC；需要提权的动作（注册计划任务）由
-          ShellExecuteExW(runas) 重新拉起自身完成，而非把整个进程提权（NFR-11）。
+       2. asInvoker：全生命周期不提权。开机自启写 HKCU Run 键（用户级，无需管理员），
+          不存在"需要 runas 重新拉起自身"的动作——v1.1 之后已无任何提权路径（NFR-11）。
        3. supportedOS 只声明 Win10/11 与 8.1：声明更老的 OS 会让
           GetVersionEx / 部分 shell 行为回退到兼容层。
        4. activeCodePage=UTF-8：日志与 JSON 配置全 UTF-8，避免代码页转换丢字。
        5. 依赖 comctl32 v6：即使当前自绘 GUI，后续若用到 TaskDialog 也需要它。
 -->
 <assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
+  <!-- assemblyIdentity 的 version 与应用版本**无关**（应用清单不参与程序集解析），
+       故意固定 1.0.0.0，避免每次改版本还要同步这里。真正的版本号只有 Cargo.toml 一处。 -->
   <assemblyIdentity
       type="win32"
       name="Yi-One1.ShadeBar"
