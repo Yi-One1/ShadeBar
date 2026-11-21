@@ -6,6 +6,13 @@ artifact filename, the About page and the exe VERSIONINFO (FR-16 / A-16).
 
 ## [1.3.1] - 2026-11-22
 
+### Changed
+
+- **所有正常态指示条改为共用同一个画刷**（`CreateInstance` 出一个 `SolidColorBrush`，
+  逐条赋给指示条的 `Fill`）：换色时只改这一个对象的 `Color`，全部短条**同一刻**变色，
+  不会再出现"改了几条、剩下几条还是系统色"。选中态仍走"元素 `Fill` + 画刷 `Color`"
+  双写（视觉状态会覆盖 `Fill`）；树重放与还原后重建画刷，避免句柄失效。
+
 ### Fixed
 
 - **一部分指示条永久不改色，重启软件也补不回来**：载荷只在订阅 XAML 时拿到一次
@@ -20,6 +27,9 @@ artifact filename, the About page and the exe VERSIONINFO (FR-16 / A-16).
 - **`payload/build.sh` 写死本机 MSVC 路径**（`…\14.44.35207`），换一台机器直接
   "No such file or directory"：改为自动探测 VS / Windows SDK，可用 `MSVC_ROOT` /
   `SDK_ROOT` / `SDK_VER` 覆盖；依赖检查改用 `dumpbin`，链接补 `user32`。
+- **注入失败不再静默**：`inject` 出错以前只把 `injected_pid` 归零、日志里什么都没有，
+  现场只能看到"整片不着色"。现在记 `inject failed: …`（同样的错只记一次），
+  成功也记 `inject ok: explorer pid=`。
 
 ### Added
 
