@@ -4,7 +4,31 @@ All notable changes to 随影 ShadeBar are documented here. The version is a sin
 source of truth in `Cargo.toml` (`[workspace.package] version`), also used for the
 artifact filename, the About page and the exe VERSIONINFO (FR-16 / A-16).
 
-## [1.3.0] - 2026-11-21
+## [1.3.1] - 2026-11-22
+
+### Fixed
+
+- **一部分指示条永久不改色，重启软件也补不回来**：载荷只在订阅 XAML 时拿到一次
+  元素树，之后仅靠"带名字的 Add"增量维护。实测打开新窗口时日志里 **0 条 `[Add]`**，
+  新指示条永远进不了树；宿主重启时 DLL 已驻留、`DllMain` 不再执行，也不会重新订阅。
+  现在宿主重连、本拍想要指示条却 0 命中、以及兜底轮询（用户有输入 5 s / 空闲 30 s）
+  时会 `Unadvise + Advise` 全量重放，重放的首个 Add 清旧树并去重。
+- **整片不着色，且只有重启 explorer 能恢复**：旧载荷退位时不退订，新载荷的
+  `AdviseVisualTreeChange` 可能返回 `E_UNEXPECTED` 后"放弃改色"；初始化重试 60 次后
+  线程直接退出，DLL 却仍驻留 explorer，后续注入命中已加载模块、`DllMain` 不再执行。
+  现在退位前先退订，初始化失败改为无限重试（60 次后每 10 s 退避）。
+- **`payload/build.sh` 写死本机 MSVC 路径**（`…\14.44.35207`），换一台机器直接
+  "No such file or directory"：改为自动探测 VS / Windows SDK，可用 `MSVC_ROOT` /
+  `SDK_ROOT` / `SDK_VER` 覆盖；依赖检查改用 `dumpbin`，链接补 `user32`。
+
+### Added
+
+- `tools/check_payload_sync.py`：着色链路回归检查（C1 指示条有写入 / C2 订阅成功 /
+  C3 未整片失效 / C4 重放后确实着色），只读 `payload.log`，不改系统。
+- 载荷诊断日志：`[Tree]`（树组成）、`[Replay]`（重放耗时）、`[IndFail]`（写入失败原因）、
+  `[Add]`（限流）。
+
+
 
 ### Added
 
