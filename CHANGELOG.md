@@ -4,6 +4,23 @@ All notable changes to 随影 ShadeBar are documented here. The version is a sin
 source of truth in `Cargo.toml` (`[workspace.package] version`), also used for the
 artifact filename, the About page and the exe VERSIONINFO (FR-16 / A-16).
 
+## [1.3.2] - 2026-11-22
+
+### Fixed
+
+- **软件在运行，托盘（含隐藏区）里却找不到图标**：托盘图标挂在 explorer 上，
+  资源管理器重启会清空所有图标。其它程序收到系统广播 `TaskbarCreated` 会重新挂上，
+  随影从未处理这条广播，于是进程还在、图标永久消失，只能重启软件。
+  现在响应 `TaskbarCreated` 并调用 `TrayIcon::reattach()`：先按"图标仍在"发
+  `NIM_MODIFY` 探测，失败才当丢失重挂 `NIM_ADD`。
+- **补挂状态机不会自愈**：`refresh` 失败时 `added` 从不清零，心跳里的
+  `first = !is_added()` 永远是 `false`；再加上"已挂载 + 外观没变就 return"的短路，
+  图标丢失后既不发 `NIM_ADD` 也不发 `NIM_MODIFY`。现在失败即归零并清缓存键，
+  短路条件收敛为纯函数 `needs_shell_call(first, added, look_unchanged)` 并加单测。
+- **托盘失败原因不可见**：新增 `tray NIM_ADD failed: err=<GetLastError>` 日志，
+  每进程最多 3 行（心跳 1 Hz 重试不刷屏）。实测重复 `NIM_ADD` 会拿到
+  `E_FAIL 0x80004005`，正是"直接重挂"写法会把自己卡死的原因。
+
 ## [1.3.1] - 2026-11-22
 
 ### Changed

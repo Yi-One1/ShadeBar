@@ -7,7 +7,7 @@ Windows 11 任务栏**文字与图标自适应着色**工具。实时采样任�
 配合 TranslucentTB 使用：任务栏透明/模糊后，时钟、日期、托盘图标在浅色壁纸上
 容易糊成一片，在深色壁纸上又会发灰；随影按**当前这块背景**自动决定深浅。
 
-> **当前版本：v1.3.1**。相对 v1.0.0（只采样不落地）本版新增了真实的元素级着色能力：
+> **当前版本：v1.3.2**。相对 v1.0.0（只采样不落地）本版新增了真实的元素级着色能力：
 > 通过 TAP 注入 + XAML 诊断接口改写元素画刷，已在 Windows 11 26H2 Build 26300 真机验证。
 > 不修改系统主题、不改壁纸、不重启资源管理器。
 > v1.1.2 修掉了常驻内存超标：打开过设置页后收进托盘约 **8–15 MB** 工作集（此前 92 MB）。
@@ -25,6 +25,8 @@ Windows 11 任务栏**文字与图标自适应着色**工具。实时采样任�
 > 元素树），以及**整片不着色、只能重启 explorer 才恢复**（退位副本退订 + 初始化无限重试）。
 > 同时把**所有正常态指示条改为共用一个画刷**——换色时只改这一个对象，全部短条同一刻变色，
 > 不再出现"改了几条、剩下几条还是系统色"。
+> v1.3.2 修掉**托盘图标在资源管理器重启后消失**：随影以前不响应系统的 `TaskbarCreated`
+> 广播，explorer 一重启图标就再也回不来（进程还活着，只能重启软件）；现在会自动重挂。
 >
 > **下载**：[GitHub Releases](https://github.com/Yi-One1/ShadeBar/releases) 提供单文件
 > exe，免安装；`dist/` 不再随仓库分发二进制。
@@ -85,7 +87,7 @@ CoreDispatcher 编组到 XAML UI 线程 → IVisualTreeService::SetProperty 改�
 | 运行库 | **无需安装 VC++ 运行库**（静态 CRT） |
 | 权限 | 普通用户（Medium IL），`asInvoker`，**全生命周期 UAC = 0** |
 | 网络 | 完全离线，无任何出站连接 |
-| 体积 | 单 exe **662 KB**（678400 B；载荷 DLL 内嵌，运行时释放到 `%LOCALAPPDATA%\ShadeBar\`） |
+| 体积 | 单 exe **663 KB**（679424 B；载荷 DLL 内嵌，运行时释放到 `%LOCALAPPDATA%\ShadeBar\`） |
 | 常驻内存 | 托盘常驻（未打开过设置）**约 15 MB 工作集 / 4 MB 私有**；打开过设置页后收进托盘约 **8–12 MB 工作集**（NFR-02 要求 ≤ 20 MB）。注意：绘制过一帧后私有提交约 41 MB 不再归还，见 §内存口径 |
 | CPU | 托盘常驻 **0.05%**（NFR-03 要求 ≤ 0.1%） |
 
@@ -103,7 +105,7 @@ CoreDispatcher 编组到 XAML UI 线程 → IVisualTreeService::SetProperty 改�
 | 双击 / 无参数 | 单实例常驻托盘 + 采样线程 + 着色；连续双击进程数恒为 1 |
 | 右键托盘图标 | 打开设置 / 暂停自适应 / 开机自启动 / 导出诊断包 / 关于 / 退出 |
 | `--ui` | 直接打开设置窗口 |
-| `--version` | 打印 `随影 ShadeBar v1.3.1` |
+| `--version` | 打印 `随影 ShadeBar v1.3.2` |
 | `--help` | 打印用法 |
 
 设置页共 **20 项可见设置**（配置里保留 39 项编号，未落地 / 无视觉表现的项从 UI
@@ -136,7 +138,7 @@ target/x86_64-pc-windows-msvc/release/shadebar-app.exe
 ```
 
 **顺序不能反**：`crates/shadebar-app/build.rs` 会读取 `payload/build/ShadeBarTap.dll`
-并计算内容指纹，指纹进入载荷文件名（`ShadeBarTap_v1.3.1_<hash>.dll`）。
+并计算内容指纹，指纹进入载荷文件名（`ShadeBarTap_v1.3.2_<hash>.dll`）。
 这样内容一变文件名就变，explorer 里不会因为「同名模块已加载」而静默跑旧代码。
 
 版本号只有 `Cargo.toml` 的 `[workspace.package] version` 一个来源，
