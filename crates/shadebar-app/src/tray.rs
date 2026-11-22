@@ -15,7 +15,7 @@ use shadebar_core::color::Rgba;
 use shadebar_core::win::to_wide;
 use shadebar_core::PRODUCT_NAME;
 use windows::core::PCWSTR;
-use windows::Win32::Foundation::{BOOL, HWND, LPARAM, POINT, WPARAM};
+use windows::Win32::Foundation::{BOOL, GetLastError, HWND, LPARAM, POINT, WPARAM};
 use windows::Win32::Graphics::Gdi::{
     BI_RGB, BITMAPINFO, BITMAPINFOHEADER, CreateBitmap, CreateDIBSection, DIB_RGB_COLORS,
     DeleteObject, GetDC, HDC, HBITMAP, ReleaseDC, RGBQUAD,
@@ -104,7 +104,7 @@ impl TrayIcon {
         // 外观没变就不碰系统：`Shell_NotifyIcon` 要过 explorer 的 IPC，
         // 每秒一次足以把常驻 CPU 顶到 1% 以上。
         let look = (show_dot, degraded, lang);
-        if !first && self.added && self.last_look == Some(look) {
+        if !needs_shell_call(first, self.added, self.last_look == Some(look)) {
             return;
         }
         let Some(new_icon) = make_icon() else {
@@ -134,6 +134,37 @@ impl TrayIcon {
             // 添加/更新失败：不保留句柄，避免泄漏。
             // SAFETY: new_icon 是本次生成的图标，未被系统接管。
             unsafe { DestroyIcon(new_icon) }.ok();
+            // 失败必须把状态退回"未挂载"，否则心跳里的 `first = !is_added()` 永远是
+            // false，只会一直发 NIM_MODIFY：图标丢了就再也回不来。
+            self.added = false;
+            self.last_look = None;
+            // SAFETY: 只读线程本地错误码。
+            let err = unsafe { GetLastError() };
+            log_tray_failure(first, err.0);
+        }
+    }
+
+    /// explorer 重启后重新对齐图标状态。
+    ///
+    /// 广播 `TaskbarCreated` 只说明"任务栏重建了"，**不代表我们的图标一定没了**：
+    /// 图标若仍在，`NIM_ADD` 会撞上已存在的 uID 直接返回 `E_FAIL`（实测
+    /// 0x80004005），于是状态被误判成"未挂载"，心跳开始每秒重试失败。
+    /// 所以先按"仍在"处理（`NIM_MODIFY`），失败才当丢失重挂（`NIM_ADD`）。
+    pub fn reattach(
+        &mut self,
+        hwnd: HWND,
+        decision: Option<Rgba>,
+        show_dot: bool,
+        degraded: bool,
+        lang: Lang,
+    ) {
+        // 清缓存键，强制真的走一次 Shell_NotifyIcon。
+        self.last_look = None;
+        if self.added {
+            self.refresh(hwnd, decision, show_dot, degraded, lang, false);
+        }
+        if !self.added {
+            self.refresh(hwnd, decision, show_dot, degraded, lang, true);
         }
     }
 
@@ -219,6 +250,32 @@ pub fn handle_left_click(hwnd: HWND, cfg: &Config, lang: Lang) {
         }
         1 => TrayIcon::show_menu(hwnd, cfg, lang),
         _ => {}
+    }
+}
+
+/// 是否需要真的调用 `Shell_NotifyIcon`。
+///
+/// 这条短路是 v1.3.2 那个"软件在跑、托盘却没图标"的根因所在：以前写成
+/// `!first && added && 外观没变 → 直接 return`，而 explorer 重启后 `added` 仍是
+/// `true`、外观也没变，于是一路短路，**永远不会再发 NIM_ADD**，图标再也回不来。
+/// 现在只有"已挂载 + 外观没变 + 不强制"三者同时成立才跳过。
+fn needs_shell_call(first: bool, added: bool, look_unchanged: bool) -> bool {
+    first || !added || !look_unchanged
+}
+
+/// 托盘挂载 / 更新失败最多记 3 行：失败时心跳会按 1 Hz 重试，不设预算会刷爆日志。
+fn log_tray_failure(first: bool, err: u32) {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    static BUDGET: AtomicUsize = AtomicUsize::new(3);
+    if BUDGET
+        .try_update(Ordering::Relaxed, Ordering::Relaxed, |n| n.checked_sub(1))
+        .is_ok()
+    {
+        crate::config::note(&format!(
+            "tray {} failed: err={}",
+            if first { "NIM_ADD" } else { "NIM_MODIFY" },
+            err
+        ));
     }
 }
 
@@ -446,6 +503,28 @@ mod tests {
     fn tray_event_extracts_low_word() {
         assert_eq!(tray_event(LPARAM(TRAY_RBUTTONUP as isize)), TRAY_RBUTTONUP);
         assert_eq!(tray_event(LPARAM(0x1234_0205)), TRAY_RBUTTONUP);
+    }
+
+    #[test]
+    fn shell_call_is_skipped_only_when_mounted_and_unchanged() {
+        // 已挂载 + 外观没变 + 不强制：唯一允许跳过 `Shell_NotifyIcon` 的组合
+        // （每秒都发会把常驻 CPU 顶到 1% 以上）。
+        assert!(!needs_shell_call(false, true, true));
+
+        // 首次挂载、或上次失败后状态已退回未挂载：必须真发（这是 v1.3.2 的修复点）。
+        assert!(needs_shell_call(true, true, true), "首次必须发 NIM_ADD");
+        assert!(needs_shell_call(true, false, true));
+        assert!(needs_shell_call(false, false, true), "未挂载必须重试，不能被缓存短路");
+
+        // explorer 重启后 reattach 会清掉缓存键：即使"已挂载 + 外观没变"也要真发，
+        // 由它先用 NIM_MODIFY 探测、失败再 NIM_ADD 补挂。
+        assert!(
+            needs_shell_call(false, true, false),
+            "reattach 清缓存后不得被短路"
+        );
+
+        // 外观变化（如降级文案切换）也要真发。
+        assert!(needs_shell_call(false, true, false));
     }
 
     #[test]

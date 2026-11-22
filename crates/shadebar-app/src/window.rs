@@ -33,7 +33,8 @@ use windows::Win32::UI::HiDpi::GetDpiForWindow;
 use windows::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GetClientRect,
     GetMessageW, GetWindowLongPtrW, HMENU, IDC_ARROW, LoadCursorW, LoadIconW, MINMAXINFO, MSG,
-    PostQuitMessage, RegisterClassW, SetCursor, SetForegroundWindow, SetWindowLongPtrW,
+    PostQuitMessage, RegisterClassW, RegisterWindowMessageW, SetCursor, SetForegroundWindow,
+    SetWindowLongPtrW,
     IsWindowVisible, SetWindowPos, ShowWindow, TranslateMessage, CS_HREDRAW, CS_VREDRAW,
     GWLP_USERDATA,
     SW_HIDE, SW_SHOW, SWP_NOACTIVATE, SWP_NOZORDER, WM_CLOSE, WM_COMMAND, WM_DESTROY,
@@ -53,6 +54,19 @@ use crate::tray::{
 use crate::ui::theme::{self, ThemeMode};
 use crate::ui::widgets::PopupKind;
 use crate::ui::{View, ViewAction};
+
+/// explorer 重启后向所有顶层窗口广播的系统消息。
+///
+/// 托盘图标是"挂在 explorer 上"的：资源管理器一重启，图标随旧任务栏一起消失，
+/// 但我们的进程还活着。不响应这条广播，表现就是**软件在跑、托盘里没有图标**，
+/// 隐藏区里也没有（因为根本没注册）。消息 ID 由系统按字符串全局分配，跨进程一致。
+fn taskbar_created_message() -> u32 {
+    static ID: std::sync::OnceLock<u32> = std::sync::OnceLock::new();
+    *ID.get_or_init(|| {
+        // SAFETY: 入参是静态宽字符串，返回值是系统分配的消息 ID。
+        unsafe { RegisterWindowMessageW(windows::core::w!("TaskbarCreated")) }
+    })
+}
 
 /// `DWMWA_SYSTEMBACKDROP_TYPE`（38）。
 const DWMWA_SYSTEMBACKDROP_TYPE: DWMWINDOWATTRIBUTE = DWMWINDOWATTRIBUTE(38);
@@ -567,6 +581,26 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRES
     unsafe {
         match msg {
             WM_ERASEBKGND => LRESULT(1),
+
+            // explorer 重启完毕：托盘被清空，重新对齐图标（v1.3.2）。
+            m if m != 0 && m == taskbar_created_message() => {
+                if let Some(state) = state_mut(hwnd) {
+                    let cfg = state.app.config();
+                    let lang = state.app.language();
+                    state.tray.reattach(
+                        hwnd,
+                        state.app.decision_color(),
+                        cfg.get(crate::config::SettingKey::S43) != 0,
+                        state.app.degraded(),
+                        lang,
+                    );
+                    crate::config::note(&format!(
+                        "tray reattach after TaskbarCreated: added={}",
+                        state.tray.is_added()
+                    ));
+                }
+                LRESULT(0)
+            }
 
             WM_SIZE => {
                 if let Some(state) = state_mut(hwnd) {
