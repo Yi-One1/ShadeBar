@@ -3,10 +3,10 @@
 > **最后更新**：2026-11-22 (GMT+8)
 > **用途**：跨对话续接。新对话看不到聊天记录，本文件是唯一状态依据。
 >
-> **状态一句话**：代码到 **v1.3.2**，产物已打包 `dist/随影ShadeBar_v1.3.2.exe`
-> （679,424 B，SHA-256 `AC79C1EA…C8B726`），五道门禁全绿、测试 **216** 项全绿。
-> **只剩发布动作**：`git push` + 打 tag `v1.3.2` + 网页建 GitHub Release
-> （正文用 `docs/release-notes-v1.3.2.md`；本机无 `gh` CLI，只能手动建）。
+> **状态一句话**：**v1.3.2 已发布**（2026-11-22，GitHub Releases，tag `v1.3.2`）。
+> 修掉"软件在跑、托盘却没图标"（explorer 重启后不响应 `TaskbarCreated`）；
+> 产物 `dist/随影ShadeBar_v1.3.2.exe` 679,424 B，测试 **216** 项全绿、五道门禁全绿。
+> 下一版从 §5.1 末尾的发版链路接着走。
 
 ---
 
@@ -34,8 +34,8 @@
 | SHA-256 | `AC79C1EAE3445BAAD0422ABDD7E65D83A95193C94B58667856C91A2470C8B726` |
 | FileVersion | `1.3.2.0`（`--version` 输出 `随影 ShadeBar v1.3.2`） |
 | 门禁 | 5/5 全绿（体积 / 无 VC++ 运行时 / 版本资源 / 清单 PerMonitorV2+asInvoker / 图标）；verify 769,024 B、no-en 671,232 B，双语差 8 KB（预算 40 KB） |
-| git tag | `v1.3.2` 待打（`v1.3.1` → `d2bed34`、`v1.3.0` → `93c6402` 均已存在） |
-| GitHub Release | v1.3.0 / v1.3.1 已发布；**v1.3.2 待发布** |
+| git tag | `v1.3.2` → `9c9d850`（annotated，已推）；`v1.3.1` → `d2bed34`；`v1.3.0` → `93c6402` |
+| GitHub Release | **v1.3.2 已发布**（2026-11-22）；附件 `ShadeBar_v1.3.2.exe`，664 KB，哈希 `ac79c1ea…` 与本地一致 |
 
 发布资产命名：本地是 `随影ShadeBar_v1.3.2.exe`，**上传到 GitHub 后中文前缀会被去掉**，
 线上叫 `ShadeBar_v1.3.2.exe`（v1.3.0 / v1.3.1 都如此，属既成口径，不必纠正）。
@@ -128,15 +128,14 @@
 
 ## 5. 待办
 
-### 5.1 发布收尾（v1.3.2）
+### 5.1 发布收尾（v1.3.2，**已全部完成**，2026-11-22）
 - [x] 版本升 **1.3.2**（`Cargo.toml` / `Cargo.lock` / README / CHANGELOG / 本文件）。
 - [x] `build.ps1` 打包，五道门禁全绿，产物 `dist/随影ShadeBar_v1.3.2.exe`。
 - [x] 仓库体检：无用户名 / 家目录 / 邮箱 / 令牌；`.gitignore` 覆盖 `target`、`dist/`、`.workbuddy`、载荷中间物。
-- [x] 自启项改指 dist 产物。
-- [ ] `git push origin main`。
-- [ ] `git tag -a v1.3.2` 并推送（指向发布代码状态）。
-- [ ] 网页建 GitHub Release `v1.3.2`，附件 `随影ShadeBar_v1.3.2.exe`，
-      正文用 `docs/release-notes-v1.3.2.md`。
+- [x] 自启项已改指 `dist\随影ShadeBar_v1.3.2.exe`。
+- [x] `git push origin main`（`d9c4739 → 9c9d850`）。
+- [x] `git tag -a v1.3.2` 并推送（指向 `9c9d850`）。
+- [x] 网页发布 GitHub Release `v1.3.2`，附件 `ShadeBar_v1.3.2.exe`（哈希与本地一致）。
 
 下一版照抄：`build.ps1` → 提交 → `git tag -a vX.Y.Z` → push main+tag → 网页建 Release。
 
