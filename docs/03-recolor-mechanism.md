@@ -42,7 +42,7 @@ v1.0.0 把「时间 / 日期 / 悬停块 / 指示条」标为**永久移出**，
 | F12 | `ClearProperty(element, idx)` **可还原系统默认** | 截图 `shot_restored.bmp` / `shot_restored2.bmp` / `shot_final.bmp`：全部复原 |
 | F13 | 全过程 explorer **零崩溃**（pid 9508 稳定，跨 17 次注入） | 事件日志无新增 1000 |
 | F14 | **图标状态条** = `Rectangle`，`Name=RunningIndicator`；`Fill` 可改 | 截图 `shot_icons.bmp`：全部变品红 |
-| F15 | **托盘系统字形图标** = `SystemTray.AdaptiveTextBlock` 三层（`Underlay`/`Base`/`AccentOverlay`），`Foreground` 可改 | 截图 `shot_tray.bmp`：麦克风/输入法/显示器/音量变绿，QQ/电量等第三方位图**不受影响** |
+| F15 | **托盘系统字形图标** = `SystemTray.AdaptiveTextBlock` 下名为 `Base` 的 `InnerTextBlock`；`Underlay` / `AccentOverlay` 是透明或强调覆盖层，写 `Foreground` 不可见 | 截图 `shot_tray.bmp`：麦克风/输入法/显示器/音量变绿，QQ/电量等第三方位图**不受影响**；v1.4.0 起按 Base 层收集 |
 
 ---
 
@@ -52,7 +52,7 @@ v1.0.0 把「时间 / 日期 / 悬停块 / 指示条」标为**永久移出**，
 |---|---|---|---|
 | **时间** | `Windows.UI.Xaml.Controls.TextBlock` | `TimeInnerTextBlock` | `Text = "7:14"` |
 | **日期** | `Windows.UI.Xaml.Controls.TextBlock` | `DateInnerTextBlock` | 与时间同父 `SystemTray.DateTimeIconContent` |
-| **托盘系统字形图标** | `SystemTray.AdaptiveTextBlock` | `Underlay` / `Base` / `AccentOverlay`（每个图标 3 层，共 5 组） | `Foreground` 可改；第三方位图走 `ImageIconContent`，不染 |
+| **托盘系统字形图标** | `Windows.UI.Xaml.Controls.TextBlock`（`InnerTextBlock`） | 父级为 `SystemTray.AdaptiveTextBlock`，且父级名 `Base` | 只染 Base 层；`Underlay` / `AccentOverlay` 宽 0 或强调覆盖，不染；第三方图标走 `ImageIconContent`，不染 |
 | **图标状态条** | `Windows.UI.Xaml.Shapes.Rectangle` | `RunningIndicator` | `Height=3`、`RadiusX/Y=1.5`、`Fill`=画刷；**正常 `ActualWidth=6`，选中 `ActualWidth=16`** |
 | 图标背景（选中/悬停） | `Border` / `Rectangle` | `BackgroundElement` / `BackgroundBorder` | 预留，v1.1 不做 |
 | 图标区容器 | `SystemTray.StackListView` | `IconStack` | — |
@@ -118,7 +118,7 @@ v1.0.0 把「时间 / 日期 / 悬停块 / 指示条」标为**永久移出**，
 
 ```
 Rust 宿主 (shadebar-app)
-  ├─ 采样：Shell_TrayWnd 真实矩形 → 顶边下 3/5/7 px → 三段（时钟 93~99% / 托盘 84~93% / 图标 25~70%）
+  ├─ 采样：Shell_TrayWnd 真实矩形 → 顶边下 3/5/7 px → 三段（时钟 93~99% / 托盘 84~93% / 图标 0~84% 可调）
   │        每段三行取中位数（抗图标污染）
   ├─ 判定：EWMA + 双阈值迟滞，默认分区独立（可切全局统一）
   ├─ IPC ：Local\ShadeBar.Ipc.v1（80 字节共享内存，含心跳/状态/四个颜色）
@@ -144,9 +144,9 @@ C++ 载荷 (ShadeBarTap.dll, ~206 KB)
 |---|---|---|
 | 时间 `TimeInnerTextBlock.Foreground` | ✅ 稳定 | 改色后连续 60 s 保持（`s5.bmp` → `s60.bmp`） |
 | 日期 `DateInnerTextBlock.Foreground` | ✅ 稳定 | 同上 |
-| 托盘字形 `AdaptiveTextBlock.Foreground` | ✅ 稳定 | `G1.bmp`：系统图标变青，第三方位图不动 |
-| 指示条**正常态** `RunningIndicator.Fill` | ✅ 可用 | `ActualWidth=6` 的那批写入有效 |
-| 指示条**选中态** | ⏳ 待攻克 | `ActualWidth=16` 的元素写入返回 `S_OK`，但选中/取消选中时被视觉状态覆盖，屏幕始终显示系统强调色。v1.1.1 **暂不介入**（让系统给对比色），能力保留为后续待办，探索方向见 `progress.md` §2.4 |
+| 托盘字形 `InnerTextBlock.Foreground`（Base 层） | ✅ 稳定 | v1.4.0 真机：麦克风/网络/显示器/音量变红；第三方位图不动 |
+| 指示条**正常态** `RunningIndicator.Fill` | ✅ 可用 | `ActualWidth=6` 的那批写入有效；所有正常态共用同一个画刷 |
+| 指示条**选中态** | ✅ 已解决（v1.1.3） | 改画刷自身 `Color` 可穿透 VisualState；必要时逐层染色，写完回读校验 |
 | 悬停高亮块 `BackgroundElement` | ⚠ 未验证 | 探针阶段 `Background` 写入曾生效（`parent_exp.bmp` 图标底色变青），但未做稳定性验证，暂不开放 |
 
 > 判定「改色是否生效」不能只看 `SetProperty` 的返回值：XAML 对已被视觉状态接管的属性
