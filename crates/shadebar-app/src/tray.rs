@@ -3,12 +3,11 @@
 //! * 图标**程序生成**（16×16 32bpp DIB → `CreateIconIndirect`）：由 `icon_pixel`
 //!   按 A·对分方案的三色几何逐像素绘制，与 `resources/app.ico`（exe / 标题栏）
 //!   同构但**不共享同一 HICON**；深/浅任务栏下轮廓清晰（A-06）。
-//! * 菜单 6 项全部生效（A-07）：打开设置 / 暂停自适应（勾选）/ 开机自启动（勾选）/
-//!   导出诊断包 / 关于 / 退出。
-//! * S-40 左键三选一；**S-43 自 G4 起没有任何视觉表现**（用户决定去掉白点，
-//!   图标限定黑白 + 深灰三色）。它不能当"仍然生效"糊弄过去：**必须在 G5 重排
-//!   设置页时删除或改名**。对外签名与缓存键暂不动，避免扩大改动面；降级只
-//!   影响 tip 的「受限」文案。
+//! * 菜单 4 项（A-07）：打开设置 / 开机自启动（勾选）/ 版本号（灰显）/ 退出。
+//! * S-40 左键单击、S-51 左键双击各三选一；双击动作非「无操作」时单击会等待
+//!   双击窗口（`click_plan`），双击命中则取消挂起的单击。
+//! * S-43 自 G4 起没有任何视觉表现（用户决定去掉白点，图标限定黑白 + 深灰三色）；
+//!   对外签名与缓存键暂不动，避免扩大改动面，降级只影响 tip 的「受限」文案。
 //! * 权限模型：全程普通权限，无 `runas`、无提权入口（FR-20 / NFR-11）。
 
 use shadebar_core::color::Rgba;
@@ -253,11 +252,6 @@ pub fn handle_left_action(hwnd: HWND, action: i64, cfg: &Config, lang: Lang) {
         1 => TrayIcon::show_menu(hwnd, cfg, lang),
         _ => {}
     }
-}
-
-/// 单击（S-40）的既有入口。
-pub fn handle_left_click(hwnd: HWND, cfg: &Config, lang: Lang) {
-    handle_left_action(hwnd, cfg.get(SettingKey::S40), cfg, lang);
 }
 
 /// 托盘消息 `LPARAM` 低字：左键双击（`WM_LBUTTONDBLCLK`）。

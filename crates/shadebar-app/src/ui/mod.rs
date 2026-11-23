@@ -306,11 +306,6 @@ impl View {
         std::mem::take(&mut self.actions)
     }
 
-    /// 外部请求打开浮层（托盘菜单「关于」）。
-    pub fn request_popup(&mut self, kind: PopupKind) {
-        self.open_popup(kind);
-    }
-
     /// 提示条（i18n key）。
     pub fn show_toast(&mut self, key: &'static str) {
         self.show_toast_text(text(key, self.lang).to_string());

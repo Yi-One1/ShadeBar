@@ -28,6 +28,7 @@
 .vs/
 .idea/
 .vscode/
+.trae/
 /workbuddy/
 .workbuddy/
 **/target/

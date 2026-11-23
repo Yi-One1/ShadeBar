@@ -55,7 +55,7 @@ s31.help	Date text darkens or lightens to match the local background
 s32	System tray icons
 s32.help	System glyph icons such as network, volume and battery; app-drawn icons stay untouched
 s33	Running indicator bar (normal state)
-s33.help	The short bar under running icons; normal and selected states share one target colour
+s33.help	The short bar under running icons; normal and selected can be coloured separately in per-region mode
 s34	Indicator bar color source
 s34.help	Independent from the hover block; the two never affect each other
 s35	Fixed indicator color

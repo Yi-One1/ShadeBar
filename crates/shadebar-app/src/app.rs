@@ -304,6 +304,9 @@ impl App {
     }
 
     /// 托盘菜单：切换「暂停自适应」（S-42）。
+    ///
+    /// 生产路径由顶栏「暂停」按钮写 S-42，这里保留给单测与后续菜单入口。
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn toggle_pause(&self) -> bool {
         let mut st = self.lock();
         let next = if st.config.get(SettingKey::S42) != 0 { 0 } else { 1 };

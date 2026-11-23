@@ -12,7 +12,7 @@
 //! # T03.6 / T04.1 新增
 //!
 //! * `WM_CLOSE` 按 S-41 决定「最小化到托盘」或「直接退出」（A-09）；
-//! * 托盘 6 项菜单（`WM_COMMAND`）、左键三选一（S-40）、判定色点（S-43，1 Hz）；
+//! * 托盘 4 项菜单（`WM_COMMAND`）、左键单击 / 双击（S-40 / S-51）、判定色点（S-43，1 Hz）；
 //! * `WM_SHADEBAR_ACTIVATE` 供第二实例激活既有窗口（A-01）；
 //! * 系统深浅色 / UI 语言变化即时重绘（FR-40 / A-23）；
 //! * 所有输入消息统一转发给 [`View::on_message`]，窗口层不做布局判断。
@@ -54,7 +54,6 @@ use crate::tray::{
     MENU_AUTOSTART, MENU_EXIT, MENU_ID_BASE, MENU_OPEN, TRAY_RBUTTONUP, TRAY_LBUTTONDBLCLK,
 };
 use crate::ui::theme::{self, ThemeMode};
-use crate::ui::widgets::PopupKind;
 use crate::ui::{View, ViewAction};
 
 /// explorer 重启后向所有顶层窗口广播的系统消息。
