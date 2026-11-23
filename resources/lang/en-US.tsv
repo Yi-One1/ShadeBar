@@ -203,3 +203,47 @@ diag.sample_unit	samples
 action.about	About
 action.export	Export
 action.copy	Copy
+item.indicator	Normal indicator
+item.indicator_sel	Selected indicator
+item.tray	Tray icons
+item.clock	Time & date
+s52	Normal indicator · dark bg
+s52.help	Per-region mode: color of the normal indicator over a dark background
+s53	Normal indicator · light bg
+s53.help	Per-region mode: color of the normal indicator over a light background
+s54	Selected indicator · dark bg
+s54.help	Per-region mode: color of the selected indicator over a dark background
+s55	Selected indicator · light bg
+s55.help	Per-region mode: color of the selected indicator over a light background
+s56	Tray icons · dark bg
+s56.help	Per-region mode: color of tray text glyphs over a dark background
+s57	Tray icons · light bg
+s57.help	Per-region mode: color of tray text glyphs over a light background
+s58	Time & date · dark bg
+s58.help	Per-region mode: color of time and date over a dark background
+s59	Time & date · light bg
+s59.help	Per-region mode: color of time and date over a light background
+s60	Normal indicator opacity
+s60.help	Opacity of the normal indicator (0-100%), default 45%; applies to both modes
+item.indicator	Normal indicator
+item.indicator_sel	Selected indicator
+item.tray	Tray icons
+item.clock	Time & date
+s52	Normal indicator · dark bg
+s52.help	Per-region mode: color of the normal indicator over a dark background
+s53	Normal indicator · light bg
+s53.help	Per-region mode: color of the normal indicator over a light background
+s54	Selected indicator · dark bg
+s54.help	Per-region mode: color of the selected indicator over a dark background
+s55	Selected indicator · light bg
+s55.help	Per-region mode: color of the selected indicator over a light background
+s56	Tray icons · dark bg
+s56.help	Per-region mode: color of tray text glyphs over a dark background
+s57	Tray icons · light bg
+s57.help	Per-region mode: color of tray text glyphs over a light background
+s58	Time & date · dark bg
+s58.help	Per-region mode: color of time and date over a dark background
+s59	Time & date · light bg
+s59.help	Per-region mode: color of time and date over a light background
+s60	Normal indicator opacity
+s60.help	Opacity of the normal indicator (0-100%), default 45%; applies to both modes

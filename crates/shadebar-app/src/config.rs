@@ -23,7 +23,7 @@ use shadebar_core::{SbError, SbResult};
 use crate::ui::i18n;
 
 /// 设置项总数（§6 口径，S-35/S-37 的 ARGB alpha 滑块是控件内置能力，不另计数）。
-pub const SETTING_COUNT: usize = 40;
+pub const SETTING_COUNT: usize = 49;
 
 /// 设置项编号。顺序与 §6 表格一致，`as usize` 即值表下标。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -77,10 +77,21 @@ pub enum SettingKey {
     S50,
     // 6.8 托盘左键双击（1，S-51）—— 选项集与 S-40 一致，默认"无操作"。
     S51,
+    // 6.9 分区独立配色（9，S-52 ~ S-60）—— 仅在"分区独立"模式下生效。
+    // 4 项内容 × 2 背景态；S-60 是正常态指示条的不透明度（两种模式都生效）。
+    S52,
+    S53,
+    S54,
+    S55,
+    S56,
+    S57,
+    S58,
+    S59,
+    S60,
 }
 
 impl SettingKey {
-    /// 全部 40 项，按 §6 顺序。
+    /// 全部 49 项，按 §6 顺序。
     pub const ALL: [Self; SETTING_COUNT] = [
         Self::S01, Self::S02, Self::S03, Self::S04, Self::S05, Self::S06,
         Self::S10, Self::S11, Self::S12, Self::S13, Self::S14, Self::S15, Self::S16,
@@ -91,6 +102,8 @@ impl SettingKey {
         Self::S40, Self::S41, Self::S42, Self::S43, Self::S44, Self::S45, Self::S46,
         Self::S47,
         Self::S48, Self::S49, Self::S50, Self::S51,
+        Self::S52, Self::S53, Self::S54, Self::S55, Self::S56, Self::S57,
+        Self::S58, Self::S59, Self::S60,
     ];
 
     /// 值表下标。
@@ -117,6 +130,9 @@ impl SettingKey {
             Self::S45 => "S-45", Self::S46 => "S-46", Self::S47 => "S-47",
             Self::S48 => "S-48", Self::S49 => "S-49", Self::S50 => "S-50",
             Self::S51 => "S-51",
+            Self::S52 => "S-52", Self::S53 => "S-53", Self::S54 => "S-54",
+            Self::S55 => "S-55", Self::S56 => "S-56", Self::S57 => "S-57",
+            Self::S58 => "S-58", Self::S59 => "S-59", Self::S60 => "S-60",
         }
     }
 
@@ -167,6 +183,17 @@ impl SettingKey {
             Self::S40 => SettingMeta::dropdown(G::Tray, "s40", "s40.help", 0, 3, i18n::OPT_LEFT_CLICK),
             // 左键双击：选项与 S-40 完全一致，默认"无操作"以免改变既有单击手感。
             Self::S51 => SettingMeta::dropdown(G::Tray, "s51", "s51.help", 2, 3, i18n::OPT_LEFT_CLICK),
+            // 分区独立配色：4 项内容 × 2 背景态。偏暗 = 背景偏暗时用（浅色），
+            // 偏亮 = 背景偏亮时用（深色）。
+            Self::S52 => SettingMeta::color(G::Color, "s52", "s52.help", 0xFFFF_FFFF),
+            Self::S53 => SettingMeta::color(G::Color, "s53", "s53.help", 0xFF00_0000),
+            Self::S54 => SettingMeta::color(G::Color, "s54", "s54.help", 0xFFFF_FFFF),
+            Self::S55 => SettingMeta::color(G::Color, "s55", "s55.help", 0xFF00_0000),
+            Self::S56 => SettingMeta::color(G::Color, "s56", "s56.help", 0xFFFF_FFFF),
+            Self::S57 => SettingMeta::color(G::Color, "s57", "s57.help", 0xFF00_0000),
+            Self::S58 => SettingMeta::color(G::Color, "s58", "s58.help", 0xFFFF_FFFF),
+            Self::S59 => SettingMeta::color(G::Color, "s59", "s59.help", 0xFF00_0000),
+            Self::S60 => SettingMeta::slider(G::Color, "s60", "s60.help", 45, 0, 100, 1),
             Self::S41 => SettingMeta::dropdown(G::Tray, "s41", "s41.help", 0, 2, i18n::OPT_CLOSE),
             Self::S42 => SettingMeta::toggle(G::Tray, "s42", "s42.help", 0),
             Self::S43 => SettingMeta::toggle(G::Tray, "s43", "s43.help", 1),
@@ -214,7 +241,8 @@ impl SettingKey {
     #[must_use]
     const fn normalize_color(self, value: i64) -> i64 {
         match self {
-            Self::S14 | Self::S15 => value | 0xFF00_0000,
+            Self::S14 | Self::S15 | Self::S52 | Self::S53 | Self::S54 | Self::S55
+            | Self::S56 | Self::S57 | Self::S58 | Self::S59 => value | 0xFF00_0000,
             _ => value,
         }
     }
@@ -912,14 +940,16 @@ mod tests {
             .iter()
             .copied()
             .filter(|k| k.ui_visible())
-            .collect();
-        let want = [
+            .collect();        let want = [
             SettingKey::S01, SettingKey::S02, SettingKey::S03, SettingKey::S04,
             SettingKey::S10, SettingKey::S12, SettingKey::S14, SettingKey::S15,
             SettingKey::S16, SettingKey::S18, SettingKey::S20, SettingKey::S21,
             SettingKey::S22, SettingKey::S40, SettingKey::S41, SettingKey::S45,
             SettingKey::S47, SettingKey::S48, SettingKey::S49, SettingKey::S50,
             SettingKey::S51,
+            SettingKey::S52, SettingKey::S53, SettingKey::S54, SettingKey::S55,
+            SettingKey::S56, SettingKey::S57, SettingKey::S58, SettingKey::S59,
+            SettingKey::S60,
         ];
         assert_eq!(visible, want);
         for key in [

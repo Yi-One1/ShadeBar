@@ -274,6 +274,7 @@ impl PolicyCfg {
         let mut p = Self::default();
         p.threshold = c.get(SettingKey::S12) as f32 / 1000.0;
         p.ewma_alpha = (c.get(SettingKey::S18) as f32 / 1000.0).clamp(0.05, 1.0);
+        p.normal_alpha = alpha_pct_to_u8(c.get(SettingKey::S60));
         if c.get(SettingKey::S13) != 0 {
             p.on_dark = argb_to_rgba(c.get(SettingKey::S14));
             p.on_light = argb_to_rgba(c.get(SettingKey::S15));
@@ -287,6 +288,70 @@ impl PolicyCfg {
         };
         p
     }
+}
+
+/// 分区独立配色（S-52 ~ S-59）：4 项内容 × 2 背景态。
+///
+/// "偏暗"= 背景偏暗时使用（浅色），"偏亮"= 背景偏亮时使用（深色）。
+/// 仅 `JudgeMode::PerRegion` 生效；统一模式仍用 S-14/S-15。
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ItemColors {
+    /// 正常态指示条。
+    pub normal_on_dark: Rgba,
+    /// 正常态指示条。
+    pub normal_on_light: Rgba,
+    /// 选中态指示条。
+    pub selected_on_dark: Rgba,
+    /// 选中态指示条。
+    pub selected_on_light: Rgba,
+    /// 托盘区图标。
+    pub tray_on_dark: Rgba,
+    /// 托盘区图标。
+    pub tray_on_light: Rgba,
+    /// 时间与日期。
+    pub clock_on_dark: Rgba,
+    /// 时间与日期。
+    pub clock_on_light: Rgba,
+}
+
+impl Default for ItemColors {
+    fn default() -> Self {
+        let light = Rgba::opaque(0xFF, 0xFF, 0xFF);
+        let dark = Rgba::opaque(0x00, 0x00, 0x00);
+        Self {
+            normal_on_dark: light,
+            normal_on_light: dark,
+            selected_on_dark: light,
+            selected_on_light: dark,
+            tray_on_dark: light,
+            tray_on_light: dark,
+            clock_on_dark: light,
+            clock_on_light: dark,
+        }
+    }
+}
+
+impl ItemColors {
+    /// 由用户配置派生（S-52 ~ S-59）。
+    #[must_use]
+    pub fn from_config(c: &Config) -> Self {
+        Self {
+            normal_on_dark: argb_to_rgba(c.get(SettingKey::S52)),
+            normal_on_light: argb_to_rgba(c.get(SettingKey::S53)),
+            selected_on_dark: argb_to_rgba(c.get(SettingKey::S54)),
+            selected_on_light: argb_to_rgba(c.get(SettingKey::S55)),
+            tray_on_dark: argb_to_rgba(c.get(SettingKey::S56)),
+            tray_on_light: argb_to_rgba(c.get(SettingKey::S57)),
+            clock_on_dark: argb_to_rgba(c.get(SettingKey::S58)),
+            clock_on_light: argb_to_rgba(c.get(SettingKey::S59)),
+        }
+    }
+}
+
+/// S-60 百分比 → 0~255 的 alpha（截断，45% → 114 = 0x72，与旧默认一致）。
+#[must_use]
+pub fn alpha_pct_to_u8(pct: i64) -> u8 {
+    u8::try_from((pct.clamp(0, 100) * 255) / 100).unwrap_or(0)
 }
 
 /// 带迟滞的亮度判定器（每个分区各持一个）。
@@ -331,6 +396,22 @@ impl RegionJudge {
                     cfg.on_light
                 } else {
                     cfg.on_dark
+                }
+            }
+        }
+    }
+
+    /// 分项配色：按本分区的判定端，从一对"偏暗/偏亮"里选色。
+    #[must_use]
+    pub fn item_color(&self, on_dark: Rgba, on_light: Rgba, cfg: &PolicyCfg) -> Rgba {
+        match cfg.force {
+            1 => on_dark,
+            2 => on_light,
+            _ => {
+                if self.is_light {
+                    on_light
+                } else {
+                    on_dark
                 }
             }
         }
@@ -807,6 +888,8 @@ pub struct RuntimeCfg {
     pub mode: JudgeMode,
     /// 亮度阈值与端色（S-10/S-12/S-13/S-14/S-15/S-18）。
     pub policy: PolicyCfg,
+    /// 分区独立配色的 8 个分项色（仅 `PerRegion` 模式使用）。
+    pub items: ItemColors,
     /// 采样区微调（S-20 ~ S-22）。
     pub region: RegionCfg,
     /// 元素开关掩码（S-30 ~ S-33）。
@@ -821,6 +904,7 @@ impl Default for RuntimeCfg {
             interval_ms: 500,
             mode: JudgeMode::PerRegion,
             policy: PolicyCfg::default(),
+            items: ItemColors::default(),
             region: RegionCfg::default(),
             mask: elem_mask::ALL,
         }
@@ -856,6 +940,7 @@ impl RuntimeCfg {
             // S-47：0 = 分区独立（默认），1 = 全任务栏统一。
             mode: if c.get(SettingKey::S47) == 0 { JudgeMode::PerRegion } else { JudgeMode::Global },
             policy: PolicyCfg::from_config(c),
+            items: ItemColors::from_config(c),
             region: RegionCfg::from_config(c),
             mask,
         }
@@ -1003,11 +1088,22 @@ fn run_loop(
             j_icons.update(v, &cfg.policy);
         }
 
-        let (fg_clock, fg_tray, fg_icons) = match cfg.mode {
+        // 分项配色只在"分区独立"模式生效：每项按自己分区的判定端取 S-52~S-59。
+        // 统一模式沿用 S-14/S-15 判出的单一颜色。
+        let (c_clock, c_tray, c_normal, c_selected) = match cfg.mode {
             JudgeMode::PerRegion => (
-                j_clock.foreground(&cfg.policy),
-                j_tray.foreground(&cfg.policy),
-                j_icons.foreground(&cfg.policy),
+                j_clock.item_color(cfg.items.clock_on_dark, cfg.items.clock_on_light, &cfg.policy),
+                j_tray.item_color(cfg.items.tray_on_dark, cfg.items.tray_on_light, &cfg.policy),
+                j_icons.item_color(
+                    cfg.items.normal_on_dark,
+                    cfg.items.normal_on_light,
+                    &cfg.policy,
+                ),
+                j_icons.item_color(
+                    cfg.items.selected_on_dark,
+                    cfg.items.selected_on_light,
+                    &cfg.policy,
+                ),
             ),
             JudgeMode::Global => {
                 // 全局模式：三区平均后统一判定
@@ -1020,23 +1116,20 @@ fn run_loop(
                     j.update(avg.0 / avg.1 as f32, &cfg.policy);
                 }
                 let fg = j.foreground(&cfg.policy);
-                (fg, fg, fg)
+                (fg, fg, fg, fg)
             }
         };
 
+        let to_u32 = |c: Rgba| u32::from_be_bytes([c.a, c.r, c.g, c.b]);
+
         // 3) 组计划（时间/日期用时钟区，托盘字形用托盘区，状态条用图标区）
         let plan = ColorPlan {
-            time: u32::from_be_bytes([fg_clock.a, fg_clock.r, fg_clock.g, fg_clock.b]),
-            date: u32::from_be_bytes([fg_clock.a, fg_clock.r, fg_clock.g, fg_clock.b]),
-            tray_glyph: u32::from_be_bytes([fg_tray.a, fg_tray.r, fg_tray.g, fg_tray.b]),
-            indicator_normal: {
-                let c = u32::from_be_bytes([fg_icons.a, fg_icons.r, fg_icons.g, fg_icons.b]);
-                (u32::from(cfg.policy.normal_alpha) << 24) | (c & 0x00FF_FFFF)
-            },
-            indicator_selected: {
-                let c = u32::from_be_bytes([fg_icons.a, fg_icons.r, fg_icons.g, fg_icons.b]);
-                0xFF00_0000 | (c & 0x00FF_FFFF)
-            },
+            time: to_u32(c_clock),
+            date: to_u32(c_clock),
+            tray_glyph: to_u32(c_tray),
+            indicator_normal: (u32::from(cfg.policy.normal_alpha) << 24)
+                | (to_u32(c_normal) & 0x00FF_FFFF),
+            indicator_selected: 0xFF00_0000 | (to_u32(c_selected) & 0x00FF_FFFF),
             mask: cfg.mask,
         };
 
@@ -1052,9 +1145,9 @@ fn run_loop(
                 }
                 if let Some(rep) = luma.icons_rep {
                     d.rep_color = rep;
-                    d.contrast_milli = (shadebar_core::engine::contrast_ratio(rep, fg_icons) * 1000.0) as u32;
+                    d.contrast_milli = (shadebar_core::engine::contrast_ratio(rep, c_normal) * 1000.0) as u32;
                 }
-                d.decision_color = fg_icons;
+                d.decision_color = c_normal;
                 d.valid_px = luma.icons_px;
                 d.cost_us = cost_us;
                 d.samples = d.samples.wrapping_add(1);
@@ -1135,6 +1228,41 @@ mod tests {
         assert_eq!(parsed.get(SettingKey::S47), 0);
         // 过短的数组仍按损坏处理（NFR-16）。
         assert!(Config::from_json("{\"values\":[1,2,3]}").is_none());
+    }
+
+    /// 问题 1：分项色按"本分区判定端"选，S-10 强制端色优先。
+    #[test]
+    fn item_color_follows_side_and_force() {
+        let policy = PolicyCfg::default();
+        let dark = Rgba::opaque(0x11, 0x22, 0x33);
+        let light = Rgba::opaque(0x44, 0x55, 0x66);
+        let mut j = RegionJudge::default();
+        assert_eq!(j.item_color(dark, light, &policy), dark, "暗背景取偏暗色");
+        j.is_light = true;
+        assert_eq!(j.item_color(dark, light, &policy), light, "亮背景取偏亮色");
+
+        let mut forced_light = PolicyCfg::default();
+        forced_light.force = 1;
+        assert_eq!(j.item_color(dark, light, &forced_light), dark, "强制亮端 = 背景偏暗");
+        let mut forced_dark = PolicyCfg::default();
+        forced_dark.force = 2;
+        assert_eq!(j.item_color(dark, light, &forced_dark), light, "强制暗端 = 背景偏亮");
+    }
+
+    /// 问题 1：S-52~S-59 的读取与 S-60 的百分比换算。
+    #[test]
+    fn item_colors_and_opacity_come_from_config() {
+        let mut c = Config::default();
+        assert!(c.set(SettingKey::S52, 0xFFFF_0000));
+        assert!(c.set(SettingKey::S59, 0xFF00_FF00));
+        assert!(c.set(SettingKey::S60, 50));
+        let items = ItemColors::from_config(&c);
+        assert_eq!(items.normal_on_dark, Rgba::opaque(0xFF, 0x00, 0x00));
+        assert_eq!(items.clock_on_light, Rgba::opaque(0x00, 0xFF, 0x00));
+        assert_eq!(alpha_pct_to_u8(45), 0x72, "默认 45% 必须等于旧常量 0x72");
+        assert_eq!(alpha_pct_to_u8(0), 0);
+        assert_eq!(alpha_pct_to_u8(100), 255);
+        assert_eq!(RuntimeCfg::from_config(&c).policy.normal_alpha, 127);
     }
 
     #[test]

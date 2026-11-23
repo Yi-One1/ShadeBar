@@ -21,6 +21,7 @@ use crate::config::SettingKey as K;
 #[cfg(test)]
 pub const TASKBAR_KEYS: &[K] = &[
     K::S01, K::S10, K::S12, K::S14, K::S15, K::S47, K::S48, K::S49, K::S50,
+    K::S52, K::S53, K::S54, K::S55, K::S56, K::S57, K::S58, K::S59, K::S60,
 ];
 
 /// 采样页。

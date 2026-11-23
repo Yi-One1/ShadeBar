@@ -57,6 +57,14 @@ const FOOTER_H: f32 = theme::FOOTER_HEIGHT_DIP;
 const PAD: f32 = theme::PAGE_PAD_DIP;
 const GAP: f32 = theme::PAGE_GAP_DIP;
 const ROW_H: f32 = theme::ROW_HEIGHT_DIP;
+
+/// 分区独立配色的 2×4 矩阵：行 0 = 背景偏暗（浅色），行 1 = 背景偏亮（深色）。
+const ITEM_KEYS: [[SettingKey; 4]; 2] = [
+    [SettingKey::S52, SettingKey::S54, SettingKey::S56, SettingKey::S58],
+    [SettingKey::S53, SettingKey::S55, SettingKey::S57, SettingKey::S59],
+];
+/// 矩阵四列的标题（4 项内容）。
+const ITEM_LABELS: [&str; 4] = ["item.indicator", "item.indicator_sel", "item.tray", "item.clock"];
 const TOGGLE_W: f32 = theme::TOGGLE_W_DIP;
 const TOGGLE_H: f32 = theme::TOGGLE_H_DIP;
 const RADIUS: f32 = theme::TILE_RADIUS_DIP;
@@ -118,6 +126,10 @@ enum Hit {
     Zone(usize),
     /// 端色色样（0 = S-14，1 = S-15）。
     Well(usize),
+    /// 分区配色矩阵（行, 列）。
+    ItemWell(usize, usize),
+    /// 正常指示条不透明度滑条（S-60）。
+    Opacity,
     /// 判定粒度（S-47）。
     Judge(usize),
     /// 亮度阈值滑条（S-12）。
@@ -204,6 +216,10 @@ pub struct View {
     zone_rects: [Rect; 3],
     colors_card: Rect,
     well_rects: [Rect; 2],
+    /// 分区独立配色的 2×4 色块矩阵（行 0 背景偏暗 / 行 1 背景偏亮）。
+    item_wells: [[Rect; 4]; 2],
+    /// 正常指示条不透明度滑条（S-60）。
+    opacity_track: Rect,
     judge_rects: [Rect; 2],
     thr_track: Rect,
     sample_card: Rect,
@@ -248,6 +264,8 @@ impl View {
             zone_rects: [Rect::default(); 3],
             colors_card: Rect::default(),
             well_rects: [Rect::default(); 2],
+            item_wells: [[Rect::default(); 4]; 2],
+            opacity_track: Rect::default(),
             judge_rects: [Rect::default(); 2],
             thr_track: Rect::default(),
             sample_card: Rect::default(),
@@ -362,6 +380,24 @@ impl View {
         }
     }
 
+    /// 是否处于「分区独立」判定模式（S-47 = 0）。
+    fn per_region(&self) -> bool {
+        self.cfg.get(SettingKey::S47) == 0
+    }
+
+    /// 预览用的"背景是否偏亮"（S-10 强制端色优先）。
+    fn bg_is_light(&self) -> bool {
+        match self.cfg.get(SettingKey::S10) {
+            1 => false,
+            2 => true,
+            _ => {
+                let thr = self.cfg.get(SettingKey::S12) as f32 / 1000.0;
+                let y = self.diag.y_milli as f32 / 1000.0;
+                y >= thr
+            }
+        }
+    }
+
     /// 当前判定色：`S-10` 强制端色优先，否则按阈值在 `S-14/S-15` 间选。
     fn decision_color(&self) -> Rgba {
         match self.cfg.get(SettingKey::S10) {
@@ -411,10 +447,25 @@ impl View {
     }
 
     /// 某一区实际会用的前景色（关闭 / 暂停 / 降级时回落到条上的前景色）。
+    ///
+    /// 分区独立模式下按该区所属内容取 S-52~S-59；统一模式仍是 S-14/S-15。
     fn zone_color(&self, key: SettingKey, p: &Palette) -> Rgba {
         if self.degraded || self.paused() || self.cfg.get(key) == 0 {
             let (_, ink, _) = self.bar_colors(p);
-            ink
+            return ink;
+        }
+        if self.per_region() {
+            let (dark_key, light_key) = match key {
+                SettingKey::S48 => (SettingKey::S58, SettingKey::S59),
+                SettingKey::S49 => (SettingKey::S56, SettingKey::S57),
+                _ => (SettingKey::S52, SettingKey::S53),
+            };
+            let argb = if self.bg_is_light() {
+                self.cfg.get(light_key)
+            } else {
+                self.cfg.get(dark_key)
+            };
+            argb_to_rgba(argb)
         } else {
             self.decision_color()
         }
@@ -580,12 +631,27 @@ impl View {
                 let inner = self.colors_card.inset(PAD);
                 let bw = (inner.w - 10.0) / 2.0;
                 let wy = inner.y + 36.0;
-                self.well_rects[0] = Rect::new(inner.x, wy, bw, 70.0);
-                self.well_rects[1] = Rect::new(inner.x + bw + 10.0, wy, bw, 70.0);
+                self.well_rects[0] = Rect::new(inner.x, wy, bw, 56.0);
+                self.well_rects[1] = Rect::new(inner.x + bw + 10.0, wy, bw, 56.0);
+                // 分区配色矩阵：左侧 52 dip 留给行标题。
+                let label_col = 52.0;
+                let col_gap = 8.0;
+                let cw4 = ((inner.w - label_col - 3.0 * col_gap) / 4.0).max(40.0);
+                for (r, row) in self.item_wells.iter_mut().enumerate() {
+                    for (c, cell) in row.iter_mut().enumerate() {
+                        *cell = Rect::new(
+                            inner.x + label_col + c as f32 * (cw4 + col_gap),
+                            inner.y + 44.0 + r as f32 * 28.0,
+                            cw4,
+                            24.0,
+                        );
+                    }
+                }
+                self.opacity_track = Rect::new(inner.x, inner.y + 120.0, inner.w, 4.0);
                 let seg_w = 76.0;
                 self.judge_rects[0] = Rect::new(inner.right() - seg_w * 2.0 - 2.0, inner.y, seg_w, 26.0);
                 self.judge_rects[1] = Rect::new(inner.right() - seg_w, inner.y, seg_w, 26.0);
-                self.thr_track = Rect::new(inner.x, inner.y + 118.0 + 22.0, inner.w, 10.0);
+                self.thr_track = Rect::new(inner.x, inner.y + 150.0, inner.w, 10.0);
             }
             Page::Sample => {
                 self.sample_card = Rect::new(PAD, top, cw, 160.0);
@@ -645,9 +711,28 @@ impl View {
                         return Hit::Zone(i);
                     }
                 }
-                for (i, r) in self.well_rects.iter().enumerate() {
-                    if r.contains(x, y) {
-                        return Hit::Well(i);
+                if self.per_region() {
+                    for (r, row) in self.item_wells.iter().enumerate() {
+                        for (c, rect) in row.iter().enumerate() {
+                            if rect.contains(x, y) {
+                                return Hit::ItemWell(r, c);
+                            }
+                        }
+                    }
+                    let op_hit = Rect::new(
+                        self.opacity_track.x,
+                        self.opacity_track.y - 8.0,
+                        self.opacity_track.w,
+                        self.opacity_track.h + 16.0,
+                    );
+                    if op_hit.contains(x, y) {
+                        return Hit::Opacity;
+                    }
+                } else {
+                    for (i, r) in self.well_rects.iter().enumerate() {
+                        if r.contains(x, y) {
+                            return Hit::Well(i);
+                        }
                     }
                 }
                 for (i, r) in self.judge_rects.iter().enumerate() {
@@ -803,6 +888,16 @@ impl View {
                 let key = if i == 0 { SettingKey::S14 } else { SettingKey::S15 };
                 self.open_popup(PopupKind::ColorPicker(key));
             }
+            Hit::ItemWell(r, c) => {
+                let key = ITEM_KEYS[r.min(1)][c.min(3)];
+                self.open_popup(PopupKind::ColorPicker(key));
+            }
+            Hit::Opacity => {
+                self.set_opacity_from_x(x);
+                self.dragging = Some(SettingKey::S60);
+                // SAFETY: hwnd 有效；捕获后拖出窗口也能收到抬起消息。
+                unsafe { SetCapture(hwnd) };
+            }
             Hit::Judge(i) => self.push_set(SettingKey::S47, i as i64),
             Hit::Threshold => {
                 self.set_threshold(x);
@@ -869,7 +964,20 @@ impl View {
             self.set_threshold(x);
             return;
         }
+        if key == SettingKey::S60 {
+            self.set_opacity_from_x(x);
+            return;
+        }
         self.set_slider_from_x(key, x);
+    }
+
+    fn set_opacity_from_x(&mut self, x: f32) {
+        let r = self.opacity_track;
+        if r.w <= 0.0 {
+            return;
+        }
+        let ratio = ((x - r.x) / r.w).clamp(0.0, 1.0);
+        self.push_set(SettingKey::S60, (ratio * 100.0).round() as i64);
     }
 
     fn set_threshold(&mut self, x: f32) {
@@ -893,6 +1001,36 @@ impl View {
         let step = meta.step.max(1) as f32;
         let v = ((raw - meta.min as f32) / step).round() * step + meta.min as f32;
         self.push_set(key, v as i64);
+    }
+
+    /// 取色板分组：偏暗行用浅色组 0，偏亮行用深色组 1。
+    fn picker_group(key: SettingKey) -> usize {
+        match key {
+            SettingKey::S15
+            | SettingKey::S53
+            | SettingKey::S55
+            | SettingKey::S57
+            | SettingKey::S59 => 1,
+            _ => 0,
+        }
+    }
+
+    /// 颜色键对应的色块矩形（浮层定位用）。
+    fn color_anchor(&self, key: SettingKey) -> Rect {
+        match key {
+            SettingKey::S14 => self.well_rects[0],
+            SettingKey::S15 => self.well_rects[1],
+            _ => {
+                for (r, row) in ITEM_KEYS.iter().enumerate() {
+                    for (c, k) in row.iter().enumerate() {
+                        if *k == key {
+                            return self.item_wells[r][c];
+                        }
+                    }
+                }
+                self.well_rects[0]
+            }
+        }
     }
 
     fn push_set(&mut self, key: SettingKey, value: i64) {
@@ -998,8 +1136,7 @@ impl View {
                 Rect::new(row.rect.right() - 16.0 - fw, y, fw, fh)
             }
             PopupKind::ColorPicker(key) => {
-                let idx = if key == SettingKey::S14 { 0 } else { 1 };
-                let anchor = self.well_rects[idx];
+                let anchor = self.color_anchor(key);
                 let fw = 256.0;
                 let fh = 112.0;
                 let mut y = anchor.bottom() + 6.0;
@@ -1046,7 +1183,7 @@ impl View {
                 }
             }
             PopupKind::ColorPicker(key) => {
-                let group = if key == SettingKey::S14 { 0 } else { 1 };
+                let group = Self::picker_group(key);
                 let colors = i18n::COLOR_SWATCH_GROUPS[group].1;
                 let sw = 32.0;
                 let gap = 6.0;
@@ -1422,51 +1559,127 @@ impl View {
             );
         }
 
-        // 两块端色
-        for (i, (key, label_key)) in [(SettingKey::S14, "color.on_dark"), (SettingKey::S15, "color.on_light")]
-            .iter()
-            .enumerate()
-        {
-            let box_r = self.well_rects[i];
-            ctx.fill_rounded_rect(rd(box_r), 7.0, p.card_alt);
-            ctx.stroke_rounded_rect(
-                rd(box_r),
-                7.0,
-                if self.hover == Hit::Well(i) { p.accent } else { p.divider },
-                1.0,
-            );
-            let argb = self.cfg.get(*key);
-            let color = argb_to_rgba(argb);
-            let well = Rect::new(box_r.x + 8.0, box_r.y + 8.0, 60.0, 54.0);
-            ctx.fill_rounded_rect(rd(well), 6.0, color);
-            ctx.stroke_rounded_rect(rd(well), 6.0, p.card_border, 1.0);
-            let sample_color = if color_light(color) {
-                Rgba::opaque(0x1A, 0x1A, 0x1A)
-            } else {
-                Rgba::opaque(0xFF, 0xFF, 0xFF)
-            };
-            self.label_center(
-                ctx,
-                "Aa",
-                Rect::new(well.x, well.y + 15.0, well.w, 24.0),
-                TextRole::Sample,
-                sample_color,
-            );
-            self.label(
-                ctx,
-                text(label_key, self.lang),
-                Rect::new(well.right() + 12.0, box_r.y + 18.0, box_r.w - 84.0, 15.0),
-                TextRole::Caption,
-                p.control_text(enabled),
-            );
-            self.label(
-                ctx,
-                &hex_rgb(argb),
-                Rect::new(well.right() + 12.0, box_r.y + 36.0, box_r.w - 84.0, 18.0),
-                TextRole::Body,
-                p.control_text(enabled),
-            );
+        if self.per_region() {
+            // 分区独立：2 行 × 4 列的色块矩阵。
+            for (c, label_key) in ITEM_LABELS.iter().enumerate() {
+                let cell = self.item_wells[0][c];
+                self.label_center(
+                    ctx,
+                    text(label_key, self.lang),
+                    Rect::new(cell.x, cell.y - 15.0, cell.w, 12.0),
+                    TextRole::Caption,
+                    p.text_secondary,
+                );
+            }
+            for (r, row_label) in ["color.on_dark", "color.on_light"].iter().enumerate() {
+                let cell = self.item_wells[r][0];
+                self.label(
+                    ctx,
+                    text(row_label, self.lang),
+                    Rect::new(inner.x, cell.y + 5.0, 46.0, 14.0),
+                    TextRole::Caption,
+                    p.text_secondary,
+                );
+            }
+            for (r, row) in self.item_wells.iter().enumerate() {
+                for (c, box_r) in row.iter().enumerate() {
+                    let box_r = *box_r;
+                    ctx.fill_rounded_rect(rd(box_r), 5.0, p.card_alt);
+                    ctx.stroke_rounded_rect(
+                        rd(box_r),
+                        5.0,
+                        if self.hover == Hit::ItemWell(r, c) {
+                            p.accent
+                        } else {
+                            p.divider
+                        },
+                        1.0,
+                    );
+                    let argb = self.cfg.get(ITEM_KEYS[r][c]);
+                    let chip = Rect::new(box_r.x + 5.0, box_r.y + 4.0, 18.0, 16.0);
+                    ctx.fill_rounded_rect(rd(chip), 3.0, argb_to_rgba(argb));
+                    ctx.stroke_rounded_rect(rd(chip), 3.0, p.card_border, 1.0);
+                    self.label(
+                        ctx,
+                        &hex_rgb(argb),
+                        Rect::new(chip.right() + 6.0, box_r.y + 4.0, box_r.w - 32.0, 14.0),
+                        TextRole::Caption,
+                        p.control_text(enabled),
+                    );
+                }
+            }
+        } else {
+            // 统一模式：沿用两块大端色。
+            for (i, (key, label_key)) in [(SettingKey::S14, "color.on_dark"), (SettingKey::S15, "color.on_light")]
+                .iter()
+                .enumerate()
+            {
+                let box_r = self.well_rects[i];
+                ctx.fill_rounded_rect(rd(box_r), 7.0, p.card_alt);
+                ctx.stroke_rounded_rect(
+                    rd(box_r),
+                    7.0,
+                    if self.hover == Hit::Well(i) { p.accent } else { p.divider },
+                    1.0,
+                );
+                let argb = self.cfg.get(*key);
+                let color = argb_to_rgba(argb);
+                let well = Rect::new(box_r.x + 8.0, box_r.y + 7.0, 60.0, 42.0);
+                ctx.fill_rounded_rect(rd(well), 6.0, color);
+                ctx.stroke_rounded_rect(rd(well), 6.0, p.card_border, 1.0);
+                let sample_color = if color_light(color) {
+                    Rgba::opaque(0x1A, 0x1A, 0x1A)
+                } else {
+                    Rgba::opaque(0xFF, 0xFF, 0xFF)
+                };
+                self.label_center(
+                    ctx,
+                    "Aa",
+                    Rect::new(well.x, well.y + 10.0, well.w, 24.0),
+                    TextRole::Sample,
+                    sample_color,
+                );
+                self.label(
+                    ctx,
+                    text(label_key, self.lang),
+                    Rect::new(well.right() + 12.0, box_r.y + 12.0, box_r.w - 84.0, 15.0),
+                    TextRole::Caption,
+                    p.control_text(enabled),
+                );
+                self.label(
+                    ctx,
+                    &hex_rgb(argb),
+                    Rect::new(well.right() + 12.0, box_r.y + 30.0, box_r.w - 84.0, 18.0),
+                    TextRole::Body,
+                    p.control_text(enabled),
+                );
+            }
         }
+
+        // 正常态指示条不透明度（S-60，两种判定模式都生效）。
+        let opacity = self.cfg.get(SettingKey::S60);
+        let ot = self.opacity_track;
+        let label_y = ot.y - 18.0;
+        self.label(
+            ctx,
+            text("s60", self.lang),
+            Rect::new(inner.x, label_y, 280.0, 14.0),
+            TextRole::Caption,
+            p.control_text(enabled),
+        );
+        self.label_right(
+            ctx,
+            &format!("{opacity}%"),
+            Rect::new(inner.right() - 50.0, label_y, 50.0, 14.0),
+            TextRole::Caption,
+            p.control_text(enabled),
+        );
+        ctx.fill_rounded_rect(rd(ot), 2.0, p.card_alt);
+        let filled = Rect::new(ot.x, ot.y, ot.w * opacity as f32 / 100.0, ot.h);
+        ctx.fill_rounded_rect(rd(filled), 2.0, p.accent);
+        let kx = ot.x + ot.w * opacity as f32 / 100.0 - 5.0;
+        ctx.fill_rounded_rect(rd(Rect::new(kx, ot.y - 4.0, 10.0, 12.0)), 6.0, p.card_bg);
+        ctx.stroke_rounded_rect(rd(Rect::new(kx, ot.y - 4.0, 10.0, 12.0)), 6.0, p.accent, 2.0);
 
         // 阈值
         let thr = self.cfg.get(SettingKey::S12);
@@ -2014,7 +2227,7 @@ impl View {
                 }
             }
             PopupKind::ColorPicker(key) => {
-                let group = if key == SettingKey::S14 { 0 } else { 1 };
+                let group = Self::picker_group(key);
                 let (title, colors) = i18n::COLOR_SWATCH_GROUPS[group];
                 self.label(
                     ctx,
@@ -2507,6 +2720,10 @@ mod tests {
     #[test]
     fn color_well_opens_picker_and_swatch_writes_opaque_color() {
         let mut v = make_view();
+        // 两块大端色只在「全任务栏统一」模式出现；默认是分区独立。
+        let mut cfg = v.cfg.clone();
+        cfg.set(SettingKey::S47, 1);
+        v.rebuild(&cfg, &DiagView::default(), false);
         let (x, y) = center(v.well_rects[0]);
         click(&mut v, x, y);
         let popup = v.popup.as_ref().expect("色样应打开取色浮层");
@@ -2522,6 +2739,59 @@ mod tests {
             v.take_actions(),
             vec![ViewAction::Set(SettingKey::S14, 0xFFFF_B4AB)]
         );
+    }
+
+    /// 问题 1：分区独立模式的 8 个色块一一对应 S-52~S-59。
+    #[test]
+    fn region_mode_matrix_wells_map_to_eight_keys() {
+        let mut v = make_view();
+        assert!(v.per_region(), "默认必须是分区独立");
+        for r in 0..2 {
+            for c in 0..4 {
+                let (x, y) = center(v.item_wells[r][c]);
+                click(&mut v, x, y);
+                let popup = v.popup.as_ref().expect("色块应打开取色浮层");
+                assert_eq!(popup.kind, PopupKind::ColorPicker(ITEM_KEYS[r][c]));
+                v.popup = None;
+            }
+        }
+    }
+
+    /// 问题 1：偏暗行用浅色板、偏亮行用深色板，不能两组混用。
+    #[test]
+    fn picker_group_matches_background_state_row() {
+        assert_eq!(View::picker_group(SettingKey::S52), 0);
+        assert_eq!(View::picker_group(SettingKey::S58), 0);
+        assert_eq!(View::picker_group(SettingKey::S53), 1);
+        assert_eq!(View::picker_group(SettingKey::S59), 1);
+    }
+
+    /// 问题 1：不透明度滑条点最右端写 100%，点最左端写 0%。
+    #[test]
+    fn opacity_slider_writes_s60() {
+        let mut v = make_view();
+        let t = v.opacity_track;
+        click(&mut v, t.right() - 0.5, t.y + 2.0);
+        assert_eq!(v.take_actions(), vec![ViewAction::Set(SettingKey::S60, 100)]);
+        click(&mut v, t.x + 0.2, t.y + 2.0);
+        assert_eq!(v.take_actions(), vec![ViewAction::Set(SettingKey::S60, 0)]);
+    }
+
+    /// 问题 1：分区模式下预览按内容取各自的颜色。
+    #[test]
+    fn region_preview_uses_per_item_colors() {
+        let mut v = make_view();
+        let mut cfg = v.cfg.clone();
+        cfg.set(SettingKey::S47, 0);
+        cfg.set(SettingKey::S10, 2); // 强制暗端色 = 背景偏亮
+        cfg.set(SettingKey::S59, 0xFF11_2233); // 时间日期·偏亮
+        cfg.set(SettingKey::S57, 0xFF44_5566); // 托盘·偏亮
+        cfg.set(SettingKey::S53, 0xFF77_8899); // 正常指示条·偏亮
+        v.rebuild(&cfg, &DiagView::default(), false);
+        let p = ThemeMode::Light.palette();
+        assert_eq!(v.zone_color(SettingKey::S48, &p), Rgba::opaque(0x11, 0x22, 0x33));
+        assert_eq!(v.zone_color(SettingKey::S49, &p), Rgba::opaque(0x44, 0x55, 0x66));
+        assert_eq!(v.zone_color(SettingKey::S50, &p), Rgba::opaque(0x77, 0x88, 0x99));
     }
 
     #[test]

@@ -501,6 +501,8 @@ struct RestoreColors {
 static RestoreColors g_restore;
 // 我们最后一次写进指示条的色值，供退出时按内容识别"哪些画刷是我们染的"。
 static unsigned g_appliedIndColor = 0;
+// 选中态那份（正常/选中现在可以是不同颜色，兜底识别要同时认两种）。
+static unsigned g_appliedIndSelectedColor = 0;
 
 static bool SetColorProp(InstanceHandle h, const wchar_t* propName, unsigned argb) {
     IVisualTreeService* svc = VtsBase();
@@ -765,6 +767,7 @@ static void ApplyColors() {
 
             if (mask & kMaskIndicator) {
                 g_appliedIndColor = cmd.indicatorNormalColor;
+                g_appliedIndSelectedColor = cmd.indicatorSelectedColor;
 
                 // 先缓存原色（必须在任何写入之前，否则读到的是刚写的值）
                 if (selected) {
@@ -786,6 +789,9 @@ static void ApplyColors() {
                 //        重复赋同一个画刷不会造成视觉变化。
                 // 选中态：VisualState 会把 Fill 换成它自己的画刷，共享画刷在这里无效，
                 //        仍走"元素 Fill + 画刷 Color"双写 + 逐层染色。
+                // 正常态与选中态用不同的目标色（S-52/S-53 与 S-54/S-55 各自独立）。
+                const unsigned want = selected ? cmd.indicatorSelectedColor
+                                               : cmd.indicatorNormalColor;
                 const InstanceHandle shared = EnsureSharedBrush(cmd.indicatorNormalColor);
                 bool wroteElem = false;
                 bool wroteBrush = false;
@@ -793,8 +799,8 @@ static void ApplyColors() {
                     wroteElem = SetBrushProp(e.handle, L"Fill", shared);
                     if (wroteElem) ++nShared;
                 } else {
-                    wroteElem = SetColorProp(e.handle, L"Fill", cmd.indicatorNormalColor);
-                    wroteBrush = SetBrushColorOfProp(e.handle, L"Fill", cmd.indicatorNormalColor);
+                    wroteElem = SetColorProp(e.handle, L"Fill", want);
+                    wroteBrush = SetBrushColorOfProp(e.handle, L"Fill", want);
                 }
 
                 // 写完必须回读。SetProperty 返回 S_OK 只代表"写进去了"，
@@ -803,10 +809,10 @@ static void ApplyColors() {
                 unsigned nowCol = 0;
                 bool rbOk = bhNow && ReadColorOfBrush(bhNow, &nowCol);
                 int nAll = 0;
-                if (selected && (!rbOk || nowCol != cmd.indicatorNormalColor)) {
+                if (selected && (!rbOk || nowCol != want)) {
                     // 选中态 Fill 有 3 层，首层不一定是渲染取用的那层：逐层都染。
                     // 只对选中态做——正常态画刷被数十处共享，逐层染会波及别的元素。
-                    nAll = SetAllBrushColorsOfProp(e.handle, L"Fill", cmd.indicatorNormalColor);
+                    nAll = SetAllBrushColorsOfProp(e.handle, L"Fill", want);
                     rbOk = bhNow && ReadColorOfBrush(bhNow, &nowCol);
                 }
                 if (wroteElem || wroteBrush || nAll) {
@@ -815,7 +821,7 @@ static void ApplyColors() {
                          (unsigned long long)e.handle, w,
                          selected ? L"选中" : L"正常",
                          (unsigned long long)(selected ? 0 : shared),
-                         cmd.indicatorNormalColor, (int)wroteElem, (int)wroteBrush, nAll,
+                         want, (int)wroteElem, (int)wroteBrush, nAll,
                          nowCol, (int)rbOk);
                 } else if (g_indFailBudget > 0) {
                     // 元素在树里、但两条写入路径都失败：Fill 索引取不到 / 画刷句柄取不到 /
@@ -914,7 +920,8 @@ static void RestoreAll() {
             InstanceHandle bh = BrushHandleOfProp(e.handle, L"Fill");
             if (!bh) continue;
             unsigned c = 0;
-            if (!ReadColorOfBrush(bh, &c) || c != g_appliedIndColor) continue;
+            if (!ReadColorOfBrush(bh, &c) ||
+                (c != g_appliedIndColor && c != g_appliedIndSelectedColor)) continue;
             double w = 0.0;
             bool sel = ReadNumber(e.handle, L"ActualWidth", &w) && w >= 10.0;
             unsigned target = (sel && g_restore.indSelected)
@@ -1211,6 +1218,7 @@ static DWORD WINAPI Worker(LPVOID) {
                 InterlockedExchange(&g_touched, 0);
                 g_restore = RestoreColors{};
                 g_appliedIndColor = 0;
+                g_appliedIndSelectedColor = 0;
                 wasEnabled = false;
                 InterlockedExchange(&g_needResync, 1);
                 // 关键：把 seq 标记为"已处理"。
