@@ -14,8 +14,8 @@ Windows 11 任务栏**文字与图标自适应着色**工具。实时采样任�
 > 采样带垂直内缩改为按任务栏高度百分比，阈值、采样与不透明度滑轨统一外观。
 > 更早版本的变化见 [`CHANGELOG.md`](CHANGELOG.md)。
 >
-> **下载**：[GitHub Releases](https://github.com/Yi-One1/ShadeBar/releases) 提供单文件
-> exe，免安装；`dist/` 不再随仓库分发二进制。
+> **下载**：[v1.4.0 Release](https://github.com/Yi-One1/ShadeBar/releases/tag/v1.4.0)
+> 提供单文件 exe（673 KB），免安装；`dist/` 不随仓库分发二进制。
 >
 > **验收 / 预览**：双击根目录的 `1. 一键启动预览.bat`，它会重新编译并启动
 > `target\` 里的最新版，不会覆盖 `dist\` 里的打包 exe。

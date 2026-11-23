@@ -3,10 +3,9 @@
 > **最后更新**：2026-11-23 (GMT+8)
 > **用途**：跨对话续接。新对话看不到聊天记录，本文件是唯一状态依据。
 >
-> **状态一句话**：**v1.4.0 已打包、门禁全绿**，产物 `dist/随影ShadeBar_v1.4.0.exe`
-> （689,152 B，测试 **229** 项全绿）；**待提交推送、打 tag、建 GitHub Release**。
-> v1.4.0 内容：分区独立配色（8 色 + 不透明度）、左键双击托盘、托盘菜单四项、
-> 滑轨统一、采样带内缩改百分比，以及托盘字形 / 选中态颜色两处真机缺陷修复。
+> **状态一句话**：**v1.4.0 已发布**（2026-11-23，GitHub Releases，tag `v1.4.0`）。
+> 产物 `dist/随影ShadeBar_v1.4.0.exe`（689,152 B，测试 **229** 项全绿）；
+> 线上附件哈希与本地一致。下一版从 §4.1 的发版链路接着走。
 
 ---
 
@@ -34,7 +33,7 @@
 | FileVersion | `1.4.0.0`（`--version` 输出 `随影 ShadeBar v1.4.0`） |
 | 门禁 | 5/5 全绿（体积 / 无 VC++ 运行时 / 版本资源 / 清单 PerMonitorV2+asInvoker / 图标）；双语差 9 KB（预算 40 KB） |
 | git tag | `v1.4.0` → `1f33632`（annotated，已推）；历史：`v1.3.2` → `9c9d850`、`v1.3.1` → `d2bed34`、`v1.3.0` → `93c6402` |
-| GitHub Release | **待手动发布**（本机无 `gh` CLI）；附件 `ShadeBar_v1.4.0.exe`，上传后中文前缀会被去掉，属既成口径 |
+| GitHub Release | **v1.4.0 已发布**（2026-11-23）：https://github.com/Yi-One1/ShadeBar/releases/tag/v1.4.0 ；附件 `ShadeBar_v1.4.0.exe`（673 KB，SHA-256 `28fcf39d…` 与本地一致） |
 
 `dist/` **永远保留历史版本 exe**（用户要求，便于回滚）；exe 不进仓库，只走 Releases。
 
@@ -104,9 +103,9 @@
 - [x] `build.ps1` 打包，五道门禁全绿，产物与哈希见 §1。
 - [x] 提交文档与版本变更 → `git push origin main`（`57630aa → 1f33632`）。
 - [x] `git tag -a v1.4.0` 并推送（指向 `1f33632`）。
-- [ ] 网页建 GitHub Release `v1.4.0`，上传 `ShadeBar_v1.4.0.exe`，
+- [x] 网页建 GitHub Release `v1.4.0`，上传 `ShadeBar_v1.4.0.exe`，
       Release notes 用 `docs/release-notes-v1.4.0.md`。
-- [ ] 建完 Release 后，把 Release 状态补回本文件与 README。
+- [x] 发布完成（2026-11-23）；附件与本地哈希一致，状态已回写本文件。
 
 ### 4.2 长期缺口（用户没催，不要主动扩范围）
 - 悬停高亮块（S-34~S-37）：生产载荷尚未实现（`payload/` 零处 `BackgroundElement`）。
