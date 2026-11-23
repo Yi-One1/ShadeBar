@@ -66,6 +66,8 @@ s37	悬停块固定色
 s37.help	仅「独立固定色」时可用；含内置 alpha 控制
 s40	左键单击托盘图标
 s40.help	打开设置 / 打开托盘菜单 / 无操作
+s51	左键双击托盘图标
+s51.help	双击托盘图标时的动作，选项与左键单击一致；默认无操作
 s41	关闭设置窗口时
 s41.help	最小化到托盘或直接退出；默认不退出进程
 s42	暂停自适应
@@ -111,10 +113,8 @@ opt.log.warn	警告
 opt.log.info	信息
 opt.log.debug	调试
 tray.open	打开设置
-tray.pause	暂停自适应
 tray.autostart	开机自启动
-tray.export	导出诊断包
-tray.about	关于（版本号）
+tray.version	版本号
 tray.exit	退出
 tray.balloon.first_run	随影已驻留托盘。可在设置中开启开机自启动。
 tray.restricted	受限（降级模式）

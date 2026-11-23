@@ -27,7 +27,7 @@ pub const TASKBAR_KEYS: &[K] = &[
 pub const SAMPLE_KEYS: &[K] = &[K::S16, K::S18, K::S20, K::S21, K::S22];
 
 /// 托盘页。
-pub const TRAY_KEYS: &[K] = &[K::S40, K::S41, K::S02, K::S03, K::S04];
+pub const TRAY_KEYS: &[K] = &[K::S40, K::S51, K::S41, K::S02, K::S03, K::S04];
 
 /// 诊断页。
 #[cfg(test)]

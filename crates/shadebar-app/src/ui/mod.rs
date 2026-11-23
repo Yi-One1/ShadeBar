@@ -470,7 +470,12 @@ impl View {
         let cw = w - PAD * 2.0;
         match self.page {
             Page::Sample => (Rect::new(PAD, 236.0, cw, 244.0), 12.0),
-            Page::Tray => (Rect::new(PAD, HEADER_H + PAD, cw, 244.0), 12.0),
+            Page::Tray => {
+                // 卡片高度跟着行数走：新增「左键双击」后是 6 行，
+                // 固定 244 会把最后一行挤到卡片外面。
+                let n = pages::TRAY_KEYS.len() as f32;
+                (Rect::new(PAD, HEADER_H + PAD, cw, 24.0 + n * ROW_H), 12.0)
+            }
             Page::Diag => (Rect::new(PAD, 272.0, cw, 144.0), 6.0),
             Page::Taskbar => (Rect::default(), 0.0),
         }
@@ -2296,8 +2301,13 @@ mod tests {
         let (x, y) = center(v.tab_rects[2]);
         click(&mut v, x, y);
         assert_eq!(v.page, Page::Tray);
-        assert_eq!(v.rows.len(), 5);
+        assert_eq!(v.rows.len(), 6);
         assert_eq!(v.rows[0].key, SettingKey::S40);
+        assert_eq!(v.rows[1].key, SettingKey::S51, "双击必须紧跟在单击下方");
+        assert!(
+            v.rows_card.h >= 24.0 + v.rows.len() as f32 * ROW_H,
+            "卡片必须容纳全部行，最后一行不能掉到卡片外"
+        );
     }
 
     #[test]

@@ -23,7 +23,7 @@ use shadebar_core::{SbError, SbResult};
 use crate::ui::i18n;
 
 /// 设置项总数（§6 口径，S-35/S-37 的 ARGB alpha 滑块是控件内置能力，不另计数）。
-pub const SETTING_COUNT: usize = 39;
+pub const SETTING_COUNT: usize = 40;
 
 /// 设置项编号。顺序与 §6 表格一致，`as usize` 即值表下标。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -75,10 +75,12 @@ pub enum SettingKey {
     S48,
     S49,
     S50,
+    // 6.8 托盘左键双击（1，S-51）—— 选项集与 S-40 一致，默认"无操作"。
+    S51,
 }
 
 impl SettingKey {
-    /// 全部 39 项，按 §6 顺序。
+    /// 全部 40 项，按 §6 顺序。
     pub const ALL: [Self; SETTING_COUNT] = [
         Self::S01, Self::S02, Self::S03, Self::S04, Self::S05, Self::S06,
         Self::S10, Self::S11, Self::S12, Self::S13, Self::S14, Self::S15, Self::S16,
@@ -88,7 +90,7 @@ impl SettingKey {
         Self::S36, Self::S37,
         Self::S40, Self::S41, Self::S42, Self::S43, Self::S44, Self::S45, Self::S46,
         Self::S47,
-        Self::S48, Self::S49, Self::S50,
+        Self::S48, Self::S49, Self::S50, Self::S51,
     ];
 
     /// 值表下标。
@@ -114,6 +116,7 @@ impl SettingKey {
             Self::S42 => "S-42", Self::S43 => "S-43", Self::S44 => "S-44",
             Self::S45 => "S-45", Self::S46 => "S-46", Self::S47 => "S-47",
             Self::S48 => "S-48", Self::S49 => "S-49", Self::S50 => "S-50",
+            Self::S51 => "S-51",
         }
     }
 
@@ -162,6 +165,8 @@ impl SettingKey {
             Self::S36 => SettingMeta::dropdown(G::Elements, "s36", "s36.help", 0, 2, i18n::OPT_SOURCE),
             Self::S37 => SettingMeta::color(G::Elements, "s37", "s37.help", 0x38FF_FFFF),
             Self::S40 => SettingMeta::dropdown(G::Tray, "s40", "s40.help", 0, 3, i18n::OPT_LEFT_CLICK),
+            // 左键双击：选项与 S-40 完全一致，默认"无操作"以免改变既有单击手感。
+            Self::S51 => SettingMeta::dropdown(G::Tray, "s51", "s51.help", 2, 3, i18n::OPT_LEFT_CLICK),
             Self::S41 => SettingMeta::dropdown(G::Tray, "s41", "s41.help", 0, 2, i18n::OPT_CLOSE),
             Self::S42 => SettingMeta::toggle(G::Tray, "s42", "s42.help", 0),
             Self::S43 => SettingMeta::toggle(G::Tray, "s43", "s43.help", 1),
@@ -902,7 +907,7 @@ mod tests {
     }
 
     #[test]
-    fn exactly_twenty_keys_are_visible() {
+    fn exactly_twenty_one_keys_are_visible() {
         let visible: Vec<SettingKey> = SettingKey::ALL
             .iter()
             .copied()
@@ -914,6 +919,7 @@ mod tests {
             SettingKey::S16, SettingKey::S18, SettingKey::S20, SettingKey::S21,
             SettingKey::S22, SettingKey::S40, SettingKey::S41, SettingKey::S45,
             SettingKey::S47, SettingKey::S48, SettingKey::S49, SettingKey::S50,
+            SettingKey::S51,
         ];
         assert_eq!(visible, want);
         for key in [

@@ -85,8 +85,8 @@ pub const COLOR_SWATCH_GROUPS: &[(&str, [&str; 6])] = &[
 /// 不需要这份清单，故显式放宽非测试构建的 dead_code。
 #[cfg_attr(not(test), allow(dead_code))]
 pub const UI_KEYS: &[&str] = &[
-    // 托盘菜单 6 项（FR-07 / A-07）
-    "tray.open", "tray.pause", "tray.autostart", "tray.export", "tray.about", "tray.exit",
+    // 托盘菜单 4 项（设置 / 开机启动 / 版本号 / 退出）
+    "tray.open", "tray.autostart", "tray.version", "tray.exit",
     // 气泡 / 角标
     "tray.balloon.first_run", "tray.restricted",
     // 横幅 / 警告

@@ -26,7 +26,7 @@ use windows::Win32::UI::Shell::{
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     AppendMenuW, CreateIconIndirect, CreatePopupMenu, DestroyIcon, DestroyMenu, GetCursorPos,
-    HICON, ICONINFO, MF_CHECKED, MF_STRING, SetForegroundWindow, TrackPopupMenu,
+    HICON, ICONINFO, MF_CHECKED, MF_GRAYED, MF_STRING, SetForegroundWindow, TrackPopupMenu,
     TPM_RIGHTBUTTON,
 };
 
@@ -40,16 +40,12 @@ pub const TRAY_UID: u32 = 1;
 pub const MENU_ID_BASE: u32 = 0x5100;
 /// 打开设置。
 pub const MENU_OPEN: u32 = 0x5100;
-/// 暂停自适应（勾选项）。
-pub const MENU_PAUSE: u32 = 0x5101;
 /// 开机自启动（勾选项）。
-pub const MENU_AUTOSTART: u32 = 0x5102;
-/// 导出诊断包。
-pub const MENU_EXPORT: u32 = 0x5103;
-/// 关于。
-pub const MENU_ABOUT: u32 = 0x5104;
+pub const MENU_AUTOSTART: u32 = 0x5101;
+/// 版本号（灰显只读项，不发命令，仅展示）。
+pub const MENU_VERSION: u32 = 0x5102;
 /// 退出。
-pub const MENU_EXIT: u32 = 0x5105;
+pub const MENU_EXIT: u32 = 0x5103;
 
 /// 图标边长（像素）。
 const ICON_SIZE: i32 = 16;
@@ -195,29 +191,35 @@ impl TrayIcon {
         let _ = unsafe { Shell_NotifyIconW(NIM_MODIFY, &data) };
     }
 
-    /// 弹出 6 项右键菜单（A-07）。菜单命令由 `WM_COMMAND` 回到 `window.rs` 处理。
+    /// 弹出 4 项右键菜单：设置 / 开机启动 / 版本号（灰显）/ 退出。
+    /// 菜单命令由 `WM_COMMAND` 回到 `window.rs` 处理。
     pub fn show_menu(hwnd: HWND, cfg: &Config, lang: Lang) {
         // SAFETY: 无参数。
         let Ok(menu) = (unsafe { CreatePopupMenu() }) else {
             return;
         };
-        let paused = cfg.get(SettingKey::S42) != 0;
         let autostart = cfg.get(SettingKey::S02) != 0;
-        let items: [(u32, &str, bool); 6] = [
-            (MENU_OPEN, "tray.open", false),
-            (MENU_PAUSE, "tray.pause", paused),
-            (MENU_AUTOSTART, "tray.autostart", autostart),
-            (MENU_EXPORT, "tray.export", false),
-            (MENU_ABOUT, "tray.about", false),
-            (MENU_EXIT, "tray.exit", false),
+        let items: [(u32, &str, bool, bool); 4] = [
+            (MENU_OPEN, "tray.open", false, false),
+            (MENU_AUTOSTART, "tray.autostart", autostart, false),
+            (MENU_VERSION, "tray.version", false, true),
+            (MENU_EXIT, "tray.exit", false, false),
         ];
-        for (id, key, checked) in items {
-            let wide = to_wide(i18n::text(key, lang));
-            let flags = if checked { MF_STRING | MF_CHECKED } else { MF_STRING };
+        for (id, key, checked, grayed) in items {
+            let mut text = i18n::text(key, lang).to_string();
+            if id == MENU_VERSION {
+                text = format!("{} v{}", text, env!("CARGO_PKG_VERSION"));
+            }
+            let wide = to_wide(&text);
+            let mut flags = MF_STRING;
+            if checked {
+                flags |= MF_CHECKED;
+            }
+            if grayed {
+                flags |= MF_GRAYED;
+            }
             // SAFETY: menu 有效；wide 在调用期间存活，末尾含 NUL。
-            let _ = unsafe {
-                AppendMenuW(menu, flags, id as usize, PCWSTR(wide.as_ptr()))
-            };
+            let _ = unsafe { AppendMenuW(menu, flags, id as usize, PCWSTR(wide.as_ptr())) };
         }
         let mut pt = POINT::default();
         // SAFETY: pt 为本地可写结构。
@@ -241,15 +243,63 @@ impl TrayIcon {
     }
 }
 
-/// S-40 左键行为：0=打开设置，1=打开托盘菜单，2=无操作。
-pub fn handle_left_click(hwnd: HWND, cfg: &Config, lang: Lang) {
-    match cfg.get(SettingKey::S40) {
+/// S-40 / S-51 左键动作：0=打开设置，1=打开托盘菜单，2=无操作。
+pub fn handle_left_action(hwnd: HWND, action: i64, cfg: &Config, lang: Lang) {
+    match action {
         0 => {
             // 交给主窗口的激活消息，与单实例激活走同一条路径。
             let _ = post_to_main(hwnd, crate::ipc_server::WM_SHADEBAR_ACTIVATE, 0, 0);
         }
         1 => TrayIcon::show_menu(hwnd, cfg, lang),
         _ => {}
+    }
+}
+
+/// 单击（S-40）的既有入口。
+pub fn handle_left_click(hwnd: HWND, cfg: &Config, lang: Lang) {
+    handle_left_action(hwnd, cfg.get(SettingKey::S40), cfg, lang);
+}
+
+/// 托盘消息 `LPARAM` 低字：左键双击（`WM_LBUTTONDBLCLK`）。
+///
+/// 本程序没有调用 `NIM_SETVERSION`，托盘回调走 legacy 模式，
+/// 因此双击会直接投递 `0x0203`，不需要按时间差猜。
+pub const TRAY_LBUTTONDBLCLK: u32 = 0x0203;
+
+/// 该托盘事件是否应视为"左键双击"。
+#[must_use]
+pub const fn is_left_double_click(ev: u32) -> bool {
+    ev == TRAY_LBUTTONDBLCLK
+}
+
+/// 一次左键事件该怎么处置。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ClickPlan {
+    /// 立即执行该动作。
+    Immediate(i64),
+    /// 先把单击挂起，等双击窗口过去再执行（当前系统会先送一次单击）。
+    DeferSingle,
+    /// 双击命中：取消挂起的单击，只执行双击动作。
+    Double(i64),
+}
+
+/// 单击/双击共存的纯决策函数。
+///
+/// legacy 托盘消息在一次双击里会先送 `WM_LBUTTONUP` 再送 `WM_LBUTTONDBLCLK`：
+/// * 双击动作 = 无操作：单击立即执行，双击不再额外做事；
+/// * 双击动作 ≠ 无操作：单击必须挂起，等双击窗口结束才执行，否则双击会先触发单击。
+#[must_use]
+pub const fn click_plan(single: i64, double: i64, ev: u32) -> ClickPlan {
+    if is_left_double_click(ev) {
+        if double == 2 {
+            ClickPlan::Immediate(2)
+        } else {
+            ClickPlan::Double(double)
+        }
+    } else if double == 2 {
+        ClickPlan::Immediate(single)
+    } else {
+        ClickPlan::DeferSingle
     }
 }
 
@@ -467,14 +517,40 @@ mod tests {
     use super::*;
 
     #[test]
-    fn six_menu_ids_are_sequential_and_unique() {
-        let ids = [MENU_OPEN, MENU_PAUSE, MENU_AUTOSTART, MENU_EXPORT, MENU_ABOUT, MENU_EXIT];
-        assert_eq!(ids.len(), 6);
+    fn four_menu_ids_are_sequential_and_unique() {
+        let ids = [MENU_OPEN, MENU_AUTOSTART, MENU_VERSION, MENU_EXIT];
+        assert_eq!(ids.len(), 4);
         for (i, id) in ids.iter().enumerate() {
             assert_eq!(*id, MENU_ID_BASE + i as u32);
         }
         assert_eq!(ids[0], 0x5100);
-        assert_eq!(ids[5], 0x5105);
+        assert_eq!(ids[3], 0x5103);
+    }
+
+    #[test]
+    fn double_click_detection_and_click_plan() {
+        assert!(is_left_double_click(TRAY_LBUTTONDBLCLK));
+        assert!(!is_left_double_click(TRAY_LBUTTONUP));
+        assert!(!is_left_double_click(TRAY_RBUTTONUP));
+
+        // 双击=无操作：单击立即执行，双击本身不再做事。
+        assert_eq!(click_plan(0, 2, TRAY_LBUTTONUP), ClickPlan::Immediate(0));
+        assert_eq!(click_plan(0, 2, TRAY_LBUTTONDBLCLK), ClickPlan::Immediate(2));
+
+        // 双击≠无操作：单击必须挂起，双击取消挂起并执行双击动作。
+        assert_eq!(click_plan(0, 1, TRAY_LBUTTONUP), ClickPlan::DeferSingle);
+        assert_eq!(click_plan(0, 1, TRAY_LBUTTONDBLCLK), ClickPlan::Double(1));
+    }
+
+    #[test]
+    fn double_click_setting_matches_single_click_options() {
+        let cfg = Config::default();
+        assert_eq!(cfg.get(SettingKey::S51), 2, "默认必须是「无操作」，不改变单击手感");
+        let m = SettingKey::S51.meta();
+        let single = SettingKey::S40.meta();
+        assert_eq!((m.min, m.max), (0, 2));
+        assert_eq!(m.options, single.options, "选项集必须与左键单击一致");
+        assert_eq!(m.group, single.group, "必须与左键单击同属「托盘」页");
     }
 
     #[test]

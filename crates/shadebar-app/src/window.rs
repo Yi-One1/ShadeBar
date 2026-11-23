@@ -28,17 +28,19 @@ use windows::Win32::Graphics::Dwm::{
     DwmGetWindowAttribute, DwmSetWindowAttribute, DWMWINDOWATTRIBUTE,
 };
 use windows::Win32::Graphics::Gdi::{BeginPaint, EndPaint, InvalidateRect, PAINTSTRUCT};
+use windows::Win32::System::SystemInformation::GetTickCount;
 use windows::Win32::System::Threading::{GetCurrentProcess, SetProcessWorkingSetSize};
 use windows::Win32::UI::HiDpi::GetDpiForWindow;
+use windows::Win32::UI::Input::KeyboardAndMouse::GetDoubleClickTime;
 use windows::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GetClientRect,
-    GetMessageW, GetWindowLongPtrW, HMENU, IDC_ARROW, LoadCursorW, LoadIconW, MINMAXINFO, MSG,
-    PostQuitMessage, RegisterClassW, RegisterWindowMessageW, SetCursor, SetForegroundWindow,
-    SetWindowLongPtrW,
+    GetMessageW, GetWindowLongPtrW, HMENU, IDC_ARROW, KillTimer,
+    LoadCursorW, LoadIconW, MINMAXINFO, MSG, PostQuitMessage, RegisterClassW,
+    RegisterWindowMessageW, SetCursor, SetForegroundWindow, SetTimer, SetWindowLongPtrW,
     IsWindowVisible, SetWindowPos, ShowWindow, TranslateMessage, CS_HREDRAW, CS_VREDRAW,
     GWLP_USERDATA,
     SW_HIDE, SW_SHOW, SWP_NOACTIVATE, SWP_NOZORDER, WM_CLOSE, WM_COMMAND, WM_DESTROY,
-    WM_DPICHANGED, WM_ERASEBKGND, WM_GETMINMAXINFO, WM_PAINT, WM_SETTINGCHANGE, WM_SIZE,
+    WM_DPICHANGED, WM_ERASEBKGND, WM_GETMINMAXINFO, WM_PAINT, WM_SETTINGCHANGE, WM_SIZE, WM_TIMER,
     WNDCLASSW, WS_OVERLAPPEDWINDOW,
 };
 
@@ -48,8 +50,8 @@ use crate::ipc_server::{
 };
 use crate::render::{self, RenderCtx};
 use crate::tray::{
-    MENU_ABOUT, MENU_AUTOSTART, MENU_EXIT, MENU_EXPORT, MENU_ID_BASE, MENU_OPEN, MENU_PAUSE,
-    TRAY_RBUTTONUP, TrayIcon, handle_left_click, is_left_click, menu_id, tray_event,
+    click_plan, handle_left_action, is_left_click, menu_id, tray_event, ClickPlan, TrayIcon,
+    MENU_AUTOSTART, MENU_EXIT, MENU_ID_BASE, MENU_OPEN, TRAY_RBUTTONUP, TRAY_LBUTTONDBLCLK,
 };
 use crate::ui::theme::{self, ThemeMode};
 use crate::ui::widgets::PopupKind;
@@ -78,6 +80,8 @@ const DWMSBT_TABBEDWINDOW: i32 = 4;
 const DWMWCP_ROUND: i32 = 2;
 /// `ERROR_CLASS_ALREADY_EXISTS`（1410）：同一进程重复注册窗口类不算错误。
 const ERROR_CLASS_ALREADY_EXISTS: u32 = 1410;
+/// 托盘"等双击"定时器 ID。
+const TIMER_TRAY_SINGLE: usize = 0x5B01;
 
 /// 挂在 `GWLP_USERDATA` 上的窗口状态。
 struct WindowState {
@@ -94,6 +98,10 @@ struct WindowState {
     tray: TrayIcon,
     /// 首启气泡是否已展示（S-02 默认关，只提示一次）。
     balloon_shown: bool,
+    /// 单击是否处于"等双击"的挂起状态（仅当 S-51≠无操作时使用）。
+    pending_single: bool,
+    /// 双击后要吞掉的尾随单击，截止的 tick（毫秒）。
+    swallow_single_until: u32,
 }
 
 /// 创建主窗口（尚不显示）。
@@ -197,6 +205,8 @@ pub fn create_main_window(app: Arc<App>) -> SbResult<HWND> {
         app,
         tray,
         balloon_shown: false,
+        pending_single: false,
+        swallow_single_until: 0,
     });
     let raw = Box::into_raw(state);
     // SAFETY: 把 Box 的所有权移交给窗口；WM_DESTROY 里取回并释放。
@@ -534,10 +544,10 @@ fn export_toast_text(lang: crate::config::Lang, path: &Path) -> String {
     )
 }
 
-/// 托盘菜单命令（A-07：6 项全部生效）。
+/// 托盘菜单命令（问题 7：只保留设置 / 开机启动 / 版本号 / 退出）。
 fn handle_menu(hwnd: HWND, wp: WPARAM) {
     let id = menu_id(wp);
-    if !(MENU_ID_BASE..=MENU_ID_BASE + 5).contains(&id) {
+    if !(MENU_ID_BASE..=MENU_ID_BASE + 3).contains(&id) {
         return; // 不是托盘菜单命令，不吞掉别的 WM_COMMAND。
     }
     // SAFETY: 同上。
@@ -546,21 +556,10 @@ fn handle_menu(hwnd: HWND, wp: WPARAM) {
     };
     match id {
         MENU_OPEN => show_settings(hwnd),
-        MENU_PAUSE => {
-            let _ = state.app.toggle_pause();
-            state.app.sync_view(&mut state.view);
-        }
         MENU_AUTOSTART => {
             let _ = state.app.toggle_autostart();
             state.app.sync_view(&mut state.view);
         }
-        MENU_EXPORT => match state.app.export_diagnostics() {
-            Ok(path) => state
-                .view
-                .show_toast_text(export_toast_text(state.app.language(), &path)),
-            Err(_) => state.view.show_toast("diag.export_fail"),
-        },
-        MENU_ABOUT => state.view.request_popup(PopupKind::About),
         MENU_EXIT => {
             state.app.request_exit();
             // SAFETY: hwnd 有效。
@@ -568,12 +567,74 @@ fn handle_menu(hwnd: HWND, wp: WPARAM) {
                 let _ = DestroyWindow(hwnd);
             }
         }
+        // MENU_VERSION 是灰显只读项，不会产生 WM_COMMAND。
         _ => {}
     }
     // SAFETY: hwnd 有效。
     unsafe {
         let _ = InvalidateRect(hwnd, None, false);
     }
+}
+
+/// 取消"等双击"挂起的单击。
+fn cancel_pending_single(hwnd: HWND, state: &mut WindowState) {
+    if state.pending_single {
+        state.pending_single = false;
+        // SAFETY: hwnd 有效。
+        unsafe { KillTimer(hwnd, TIMER_TRAY_SINGLE) }.ok();
+    }
+}
+
+/// tick 是否还没到 `until`（处理 49 天回绕）。
+fn before_deadline(now: u32, until: u32) -> bool {
+    now.wrapping_sub(until) > u32::MAX / 2
+}
+
+/// 托盘左键事件：单击与双击共存（S-40 / S-51）。
+fn handle_tray_left_event(hwnd: HWND, ev: u32) {
+    // SAFETY: 同一线程的消息派发上下文。
+    let Some(state) = (unsafe { state_mut(hwnd) }) else {
+        return;
+    };
+    let single = state.app.config().get(crate::config::SettingKey::S40);
+    let double = state.app.config().get(crate::config::SettingKey::S51);
+    match click_plan(single, double, ev) {
+        ClickPlan::Immediate(action) => {
+            let cfg = state.app.config();
+            let lang = state.app.language();
+            handle_left_action(hwnd, action, &cfg, lang);
+        }
+        ClickPlan::DeferSingle => {
+            state.pending_single = true;
+            // SAFETY: hwnd 有效；超时后走 WM_TIMER。
+            unsafe { SetTimer(hwnd, TIMER_TRAY_SINGLE, GetDoubleClickTime(), None) };
+        }
+        ClickPlan::Double(action) => {
+            cancel_pending_single(hwnd, state);
+            // 双击之后还会来一次 WM_LBUTTONUP，必须吞掉，否则会多执行一次单击。
+            state.swallow_single_until = unsafe { GetTickCount() }.wrapping_add(250);
+            let cfg = state.app.config();
+            let lang = state.app.language();
+            handle_left_action(hwnd, action, &cfg, lang);
+        }
+    }
+}
+
+/// "等双击"窗口超时：执行被挂起的单击。
+fn handle_tray_single_timer(hwnd: HWND) {
+    // SAFETY: hwnd 有效；定时器已由系统触发。
+    unsafe { KillTimer(hwnd, TIMER_TRAY_SINGLE) }.ok();
+    // SAFETY: 同一线程的消息派发上下文。
+    let Some(state) = (unsafe { state_mut(hwnd) }) else {
+        return;
+    };
+    if !state.pending_single {
+        return;
+    }
+    state.pending_single = false;
+    let cfg = state.app.config();
+    let lang = state.app.language();
+    handle_left_action(hwnd, cfg.get(crate::config::SettingKey::S40), &cfg, lang);
 }
 
 extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRESULT {
@@ -715,15 +776,27 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRES
 
             m if m == WM_SHADEBAR_TRAY => {
                 let ev = tray_event(lp);
-                if let Some(state) = state_mut(hwnd) {
-                    let cfg = state.app.config();
-                    let lang = state.app.language();
-                    if is_left_click(ev) {
-                        handle_left_click(hwnd, &cfg, lang);
-                    } else if ev == TRAY_RBUTTONUP {
+                if ev == TRAY_RBUTTONUP {
+                    if let Some(state) = state_mut(hwnd) {
+                        let cfg = state.app.config();
+                        let lang = state.app.language();
                         TrayIcon::show_menu(hwnd, &cfg, lang);
                     }
+                } else if ev == TRAY_LBUTTONDBLCLK {
+                    handle_tray_left_event(hwnd, ev);
+                } else if is_left_click(ev) {
+                    // 双击的尾随 WM_LBUTTONUP 要吞掉，避免再触发一次单击。
+                    let swallow = state_mut(hwnd)
+                        .is_some_and(|s| before_deadline(GetTickCount(), s.swallow_single_until));
+                    if !swallow {
+                        handle_tray_left_event(hwnd, ev);
+                    }
                 }
+                LRESULT(0)
+            }
+
+            WM_TIMER if wp.0 == TIMER_TRAY_SINGLE => {
+                handle_tray_single_timer(hwnd);
                 LRESULT(0)
             }
 

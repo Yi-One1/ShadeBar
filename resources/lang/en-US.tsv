@@ -66,6 +66,8 @@ s37	Fixed hover block color
 s37.help	Only available with an independent fixed color; includes a built-in alpha control
 s40	Left click on tray icon
 s40.help	Open settings / open tray menu / do nothing
+s51	Double-click tray icon
+s51.help	Action for double-clicking the tray icon; same options as single click (default: none)
 s41	When closing the settings window
 s41.help	Minimize to tray or exit; the process stays alive by default
 s42	Pause adaptive coloring
@@ -111,10 +113,8 @@ opt.log.warn	Warning
 opt.log.info	Info
 opt.log.debug	Debug
 tray.open	Open settings
-tray.pause	Pause adaptive coloring
 tray.autostart	Start with Windows
-tray.export	Export diagnostic bundle
-tray.about	About (version)
+tray.version	Version
 tray.exit	Exit
 tray.balloon.first_run	ShadeBar is running in the tray. Enable autostart in Settings.
 tray.restricted	Restricted (degraded mode)
