@@ -720,21 +720,22 @@ impl View {
                             }
                         }
                     }
-                    let op_hit = Rect::new(
-                        self.opacity_track.x,
-                        self.opacity_track.y - 8.0,
-                        self.opacity_track.w,
-                        self.opacity_track.h + 16.0,
-                    );
-                    if op_hit.contains(x, y) {
-                        return Hit::Opacity;
-                    }
                 } else {
                     for (i, r) in self.well_rects.iter().enumerate() {
                         if r.contains(x, y) {
                             return Hit::Well(i);
                         }
                     }
+                }
+                // 不透明度滑条两种判定模式都会显示，命中检测必须在模式分支之外。
+                let op_hit = Rect::new(
+                    self.opacity_track.x,
+                    self.opacity_track.y - 8.0,
+                    self.opacity_track.w,
+                    self.opacity_track.h + 16.0,
+                );
+                if op_hit.contains(x, y) {
+                    return Hit::Opacity;
                 }
                 for (i, r) in self.judge_rects.iter().enumerate() {
                     if r.contains(x, y) {
@@ -2080,16 +2081,16 @@ impl View {
                 let meta = key.meta();
                 let ratio = ((row.value - meta.min) as f32 / (meta.max - meta.min).max(1) as f32)
                     .clamp(0.0, 1.0);
-                ctx.fill_rounded_rect(rd(track), 2.0, p.track_off);
+                ctx.fill_rounded_rect(rd(track), 5.0, p.track_off);
                 ctx.fill_rounded_rect(
                     rd(Rect::new(track.x, track.y, track.w * ratio, track.h)),
-                    2.0,
+                    5.0,
                     if enabled { p.accent } else { p.disabled_fill },
                 );
-                let kx = track.x + track.w * ratio - 7.0;
-                ctx.fill_rounded_rect(rd(Rect::new(kx, track.y - 5.0, 14.0, 14.0)), 7.0, p.card_bg);
+                let kx = track.x + track.w * ratio - 6.0;
+                ctx.fill_rounded_rect(rd(Rect::new(kx, track.y - 2.0, 12.0, 14.0)), 7.0, p.card_bg);
                 ctx.stroke_rounded_rect(
-                    rd(Rect::new(kx, track.y - 5.0, 14.0, 14.0)),
+                    rd(Rect::new(kx, track.y - 2.0, 12.0, 14.0)),
                     7.0,
                     if enabled { p.accent } else { p.disabled_text },
                     2.0,
@@ -2145,8 +2146,7 @@ impl View {
                 }
             }
             SettingKey::S18 => format!("{:.2}", value as f32 / 1000.0),
-            SettingKey::S20 | SettingKey::S21 => format!("{value}%"),
-            SettingKey::S22 => format!("{value} px"),
+            SettingKey::S20 | SettingKey::S21 | SettingKey::S22 => format!("{value}%"),
             _ => value.to_string(),
         }
     }
@@ -2373,7 +2373,8 @@ fn rd(r: Rect) -> RectDip {
 }
 
 fn slider_track(row: Rect) -> Rect {
-    Rect::new(row.x + PAD, row.y + 31.0, row.w - PAD * 2.0, 4.0)
+    // 与阈值 / 不透明度滑条同款：10 dip 高的圆角轨道。
+    Rect::new(row.x + PAD, row.y + 30.0, row.w - PAD * 2.0, 10.0)
 }
 
 fn role_size(role: TextRole) -> f32 {
@@ -2795,6 +2796,35 @@ mod tests {
         assert_eq!(v.zone_color(SettingKey::S48, &p), Rgba::opaque(0x11, 0x22, 0x33));
         assert_eq!(v.zone_color(SettingKey::S49, &p), Rgba::opaque(0x44, 0x55, 0x66));
         assert_eq!(v.zone_color(SettingKey::S50, &p), Rgba::opaque(0x77, 0x88, 0x99));
+    }
+
+    /// 问题 1：不透明度滑条在「全任务栏统一」模式下也必须能拖（曾经只在分区模式命中）。
+    #[test]
+    fn opacity_slider_works_in_global_mode_too() {
+        let mut v = make_view();
+        let mut cfg = v.cfg.clone();
+        cfg.set(SettingKey::S47, 1);
+        v.rebuild(&cfg, &DiagView::default(), false);
+        let t = v.opacity_track;
+        click(&mut v, t.right() - 0.5, t.y + 2.0);
+        assert_eq!(v.take_actions(), vec![ViewAction::Set(SettingKey::S60, 100)]);
+    }
+
+    /// 问题 2：设置行滑条与阈值滑条同款（10 dip 轨道）。
+    #[test]
+    fn row_slider_track_matches_threshold_style() {
+        let row = Rect::new(0.0, 0.0, 400.0, ROW_H);
+        let t = slider_track(row);
+        assert!((t.h - 10.0).abs() < 0.01, "轨道高度必须与阈值滑条一致");
+        assert!((t.y - (row.y + 30.0)).abs() < 0.01);
+    }
+
+    /// 问题 2：采样带内缩的读数单位必须与语义一致（%），不能再显示 px。
+    #[test]
+    fn sample_offset_value_uses_percent_unit() {
+        let v = make_view();
+        assert_eq!(v.row_value_text(SettingKey::S22, 45), "45%");
+        assert_eq!(v.row_value_text(SettingKey::S20, 0), "0%");
     }
 
     #[test]
