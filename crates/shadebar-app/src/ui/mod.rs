@@ -641,13 +641,14 @@ impl View {
                     for (c, cell) in row.iter_mut().enumerate() {
                         *cell = Rect::new(
                             inner.x + label_col + c as f32 * (cw4 + col_gap),
-                            inner.y + 44.0 + r as f32 * 28.0,
+                            inner.y + 44.0 + r as f32 * 24.0,
                             cw4,
-                            24.0,
+                            22.0,
                         );
                     }
                 }
-                self.opacity_track = Rect::new(inner.x, inner.y + 120.0, inner.w, 4.0);
+                // 与阈值滑条同款高度（10 dip），视觉风格才一致。
+                self.opacity_track = Rect::new(inner.x, inner.y + 114.0, inner.w, 10.0);
                 let seg_w = 76.0;
                 self.judge_rects[0] = Rect::new(inner.right() - seg_w * 2.0 - 2.0, inner.y, seg_w, 26.0);
                 self.judge_rects[1] = Rect::new(inner.right() - seg_w, inner.y, seg_w, 26.0);
@@ -1657,9 +1658,10 @@ impl View {
         }
 
         // 正常态指示条不透明度（S-60，两种判定模式都生效）。
+        // 外观与下面的亮度阈值滑条保持一致：10 dip 圆角轨 + 12×14 药丸滑块。
         let opacity = self.cfg.get(SettingKey::S60);
         let ot = self.opacity_track;
-        let label_y = ot.y - 18.0;
+        let label_y = ot.y - 20.0;
         self.label(
             ctx,
             text("s60", self.lang),
@@ -1674,12 +1676,13 @@ impl View {
             TextRole::Caption,
             p.control_text(enabled),
         );
-        ctx.fill_rounded_rect(rd(ot), 2.0, p.card_alt);
+        ctx.fill_rounded_rect(rd(ot), 5.0, p.card_alt);
         let filled = Rect::new(ot.x, ot.y, ot.w * opacity as f32 / 100.0, ot.h);
-        ctx.fill_rounded_rect(rd(filled), 2.0, p.accent);
-        let kx = ot.x + ot.w * opacity as f32 / 100.0 - 5.0;
-        ctx.fill_rounded_rect(rd(Rect::new(kx, ot.y - 4.0, 10.0, 12.0)), 6.0, p.card_bg);
-        ctx.stroke_rounded_rect(rd(Rect::new(kx, ot.y - 4.0, 10.0, 12.0)), 6.0, p.accent, 2.0);
+        ctx.fill_rounded_rect(rd(filled), 5.0, p.accent);
+        ctx.stroke_rounded_rect(rd(ot), 5.0, p.card_border, 1.0);
+        let kx = ot.x + ot.w * opacity as f32 / 100.0 - 6.0;
+        ctx.fill_rounded_rect(rd(Rect::new(kx, ot.y - 2.0, 12.0, 14.0)), 7.0, p.card_bg);
+        ctx.stroke_rounded_rect(rd(Rect::new(kx, ot.y - 2.0, 12.0, 14.0)), 7.0, p.accent, 2.0);
 
         // 阈值
         let thr = self.cfg.get(SettingKey::S12);
