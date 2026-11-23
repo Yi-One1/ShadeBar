@@ -630,9 +630,9 @@ impl View {
                 self.colors_card = Rect::new(PAD, self.zone_rects[0].bottom() + GAP, cw, 214.0);
                 let inner = self.colors_card.inset(PAD);
                 let bw = (inner.w - 10.0) / 2.0;
-                let wy = inner.y + 36.0;
-                self.well_rects[0] = Rect::new(inner.x, wy, bw, 56.0);
-                self.well_rects[1] = Rect::new(inner.x + bw + 10.0, wy, bw, 56.0);
+                let wy = inner.y + 34.0;
+                self.well_rects[0] = Rect::new(inner.x, wy, bw, 52.0);
+                self.well_rects[1] = Rect::new(inner.x + bw + 10.0, wy, bw, 52.0);
                 // 分区配色矩阵：左侧 52 dip 留给行标题。
                 let label_col = 52.0;
                 let col_gap = 8.0;
@@ -641,9 +641,9 @@ impl View {
                     for (c, cell) in row.iter_mut().enumerate() {
                         *cell = Rect::new(
                             inner.x + label_col + c as f32 * (cw4 + col_gap),
-                            inner.y + 44.0 + r as f32 * 24.0,
+                            inner.y + 42.0 + r as f32 * 23.0,
                             cw4,
-                            22.0,
+                            18.0,
                         );
                     }
                 }
@@ -652,7 +652,7 @@ impl View {
                 let seg_w = 76.0;
                 self.judge_rects[0] = Rect::new(inner.right() - seg_w * 2.0 - 2.0, inner.y, seg_w, 26.0);
                 self.judge_rects[1] = Rect::new(inner.right() - seg_w, inner.y, seg_w, 26.0);
-                self.thr_track = Rect::new(inner.x, inner.y + 150.0, inner.w, 10.0);
+                self.thr_track = Rect::new(inner.x, inner.y + 152.0, inner.w, 10.0);
             }
             Page::Sample => {
                 self.sample_card = Rect::new(PAD, top, cw, 160.0);
@@ -1597,13 +1597,13 @@ impl View {
                         1.0,
                     );
                     let argb = self.cfg.get(ITEM_KEYS[r][c]);
-                    let chip = Rect::new(box_r.x + 5.0, box_r.y + 4.0, 18.0, 16.0);
+                    let chip = Rect::new(box_r.x + 5.0, box_r.y + 2.0, 16.0, 14.0);
                     ctx.fill_rounded_rect(rd(chip), 3.0, argb_to_rgba(argb));
                     ctx.stroke_rounded_rect(rd(chip), 3.0, p.card_border, 1.0);
                     self.label(
                         ctx,
                         &hex_rgb(argb),
-                        Rect::new(chip.right() + 6.0, box_r.y + 4.0, box_r.w - 32.0, 14.0),
+                        Rect::new(chip.right() + 6.0, box_r.y + 2.0, box_r.w - 32.0, 14.0),
                         TextRole::Caption,
                         p.control_text(enabled),
                     );
@@ -1625,7 +1625,7 @@ impl View {
                 );
                 let argb = self.cfg.get(*key);
                 let color = argb_to_rgba(argb);
-                let well = Rect::new(box_r.x + 8.0, box_r.y + 7.0, 60.0, 42.0);
+                let well = Rect::new(box_r.x + 8.0, box_r.y + 5.0, 60.0, 42.0);
                 ctx.fill_rounded_rect(rd(well), 6.0, color);
                 ctx.stroke_rounded_rect(rd(well), 6.0, p.card_border, 1.0);
                 let sample_color = if color_light(color) {
@@ -1636,21 +1636,21 @@ impl View {
                 self.label_center(
                     ctx,
                     "Aa",
-                    Rect::new(well.x, well.y + 10.0, well.w, 24.0),
+                    Rect::new(well.x, well.y + 9.0, well.w, 24.0),
                     TextRole::Sample,
                     sample_color,
                 );
                 self.label(
                     ctx,
                     text(label_key, self.lang),
-                    Rect::new(well.right() + 12.0, box_r.y + 12.0, box_r.w - 84.0, 15.0),
+                    Rect::new(well.right() + 12.0, box_r.y + 10.0, box_r.w - 84.0, 15.0),
                     TextRole::Caption,
                     p.control_text(enabled),
                 );
                 self.label(
                     ctx,
                     &hex_rgb(argb),
-                    Rect::new(well.right() + 12.0, box_r.y + 30.0, box_r.w - 84.0, 18.0),
+                    Rect::new(well.right() + 12.0, box_r.y + 28.0, box_r.w - 84.0, 18.0),
                     TextRole::Body,
                     p.control_text(enabled),
                 );
@@ -1661,7 +1661,7 @@ impl View {
         // 外观与下面的亮度阈值滑条保持一致：10 dip 圆角轨 + 12×14 药丸滑块。
         let opacity = self.cfg.get(SettingKey::S60);
         let ot = self.opacity_track;
-        let label_y = ot.y - 20.0;
+        let label_y = ot.y - 18.0;
         self.label(
             ctx,
             text("s60", self.lang),
@@ -1687,7 +1687,7 @@ impl View {
         // 阈值
         let thr = self.cfg.get(SettingKey::S12);
         let track = self.thr_track;
-        let label_y = track.y - 24.0;
+        let label_y = track.y - 20.0;
         self.label(
             ctx,
             text("thr.title", self.lang),
@@ -2912,6 +2912,10 @@ mod tests {
     #[test]
     fn popup_escape_closes_without_writing() {
         let mut v = make_view();
+        // 端色大色块只在统一模式出现。
+        let mut cfg = v.cfg.clone();
+        cfg.set(SettingKey::S47, 1);
+        v.rebuild(&cfg, &DiagView::default(), false);
         let (x, y) = center(v.well_rects[0]);
         click(&mut v, x, y);
         assert!(v.popup.is_some());
