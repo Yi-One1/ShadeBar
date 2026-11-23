@@ -426,10 +426,10 @@ impl View {
         let bar = self.sample_bar;
         let start = (self.cfg.get(SettingKey::S20) as f32 / 100.0).clamp(0.0, 0.5);
         let width = (self.cfg.get(SettingKey::S21) as f32 / 100.0).clamp(0.1, 0.84);
-        let dy = (self.cfg.get(SettingKey::S22) as f32).clamp(0.0, bar.h - 12.0);
+        let dy = band_inset(bar, self.cfg.get(SettingKey::S22));
         let x0 = bar.x + bar.w * start;
         let end = (bar.x + bar.w * (start + width)).min(bar.x + bar.w * 0.84);
-        Rect::new(x0, bar.y + dy, (end - x0).max(4.0), bar.h - dy)
+        Rect::new(x0, bar.y + dy, (end - x0).max(4.0), (bar.h - 2.0 * dy).max(2.0))
     }
 
     fn row_enabled(&self, key: SettingKey) -> bool {
@@ -1482,19 +1482,26 @@ impl View {
             p.control_text(enabled),
         );
 
-        let segments = 32;
+        let seg_r = 5.0_f32;
+        let (cap_l, mid, cap_r) = gradient_spans(track, seg_r);
+        let segments = 32u32;
         for i in 0..segments {
-            let t = i as f32 / (segments - 1) as f32;
+            let t = (i as f32 + 0.5) / segments as f32;
             let v = (t * 255.0).round() as u8;
             let seg = Rect::new(
-                track.x + track.w * i as f32 / segments as f32,
-                track.y,
-                track.w / segments as f32 + 0.5,
-                track.h,
+                mid.x + mid.w * i as f32 / segments as f32,
+                mid.y,
+                mid.w / segments as f32 + 0.5,
+                mid.h,
             );
             ctx.fill_rect(rd(seg), Rgba::opaque(v, v, v));
         }
-        ctx.stroke_rounded_rect(rd(track), 5.0, p.card_border, 1.0);
+        // 两端用圆帽收口，避免方形色段盖住圆角描边后露出两个黑角。
+        let v_l = ((0.5 / segments as f32) * 255.0).round() as u8;
+        let v_r = (255.0 - (0.5 / segments as f32) * 255.0).round() as u8;
+        ctx.fill_rounded_rect(rd(cap_l), seg_r, Rgba::opaque(v_l, v_l, v_l));
+        ctx.fill_rounded_rect(rd(cap_r), seg_r, Rgba::opaque(v_r, v_r, v_r));
+        ctx.stroke_rounded_rect(rd(track), seg_r, p.card_border, 1.0);
 
         let ratio = ((thr - 300) as f32 / 400.0).clamp(0.0, 1.0);
         let kx = track.x + track.w * ratio - 6.0;
@@ -1580,8 +1587,8 @@ impl View {
 
         // 采样区：起点 / 宽度 / 偏移都作用在迷你任务栏上；区外盖回壁纸色，
         // 只留下被采样的那一段任务栏，比一条纯色块更能说明"采的是哪一块"。
-        let dy = (self.cfg.get(SettingKey::S22) as f32).clamp(0.0, bar.h - 12.0);
         let seg = self.sample_segment();
+        let dy = seg.y - bar.y;
         ctx.fill_rect(
             rd(Rect::new(bar.x, bar.y, seg.x - bar.x, bar.h)),
             p.preview_wall,
@@ -1591,10 +1598,18 @@ impl View {
             p.preview_wall,
         );
         if dy > 0.0 {
+            // 引擎是"上下各内缩同样比例"，预览也必须上下同时收。
             ctx.fill_rect(
                 rd(Rect::new(seg.x, bar.y, seg.w, dy)),
                 p.preview_wall,
             );
+            let bottom = bar.bottom() - seg.bottom();
+            if bottom > 0.0 {
+                ctx.fill_rect(
+                    rd(Rect::new(seg.x, seg.bottom(), seg.w, bottom)),
+                    p.preview_wall,
+                );
+            }
         }
         ctx.stroke_rounded_rect(rd(seg), 3.0, p.accent, 1.5);
         let live = if self.diag.has_data {
@@ -2154,6 +2169,22 @@ fn threshold_range_labels() -> (String, String) {
     )
 }
 
+/// 采样带上下内缩高度。`S-22` 是任务栏高度的百分比，引擎按
+/// 上、下各内缩同样比例取样（见 `expected_sample_rect`），预览必须同口径。
+fn band_inset(bar: Rect, pct: i64) -> f32 {
+    (bar.h * pct.clamp(0, 100) as f32 / 100.0).clamp(0.0, bar.h * 0.45)
+}
+
+/// 阈值渐变滑条的三段矩形：左右圆帽各宽 `2r`，中段铺渐变。
+/// 直接铺满整条会在圆角外露出方角色块（左侧 `v=0` 看起来就是两个黑点）。
+fn gradient_spans(track: Rect, radius: f32) -> (Rect, Rect, Rect) {
+    let r = radius.min(track.h * 0.5).min(track.w * 0.5);
+    let mid = Rect::new(track.x + r, track.y, (track.w - 2.0 * r).max(0.0), track.h);
+    let left = Rect::new(track.x, track.y, 2.0 * r, track.h);
+    let right = Rect::new(track.right() - 2.0 * r, track.y, 2.0 * r, track.h);
+    (left, mid, right)
+}
+
 fn parse_hex(s: &str) -> i64 {
     i64::from_str_radix(s.trim_start_matches('#'), 16).unwrap_or(0) | 0xFF00_0000
 }
@@ -2406,6 +2437,51 @@ mod tests {
         cfg.set(SettingKey::S21, 10);
         v.rebuild(&cfg, &DiagView::default(), false);
         assert!((v.sample_segment().w - bar.w * 0.10).abs() <= 0.5, "宽度 10% 必须画成 10%");
+    }
+
+    /// 问题 3 回归：`S-22` 是百分比，28~45 区间预览必须继续变化，
+    /// 且上下两边同时内缩（与引擎 `expected_sample_rect` 同口径）。
+    #[test]
+    fn sample_segment_offset_changes_across_28_to_45() {
+        let mut v = make_view();
+        let (tx, ty) = center(v.tab_rects[1]);
+        click(&mut v, tx, ty);
+        let bar = v.sample_bar;
+
+        let mut cfg = v.cfg.clone();
+        cfg.set(SettingKey::S22, 28);
+        v.rebuild(&cfg, &DiagView::default(), false);
+        let a = v.sample_segment();
+
+        cfg.set(SettingKey::S22, 45);
+        v.rebuild(&cfg, &DiagView::default(), false);
+        let b = v.sample_segment();
+
+        assert!(b.y > a.y + 1.0, "45% 顶边内缩必须比 28% 更深：y={} vs {}", b.y, a.y);
+        assert!(b.h < a.h, "上下同时内缩，剩余高度必须变小");
+        assert!((a.y - bar.y - bar.h * 0.28).abs() <= 0.6, "28% 顶边内缩应等于高度×0.28");
+        assert!((b.y - bar.y - bar.h * 0.45).abs() <= 0.6, "45% 顶边内缩应等于高度×0.45");
+        let a_bottom = bar.bottom() - a.bottom();
+        let b_bottom = bar.bottom() - b.bottom();
+        assert!(
+            (a_bottom - bar.h * 0.28).abs() <= 0.6 && (b_bottom - bar.h * 0.45).abs() <= 0.6,
+            "底边内缩必须与顶边对称"
+        );
+    }
+
+    /// 问题 2 回归：渐变滑条中段两侧要留出圆帽，方形色段不得再盖住圆角。
+    #[test]
+    fn threshold_gradient_leaves_round_caps() {
+        let track = Rect::new(10.0, 20.0, 100.0, 10.0);
+        let (left, mid, right) = gradient_spans(track, 5.0);
+        assert!((left.x - track.x).abs() < 0.01 && (left.w - 10.0).abs() < 0.01);
+        assert!((mid.x - (track.x + 5.0)).abs() < 0.01);
+        assert!((mid.w - 90.0).abs() < 0.01);
+        assert!((right.right() - track.right()).abs() < 0.01 && (right.w - 10.0).abs() < 0.01);
+        // 圆帽是整圆（宽 2r），中段从左右中线向内铺渐变：
+        // 圆帽的直边半边被渐变覆盖，圆弧半边保住圆角。
+        assert!((mid.x - (track.x + 5.0)).abs() < 0.01, "中段应从左侧中线开始");
+        assert!((mid.right() - (track.right() - 5.0)).abs() < 0.01, "中段应止于右侧中线");
     }
 
     #[test]
