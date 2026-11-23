@@ -35,6 +35,9 @@ IND_RE = re.compile(
     r"b=0x(?P<b>[0-9A-Fa-f]+) -> (?P<color>[0-9A-Fa-f]+)"
 )
 
+MASK_TIME = 0x1
+MASK_DATE = 0x2
+MASK_TRAY = 0x4
 MASK_INDICATOR = 0x8
 WINDOW = 20
 
@@ -140,6 +143,20 @@ def main() -> int:
             break
     results.append(("C4 重放后确实着色", ind_after > 0,
                     f"最后一次有效重放后 {ind_after}/{total_after} 拍写过指示条"))
+
+    # C6：掩码要求时间/日期/托盘时，必须真的写到对应元素。
+    # 这条专门拦"元素没进树"——v1.3.2 的托盘元素曾被误认成 AdaptiveTextBlock，
+    # 写得进但染不到任何可见字形，日志里只看 [Apply] 全是成功，掩盖了问题。
+    c6_parts = []
+    c6_ok = True
+    for bit, key, label in ((MASK_TIME, "time", "时间"), (MASK_DATE, "date", "日期"),
+                            (MASK_TRAY, "tray", "托盘")):
+        want = [a for a in applies if a["mask"] & bit]
+        hit = [a for a in want if a[key] > 0]
+        ratio = (len(hit) / len(want)) if want else 1.0
+        c6_ok = c6_ok and ratio >= 0.9
+        c6_parts.append(f"{label} {len(hit)}/{len(want)}")
+    results.append(("C6 时间/日期/托盘有写入", c6_ok, "，".join(c6_parts)))
 
     # C5：所有正常态指示条必须指向同一个画刷对象（方案 B 的结构性证据）
     if last_block is None:

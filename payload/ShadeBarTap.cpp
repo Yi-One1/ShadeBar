@@ -22,6 +22,7 @@
 #include <stdio.h>
 #include <vector>
 #include <string>
+#include <map>
 
 #include "ShadeBarIpc.h"
 
@@ -90,6 +91,12 @@ struct VisEntry {
     std::wstring   name;
 };
 static std::vector<VisEntry> g_tree;
+// 句柄 → 类型。用来判断某个 TextBlock 的父级是不是 SystemTray.TextIconContent
+// （托盘系统字形），仅靠名字无法区分它和应用图标的文字层。
+static std::map<InstanceHandle, std::wstring> g_typeMap;
+// 句柄 → 名字。托盘字形只取 AdaptiveTextBlock 里名为 Base 的那一层
+// （Underlay/AccentOverlay 是透明/强调覆盖层，宽 0，不该染色）。
+static std::map<InstanceHandle, std::wstring> g_nameMap;
 static CRITICAL_SECTION      g_treeCs;
 static INIT_ONCE             g_treeOnce = INIT_ONCE_STATIC_INIT;
 
@@ -262,7 +269,7 @@ public:
         EnterCriticalSection(&g_treeCs);
         if (type == Add) {
             // 重放开始：第一个 Add 到达时清掉旧树，之后重新累积。
-            if (InterlockedExchange(&g_clearOnAdd, 0)) g_tree.clear();
+            if (InterlockedExchange(&g_clearOnAdd, 0)) { g_tree.clear(); g_typeMap.clear(); g_nameMap.clear(); }
 
             VisEntry e;
             e.handle = element.Handle;
@@ -271,6 +278,9 @@ public:
             e.name = element.Name ? element.Name : L"";
             const std::wstring& N = e.name;
             const std::wstring& T = e.type;
+            g_typeMap[e.handle] = T;
+            g_nameMap[e.handle] = N;
+
 
             if (g_addLogBudget > 0) {
                 --g_addLogBudget;
@@ -278,10 +288,14 @@ public:
                      N.c_str(), T.c_str(), (unsigned long long)relation.Parent);
             }
 
-            if (N == L"TimeInnerTextBlock" || N == L"DateInnerTextBlock" ||
-                N == L"RunningIndicator" || N == L"Underlay" ||
-                N == L"Base" || N == L"AccentOverlay" ||
-                T.find(L"AdaptiveTextBlock") != std::wstring::npos) {
+            bool want = (N == L"TimeInnerTextBlock" || N == L"DateInnerTextBlock" ||
+                         N == L"RunningIndicator");
+            if (!want && N == L"InnerTextBlock") {
+                // 托盘字形：只收 AdaptiveTextBlock 的 Base 层子 TextBlock。
+                auto pn = g_nameMap.find(relation.Parent);
+                want = (pn != g_nameMap.end() && pn->second == L"Base");
+            }
+            if (want) {
                 // 重放时同一个句柄可能被再发一次，去重，避免 g_tree 无限增长。
                 bool dup = false;
                 for (auto& it : g_tree) {
@@ -291,6 +305,8 @@ public:
                 InterlockedExchange(&g_dirty, 1);
             }
         } else {
+            g_typeMap.erase(element.Handle);
+            g_nameMap.erase(element.Handle);
             for (auto it = g_tree.begin(); it != g_tree.end(); ++it) {
                 if (it->handle == element.Handle) { g_tree.erase(it); break; }
             }
@@ -704,7 +720,7 @@ static void ApplyColors() {
         for (const auto& e : v) {
             if (e.name == L"TimeInnerTextBlock") ++cT;
             else if (e.name == L"DateInnerTextBlock") ++cD;
-            else if (e.type.find(L"AdaptiveTextBlock") != std::wstring::npos) ++cG;
+            else if (e.name == L"InnerTextBlock") ++cG;
             else if (e.name == L"RunningIndicator") ++cI;
             else ++cO;
         }
@@ -733,10 +749,11 @@ static void ApplyColors() {
             } else if ((g_activeMask & kMaskDate) && g_restore.date != 0) {
                 if (SetColorProp(e.handle, L"Foreground", g_restore.date)) ++nUndo;
             }
-        } else if (e.type.find(L"AdaptiveTextBlock") != std::wstring::npos) {
+        } else if (e.name == L"InnerTextBlock") {
             if (mask & kMaskTray) {
                 if (g_restore.tray == 0) { unsigned a = 0; if (ReadBrushColor(e.handle, L"Foreground", &a)) g_restore.tray = a; }
-                if (SetColorProp(e.handle, L"Foreground", cmd.trayGlyphColor)) ++nTray;
+                const bool wroteTray = SetColorProp(e.handle, L"Foreground", cmd.trayGlyphColor);
+                if (wroteTray) ++nTray;
             } else if ((g_activeMask & kMaskTray) && g_restore.tray != 0) {
                 if (SetColorProp(e.handle, L"Foreground", g_restore.tray)) ++nUndo;
             }
@@ -858,7 +875,7 @@ static void RestoreAll() {
             unsigned orig = (e.name == L"TimeInnerTextBlock") ? g_restore.time : g_restore.date;
             if (orig) { if (SetColorProp(e.handle, L"Foreground", orig)) ++n; }
             else if (ClearColorProp(e.handle, L"Foreground")) ++n;
-        } else if (e.type.find(L"AdaptiveTextBlock") != std::wstring::npos) {
+        } else if (e.name == L"InnerTextBlock") {
             if (g_restore.tray) { if (SetColorProp(e.handle, L"Foreground", g_restore.tray)) ++n; }
             else if (ClearColorProp(e.handle, L"Foreground")) ++n;
         } else if (e.name == L"RunningIndicator") {
