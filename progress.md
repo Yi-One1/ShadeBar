@@ -33,8 +33,8 @@
 | SHA-256 | `28FCF39D1BA52E0C569C841318ABC47D2D7CE79BEC83D80288DB614FF6C334D4` |
 | FileVersion | `1.4.0.0`（`--version` 输出 `随影 ShadeBar v1.4.0`） |
 | 门禁 | 5/5 全绿（体积 / 无 VC++ 运行时 / 版本资源 / 清单 PerMonitorV2+asInvoker / 图标）；双语差 9 KB（预算 40 KB） |
-| git tag | `v1.4.0` **待创建**；历史：`v1.3.2` → `9c9d850`、`v1.3.1` → `d2bed34`、`v1.3.0` → `93c6402` |
-| GitHub Release | **待发布**（附件命名 `ShadeBar_v1.4.0.exe`，上传后中文前缀会被去掉，属既成口径） |
+| git tag | `v1.4.0` → `1f33632`（annotated，已推）；历史：`v1.3.2` → `9c9d850`、`v1.3.1` → `d2bed34`、`v1.3.0` → `93c6402` |
+| GitHub Release | **待手动发布**（本机无 `gh` CLI）；附件 `ShadeBar_v1.4.0.exe`，上传后中文前缀会被去掉，属既成口径 |
 
 `dist/` **永远保留历史版本 exe**（用户要求，便于回滚）；exe 不进仓库，只走 Releases。
 
@@ -102,11 +102,11 @@
 ### 4.1 本次发布收尾
 - [x] 版本 1.4.0（`Cargo.toml` / `Cargo.lock` / README / CHANGELOG / 本文件）。
 - [x] `build.ps1` 打包，五道门禁全绿，产物与哈希见 §1。
-- [ ] 提交文档与版本变更 → `git push origin main`。
-- [ ] `git tag -a v1.4.0` 并推送。
+- [x] 提交文档与版本变更 → `git push origin main`（`57630aa → 1f33632`）。
+- [x] `git tag -a v1.4.0` 并推送（指向 `1f33632`）。
 - [ ] 网页建 GitHub Release `v1.4.0`，上传 `ShadeBar_v1.4.0.exe`，
       Release notes 用 `docs/release-notes-v1.4.0.md`。
-- [ ] 建完 Release 后，把 tag / Release 状态补回本文件与 README。
+- [ ] 建完 Release 后，把 Release 状态补回本文件与 README。
 
 ### 4.2 长期缺口（用户没催，不要主动扩范围）
 - 悬停高亮块（S-34~S-37）：生产载荷尚未实现（`payload/` 零处 `BackgroundElement`）。
