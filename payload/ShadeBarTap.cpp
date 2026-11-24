@@ -151,6 +151,11 @@ static volatile LONG g_needResync = 1;   // 1 = 下一拍强制重放
 static volatile LONG g_replayReq = 0;    // 主循环置位，UI 线程消费
 static volatile LONG g_clearOnAdd = 0;   // 重放的第一个 Add 到来时清空旧树（避免重复与失效句柄）
 static volatile LONG g_lastIndCount = -1;// 上一拍改到的指示条条数
+// 指示条选中态缓存（UI 线程独占）。实测 OnElementStateChanged 对指示条的
+// "选中 ↔ 正常"切换**根本不触发**，g_dirty 没机会置位，只能等宿主下一条指令
+// （约 2 s）才改色。这里由 UI 线程定时只读 ActualWidth，发现变化就置脏。
+static std::map<InstanceHandle, bool> g_indSelState;
+static volatile LONG g_urgent = 0;       // 1 = 绕过 250 ms 限流，立即应用
 static ULONGLONG g_lastReplayTick = 0;
 static int g_replayCount = 0;
 static int g_addLogBudget = 60;          // Add 事件诊断日志预算（防刷屏）
@@ -764,6 +769,8 @@ static void ApplyColors() {
             // 正常态约 6 px、选中态约 16 px，这是区分两态的唯一可靠依据。
             double w = 0.0;
             bool selected = ReadNumber(e.handle, L"ActualWidth", &w) && w >= 10.0;
+            // 顺手刷新状态缓存：本拍已经读过宽度，轮询就不必把同一状态再判成"变化"。
+            g_indSelState[e.handle] = selected;
 
             if (mask & kMaskIndicator) {
                 g_appliedIndColor = cmd.indicatorNormalColor;
@@ -942,6 +949,37 @@ static void RestoreAll() {
     InterlockedExchange(&g_applied, 0);
 }
 
+/// UI 线程：只读指示条的 ActualWidth，检测"选中 ↔ 正常"切换。
+///
+/// 为什么必须在这里读：属性读取只能回 XAML UI 线程，否则 RPC_E_WRONG_THREAD。
+/// 为什么需要它：见 g_indSelState 的注释——状态切换没有可用的回调，只能轮询。
+/// 只做读取与比较，真正改色仍交给 ApplyColors，避免两处写颜色逻辑。
+static void PollIndicatorState() {
+    auto v = Snapshot();
+    std::map<InstanceHandle, bool> cur;
+    bool changed = false;
+    for (const auto& e : v) {
+        if (e.name != L"RunningIndicator") continue;
+        double w = 0.0;
+        const bool sel = ReadNumber(e.handle, L"ActualWidth", &w) && w >= 10.0;
+        cur[e.handle] = sel;
+        auto it = g_indSelState.find(e.handle);
+        if (it == g_indSelState.end() || it->second != sel) changed = true;
+    }
+    if (cur.size() != g_indSelState.size()) changed = true;
+    g_indSelState.swap(cur);
+    if (changed) {
+        InterlockedExchange(&g_dirty, 1);
+        InterlockedExchange(&g_urgent, 1);
+    }
+}
+
+static void UiPollProc() {
+    // 不 SetEvent：主循环不等轮询结束（等下一拍应用即可）。共用 g_uiDoneEvent
+    // 会让"轮询先完成"提前唤醒应用等待，反而打乱 apply 的同步。
+    PollIndicatorState();
+}
+
 static void UiApplyProc() {
     // 重放请求由主循环置位、这里（UI 线程）消费：Advise 必须在 UI 线程调用。
     if (InterlockedExchange(&g_replayReq, 0) && g_tap) {
@@ -971,8 +1009,8 @@ static void UiRestoreProc() {
 }
 
 /// UI 线程上要执行的动作。原来只有 apply/restore 两态，退位退订是第三态；
-/// 用 bool 已经表达不清，改枚举。
-enum UiOp { UiApply = 0, UiRestore = 1, UiUnadvise = 2 };
+/// 用 bool 已经表达不清，改枚举。poll 只读状态、发现变化才让主循环应用。
+enum UiOp { UiApply = 0, UiRestore = 1, UiUnadvise = 2, UiPoll = 3 };
 
 class DispatchedHandler final : public ABI::Windows::UI::Core::IDispatchedHandler {
 public:
@@ -999,6 +1037,7 @@ public:
         switch (m_op) {
         case UiRestore:  UiRestoreProc();  break;
         case UiUnadvise: UiUnadviseProc(); break;
+        case UiPoll:     UiPollProc();     break;
         case UiApply:
         default:         UiApplyProc();    break;
         }
@@ -1168,8 +1207,23 @@ static DWORD WINAPI Worker(LPVOID) {
             // 状态事件（悬停/选中切换）可能很密，全量应用会打满 UI 线程。
             // 决策序号变化 → 立刻应用；仅"置脏" → 限制 250 ms 一次。
             static ULONGLONG lastApplyTick = 0;
+            static ULONGLONG lastPollTick = 0;
             const ULONGLONG nowTick = GetTickCount64();
-            if (seq != g_applied || (g_dirty && nowTick - lastApplyTick >= 250)) {
+
+            // 指示条选中态轮询：状态切换没有任何可用回调，不轮询就只能等
+            // 宿主下一条指令（约 2 s）。只读 ActualWidth，代价远小于一次全量应用。
+            // 用户有输入时 250 ms 一拍；空闲时 1 s（没有输入就不会切窗口）。
+            // 不等它完成：它只置脏/置急，下一拍主循环自会应用。
+            if (g_ipc->reserved[0] & kMaskIndicator) {
+                const ULONGLONG pollGap = UserActiveRecently() ? 250ULL : 1000ULL;
+                if (nowTick - lastPollTick >= pollGap) {
+                    PostToUi(UiPoll);
+                    lastPollTick = nowTick;
+                }
+            }
+
+            const bool urgent = InterlockedExchange(&g_urgent, 0) != 0;
+            if (seq != g_applied || urgent || (g_dirty && nowTick - lastApplyTick >= 250)) {
                 // 树同步：①宿主重连后强制重放；②想要指示条却一条没命中（说明新窗口没进树）；
                 // ③每 5 s 兜底一次，保证"新开的窗口最迟 5 s 内被收进树"。
                 const bool wantInd = (g_ipc->reserved[0] & kMaskIndicator) != 0;
