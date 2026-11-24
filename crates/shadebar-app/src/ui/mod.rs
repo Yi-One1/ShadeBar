@@ -394,10 +394,13 @@ impl View {
     }
 
     /// 当前判定色：`S-10` 强制端色优先，否则按阈值在 `S-14/S-15` 间选。
+    ///
+    /// 「亮端」指**亮端色**（浅色文字，配深色背景），「暗端」指暗端色。
+    /// 与需求文档 S-14/S-15 和引擎 `PolicyCfg::force` 同义。
     fn decision_color(&self) -> Rgba {
         match self.cfg.get(SettingKey::S10) {
-            1 => argb_to_rgba(self.cfg.get(SettingKey::S15)),
-            2 => argb_to_rgba(self.cfg.get(SettingKey::S14)),
+            1 => argb_to_rgba(self.cfg.get(SettingKey::S14)),
+            2 => argb_to_rgba(self.cfg.get(SettingKey::S15)),
             _ => {
                 let thr = self.cfg.get(SettingKey::S12) as f32 / 1000.0;
                 let y = self.diag.y_milli as f32 / 1000.0;
@@ -410,10 +413,13 @@ impl View {
         }
     }
 
-    /// 预览条是否用亮端配色。
+    /// 预览条是否用浅色（亮端）背景。
     ///
-    /// * `S-10` 亮端 → 浅色条；
-    /// * `S-10` 暗端 → 深色条；
+    /// 「亮端」= 亮端色 = 浅色文字，所以任务栏条必须**深色**才看得见；
+    /// 强制暗端色则反过来。这里曾把两者画反（问题 4）。
+    ///
+    /// * `S-10` 强制亮端色 → 深色条 + 浅色字；
+    /// * `S-10` 强制暗端色 → 浅色条 + 深色字；
     /// * 自动 → 与 [`Self::decision_color`] 同源：亮度高用浅色条（配深色文字），
     ///   亮度低用深色条（配浅色文字）；
     /// * 暂停 / 关闭 / 降级时元素回落系统白，条必须保持深色，否则白字看不见。
@@ -422,8 +428,8 @@ impl View {
             return false;
         }
         match self.cfg.get(SettingKey::S10) {
-            1 => true,
-            2 => false,
+            1 => false,
+            2 => true,
             _ => {
                 let thr = self.cfg.get(SettingKey::S12) as f32 / 1000.0;
                 let y = self.diag.y_milli as f32 / 1000.0;
@@ -1136,11 +1142,14 @@ impl View {
                 let anchor = self.color_anchor(key);
                 let fw = 256.0;
                 let fh = 112.0;
+                // 最右一列（时间与日期）的锚点靠右，直接左对齐会顶出窗口，
+                // 右半边色块既看不见也点不到（问题 3）。这里把浮层夹在窗口内。
+                let x = anchor.x.min(w - 8.0 - fw).max(8.0);
                 let mut y = anchor.bottom() + 6.0;
                 if y + fh > h - 8.0 {
                     y = (h - 8.0 - fh).max(8.0);
                 }
-                Rect::new(anchor.x, y, fw, fh)
+                Rect::new(x, y, fw, fh)
             }
             PopupKind::ConfirmRestore => Rect::new((w - 380.0) / 2.0, (h - 132.0) / 2.0, 380.0, 132.0),
             PopupKind::About => Rect::new((w - 420.0) / 2.0, (h - 200.0) / 2.0, 420.0, 200.0),
@@ -1348,10 +1357,11 @@ impl View {
             1 => text("preview.light", self.lang),
             2 => text("preview.dark", self.lang),
             _ => {
+                // 亮度低于阈值 = 背景偏暗 = 用亮端色（浅色文字），标签必须跟着文字端走
                 if y < thr {
-                    text("preview.dark", self.lang)
-                } else {
                     text("preview.light", self.lang)
+                } else {
+                    text("preview.dark", self.lang)
                 }
             }
         };
@@ -2579,21 +2589,35 @@ mod tests {
         );
     }
 
-    /// 组 3 回归：亮端用浅色条（配深色字），暗端 / 暂停 / 降级保持深色条。
+    /// 组 1 回归（问题 4）：强制端色时，任务栏预览的背景必须跟着「文字端」反向。
+    ///
+    /// 「亮端」= 亮端色（浅色文字）→ 深色任务栏；「暗端」= 暗端色 → 浅色任务栏。
+    /// 旧实现把两者画反，这里同时锁住背景、前景与判定色三处。
     #[test]
     fn preview_bar_follows_light_mode() {
         let mut cfg = Config::default();
         let mut v = View::new(&cfg, Lang::Zh, false);
         v.set_dpi(96);
         v.set_client(theme::MIN_WIDTH_DIP, theme::MIN_HEIGHT_DIP);
+        let p = crate::ui::theme::ThemeMode::Dark.palette();
 
+        // 强制亮端色 → 深色条 + 浅色字
+        let light_ink = argb_to_rgba(cfg.get(SettingKey::S14));
         cfg.set(SettingKey::S10, 1);
         v.rebuild(&cfg, &DiagView::default(), false);
-        assert!(v.preview_bar_light(), "亮端必须是浅色条");
+        assert!(!v.preview_bar_light(), "强制亮端色必须用深色任务栏");
+        assert_eq!(v.bar_colors(p).0, p.preview_bar, "强制亮端色时条底色必须是深色");
+        assert_eq!(v.bar_colors(p).1, p.preview_ink, "强制亮端色时文字必须是浅色");
+        assert_eq!(v.decision_color(), light_ink, "强制亮端色时判定色应取 S-14");
 
+        // 强制暗端色 → 浅色条 + 深色字
+        let dark_ink = argb_to_rgba(cfg.get(SettingKey::S15));
         cfg.set(SettingKey::S10, 2);
         v.rebuild(&cfg, &DiagView::default(), false);
-        assert!(!v.preview_bar_light(), "暗端必须是深色条");
+        assert!(v.preview_bar_light(), "强制暗端色必须用浅色任务栏");
+        assert_eq!(v.bar_colors(p).0, p.preview_bar_light, "强制暗端色时条底色必须是浅色");
+        assert_eq!(v.bar_colors(p).1, p.preview_ink_dark, "强制暗端色时文字必须是深色");
+        assert_eq!(v.decision_color(), dark_ink, "强制暗端色时判定色应取 S-15");
 
         cfg.set(SettingKey::S10, 0);
         cfg.set(SettingKey::S12, 500);
@@ -2606,10 +2630,43 @@ mod tests {
         v.rebuild(&cfg, &d, false);
         assert!(!v.preview_bar_light(), "自动模式亮度低于阈值应保持深色条");
 
+        // 强制亮端色时打开「暂停」：元素回落系统白，条必须仍为深色
         cfg.set(SettingKey::S10, 1);
         cfg.set(SettingKey::S42, 1);
         v.rebuild(&cfg, &d, false);
         assert!(!v.preview_bar_light(), "暂停时元素回落白色，条必须保持深色");
+    }
+
+    /// 组 1 回归（问题 3）：最右列「时间与日期」的取色浮层必须完整落在窗口内，
+    /// 且右半边色块仍可点击。
+    #[test]
+    fn color_picker_popup_stays_inside_window_for_clock_column() {
+        let mut v = make_view();
+        let (w, _h) = v.client;
+        // 偏亮行第 4 列 = 时间与日期（S-59），锚点最靠右
+        let cell = v.item_wells[1][3];
+        let (cx, cy) = center(cell);
+        click(&mut v, cx, cy);
+        let popup = v.popup.as_ref().expect("点击色块应打开取色浮层");
+        let PopupKind::ColorPicker(SettingKey::S59) = popup.kind else {
+            panic!("应打开 S-59 的取色浮层");
+        };
+        let f = popup.frame;
+        assert!(f.x >= 8.0, "浮层左缘越界：{}", f.x);
+        assert!(f.right() <= w - 8.0, "浮层右缘越界：{} > {}", f.right(), w - 8.0);
+
+        // 最后一个色块（最靠右）必须可点并写入
+        let sw = 32.0;
+        let gap = 6.0;
+        let last_x = f.x + 12.0 + 5.0 * (sw + gap) + sw / 2.0;
+        let last_y = f.y + 32.0 + 13.0;
+        assert!(last_x <= w, "最后一个色块中心越界：{last_x}");
+        click(&mut v, last_x, last_y);
+        assert!(v.popup.is_none(), "点中色块后浮层应关闭");
+        assert!(
+            matches!(v.take_actions().first(), Some(ViewAction::Set(SettingKey::S59, _))),
+            "点中右侧色块必须写入 S-59"
+        );
     }
 
     /// 组 3 回归：采样带里的迷你任务栏必须垂直居中。
@@ -2952,19 +3009,20 @@ mod tests {
     #[test]
     fn y_readout_reflects_threshold_side() {
         let mut v = make_view();
+        // 标签跟「实际使用的端色」走：背景偏暗 → 亮端色（浅色文字）
         let diag = DiagView {
             has_data: true,
             y_milli: 100,
             ..DiagView::default()
         };
         v.rebuild(&Config::default(), &diag, false);
-        assert!(v.y_text().contains("暗端"), "Y=0.1 应判为暗端: {}", v.y_text());
+        assert!(v.y_text().contains("亮端"), "Y=0.1（暗背景）应使用亮端色: {}", v.y_text());
         let diag = DiagView {
             has_data: true,
             y_milli: 900,
             ..DiagView::default()
         };
         v.rebuild(&Config::default(), &diag, false);
-        assert!(v.y_text().contains("亮端"), "Y=0.9 应判为亮端: {}", v.y_text());
+        assert!(v.y_text().contains("暗端"), "Y=0.9（亮背景）应使用暗端色: {}", v.y_text());
     }
 }
