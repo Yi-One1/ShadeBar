@@ -7,15 +7,15 @@ Windows 11 任务栏**文字与图标自适应着色**工具。实时采样任�
 配合 TranslucentTB 使用：任务栏透明/模糊后，时钟、日期、托盘图标在浅色壁纸上
 容易糊成一片，在深色壁纸上又会发灰；随影按**当前这块背景**自动决定深浅。
 
-> **当前版本：v1.4.0**。在 v1.3.2 基础上新增：
-> **分区独立配色**（正常/选中指示条、托盘字形、时间日期各自配「背景偏暗 / 偏亮」两色）、
-> **正常态指示条不透明度**可调、**左键双击托盘图标**（动作选项与单击一致）、
-> 托盘右键菜单收敛为 **设置 / 开机启动 / 版本号 / 退出**；
-> 采样带垂直内缩改为按任务栏高度百分比，阈值、采样与不透明度滑轨统一外观。
+> **当前版本：v1.5.0**。在 v1.4.0 基础上：**配色与判定粒度彻底解耦**——判定粒度只决定
+> 明暗判断方式，四类内容在「分区独立」与「全任务栏统一」两种粒度下都各自配「背景偏暗 /
+> 偏亮」两色，统一模式不再回落到旧的全局两端色；修正**亮 / 暗端预览与 Y 读数画反**；
+> 修复**时间与日期取色浮层右侧越界**；**选中 → 正常切换后指示条不再滞留选中色约 2 秒**
+> （载荷改为 UI 线程轮询 `ActualWidth`，实测 0.14–0.48 s）。可见设置 30 → 28 项。
 > 更早版本的变化见 [`CHANGELOG.md`](CHANGELOG.md)。
 >
-> **下载**：[v1.4.0 Release](https://github.com/Yi-One1/ShadeBar/releases/tag/v1.4.0)
-> 提供单文件 exe（673 KB），免安装；`dist/` 不随仓库分发二进制。
+> **下载**：[v1.5.0 Release](https://github.com/Yi-One1/ShadeBar/releases/tag/v1.5.0)
+> 提供单文件 exe，免安装；`dist/` 不随仓库分发二进制。
 >
 > **验收 / 预览**：双击根目录的 `1. 一键启动预览.bat`，它会重新编译并启动
 > `target\` 里的最新版，不会覆盖 `dist\` 里的打包 exe。
@@ -63,7 +63,9 @@ CoreDispatcher 编组到 XAML UI 线程 → IVisualTreeService::SetProperty 改�
   选中态 `Fill` 被 VisualState 插了更高优先级的槽，改为直接改 `Fill` 指向的画刷
   `Color`，必要时逐层染色。每条写完都会**回读**校验，避免"返回 S_OK 但屏幕没变"。
 * **状态切换与新窗口都会重新扫一遍**：正常态↔选中态不产生元素 Add 事件，
-  载荷在状态变化时置脏（限 250 ms 一次）；运行中新开的窗口由树变化事件接住。
+  `OnElementStateChanged` 对指示条也不触发；载荷在 XAML UI 线程每 250 ms（空闲 1 s）
+  只读 `ActualWidth` 探测状态变化，变化即置脏并置急，下一拍应用（实测 0.14–0.48 s）；
+  运行中新开的窗口由树变化事件接住。
 
 细节与全部实测数据见 [`docs/03-recolor-mechanism.md`](docs/03-recolor-mechanism.md)。
 
@@ -76,7 +78,7 @@ CoreDispatcher 编组到 XAML UI 线程 → IVisualTreeService::SetProperty 改�
 | 运行库 | **无需安装 VC++ 运行库**（静态 CRT） |
 | 权限 | 普通用户（Medium IL），`asInvoker`，**全生命周期 UAC = 0** |
 | 网络 | 完全离线，无任何出站连接 |
-| 体积 | 单 exe **673 KB**（689152 B；载荷 DLL 内嵌，运行时释放到 `%LOCALAPPDATA%\ShadeBar\`） |
+| 体积 | 单 exe **672.5 KB**（688640 B；载荷 DLL 内嵌，运行时释放到 `%LOCALAPPDATA%\ShadeBar\`） |
 | 常驻内存 | 托盘常驻（未打开过设置）**约 15 MB 工作集 / 4 MB 私有**；打开过设置页后收进托盘约 **8–12 MB 工作集**（NFR-02 要求 ≤ 20 MB）。注意：绘制过一帧后私有提交约 41 MB 不再归还，见 §内存口径 |
 | CPU | 托盘常驻 **0.05%**（NFR-03 要求 ≤ 0.1%） |
 
@@ -94,7 +96,7 @@ CoreDispatcher 编组到 XAML UI 线程 → IVisualTreeService::SetProperty 改�
 | 双击 / 无参数 | 单实例常驻托盘 + 采样线程 + 着色；连续双击进程数恒为 1 |
 | 右键托盘图标 | 打开设置 / 开机自启动 / 版本号（只读）/ 退出 |
 | `--ui` | 直接打开设置窗口 |
-| `--version` | 打印 `随影 ShadeBar v1.4.0` |
+| `--version` | 打印 `随影 ShadeBar v1.5.0` |
 | `--help` | 打印用法 |
 
 设置页共 **28 项可见设置**（配置里保留 49 项编号，未落地 / 无视觉表现的项从 UI
@@ -128,7 +130,7 @@ target/x86_64-pc-windows-msvc/release/shadebar-app.exe
 ```
 
 **顺序不能反**：`crates/shadebar-app/build.rs` 会读取 `payload/build/ShadeBarTap.dll`
-并计算内容指纹，指纹进入载荷文件名（`ShadeBarTap_v1.4.0_<hash>.dll`）。
+并计算内容指纹，指纹进入载荷文件名（`ShadeBarTap_v1.5.0_<hash>.dll`）。
 这样内容一变文件名就变，explorer 里不会因为「同名模块已加载」而静默跑旧代码。
 
 版本号只有 `Cargo.toml` 的 `[workspace.package] version` 一个来源，

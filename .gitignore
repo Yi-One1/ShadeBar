@@ -23,6 +23,8 @@
 # 本地配置与备份
 *.json.bak
 *.exe.tmp
+# 误落在仓库根目录的第三方日志（如输入法）
+/debug.log
 
 # IDE / 工具
 .vs/

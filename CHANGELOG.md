@@ -4,6 +4,27 @@ All notable changes to 随影 ShadeBar are documented here. The version is a sin
 source of truth in `Cargo.toml` (`[workspace.package] version`), also used for the
 artifact filename, the About page and the exe VERSIONINFO (FR-16 / A-16).
 
+## [1.5.0] - 2026-11-24
+
+### Changed
+
+- **配色与判定粒度解耦**：判定粒度（S-47）只决定明暗判断方式——「分区独立」三区各自判定、
+  「全任务栏统一」三区取平均；四类内容（正常态指示条、选中态指示条、托盘字形、时间与日期）
+  在两种粒度下都按 S-52 ~ S-59 各自取色，统一模式不再回落到 S-14 / S-15。设置页两种模式
+  都显示 4×2 色块矩阵。S-14 / S-15 从 UI 收起，配置值与编号保留，仅作兼容。
+- **亮 / 暗端预览语义修正**：亮端 = 浅色文字 → 深色任务栏（背景偏暗），暗端相反；
+  预览条、Y 读数标签与判定色统一按此方向绘制，不再画反。
+- 可见设置 30 → **28** 项（配置仍为 49 项编号）。
+
+### Fixed
+
+- **时间与日期取色浮层右侧越界**：浮层 x 坐标夹紧在设置窗口内，任务栏最右一列（时间与日期）
+  的色块可正常点选，越界部分不再被窗口裁掉。
+- **选中 → 正常切换后指示条残留选中色约 2 s**：`OnElementStateChanged` 对 `RunningIndicator`
+  的选中/正常切换实测不触发，只能等宿主每 2 s 重发指令。载荷改为在 XAML UI 线程每 250 ms
+  （空闲 1 s）只读 `ActualWidth` 探测状态变化，变化即置脏并置急，主循环下一拍立即应用；
+  实测切换延迟降到 **0.14–0.48 s**。
+
 ## [1.4.0] - 2026-11-23
 
 ### Added
