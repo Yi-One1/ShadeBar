@@ -3,9 +3,9 @@
 > **最后更新**：2026-11-24 (GMT+8)
 > **用途**：跨对话续接。新对话看不到聊天记录，本文件是唯一状态依据。
 >
-> **状态一句话**：**v1.5.0 收尾中**——G1（预览端色 + 取色浮层）、G2（配色与判定解耦）、
-> G3（指示条状态切换延迟）均已真机验收，文档已同步，正在打包与发布。
-> 上一版 v1.4.0 已于 2026-11-23 发布。
+> **状态一句话**：**v1.5.0 已发布**（2026-11-24，GitHub Releases，tag `v1.5.0`）——
+> G1（预览端色 + 取色浮层）、G2（配色与判定解耦）、G3（指示条状态切换延迟）均已真机验收；
+> 产物 `dist/随影ShadeBar_v1.5.0.exe`（688,640 B），测试全绿。
 
 ---
 
@@ -30,8 +30,8 @@
 | 发布产物 | `dist/随影ShadeBar_v1.5.0.exe`（688,640 B，672.5 KB） |
 | SHA-256 | `CB90E74D6DB5005CFE64A44C4690574EFC9DA73D0C1B09B11FA93444D64E2952` |
 | 门禁 | 5/5（体积 / 无 VC++ 运行时 / 版本资源 / 清单 PerMonitorV2+asInvoker / 图标） |
-| git tag | `v1.5.0`（待打，指向发布 commit）；历史：`v1.4.0` → `1f33632`、`v1.3.2` → `9c9d850` |
-| GitHub Release | v1.5.0（待发布）：附件 `ShadeBar_v1.5.0.exe` |
+| git tag | `v1.5.0` → `4484ce7`（annotated，已推）；历史：`v1.4.0` → `1f33632`、`v1.3.2` → `9c9d850` |
+| GitHub Release | **v1.5.0 已发布**（2026-11-24）：https://github.com/Yi-One1/ShadeBar/releases/tag/v1.5.0 ；附件 `ShadeBar_v1.5.0.exe`（672.5 KB，SHA-256 `cb90e74d…` 与本地一致）。**GitHub 会自动去掉附件名中的中文字符**，本地产物仍是 `随影ShadeBar_v1.5.0.exe` |
 
 `dist/` **永远保留历史版本 exe**（用户要求，便于回滚）；exe 不进仓库，只走 Releases。
 
@@ -88,11 +88,12 @@
 - [x] 版本 1.5.0（`Cargo.toml` / `Cargo.lock` / README / CHANGELOG / 本文件）。
 - [x] 文档同步：README、CHANGELOG、`docs/01-requirements.md`、`docs/03-recolor-mechanism.md`、
       `docs/release-notes-v1.5.0.md`。
-- [ ] `cargo test --release` 全绿 + `build.ps1` 五道门禁，产物 `dist/随影ShadeBar_v1.5.0.exe`。
-- [ ] 提交文档与版本变更 → `git push origin main`。
-- [ ] `git tag -a v1.5.0` 并推送（指向发布 commit）。
-- [ ] GitHub Release `v1.5.0`，上传 exe，Release notes 用 `docs/release-notes-v1.5.0.md`。
-- [ ] 回写本文件的产物大小 / SHA-256 / 发布状态。
+- [x] `cargo test --release` 全绿（133 + 97 + 2，另 1 ignored）+ `build.ps1` 五道门禁全绿。
+- [x] 提交文档与版本变更 → `git push origin main`（`34eedaa → 4484ce7`）。
+- [x] `git tag -a v1.5.0` 并推送（指向 `4484ce7`）。
+- [x] GitHub Release `v1.5.0` 已发布，附件 `ShadeBar_v1.5.0.exe`，notes 与
+      `docs/release-notes-v1.5.0.md` 一致（经 API 创建并上传）。
+- [x] 回写本文件的产物大小 / SHA-256 / 发布状态。
 
 ### 4.2 长期缺口（用户没催，不要主动扩范围）
 - 悬停高亮块（S-32 / S-34~S-37）：生产载荷尚未实现。

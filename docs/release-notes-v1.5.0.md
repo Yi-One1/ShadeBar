@@ -29,7 +29,9 @@
 
 ## 下载
 
-- `ShadeBar_v1.5.0.exe`（672.5 KB / 688,640 B）
+- GitHub 附件：`ShadeBar_v1.5.0.exe`（672.5 KB / 688,640 B）
+- 本地打包产物：`dist/随影ShadeBar_v1.5.0.exe`（同一文件；GitHub 上传时会自动去掉
+  文件名中的非 ASCII 字符）
 - SHA-256：`CB90E74D6DB5005CFE64A44C4690574EFC9DA73D0C1B09B11FA93444D64E2952`
 
 完整变更见 [CHANGELOG.md](../CHANGELOG.md)。
