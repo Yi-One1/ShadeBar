@@ -290,10 +290,10 @@ impl PolicyCfg {
     }
 }
 
-/// 分区独立配色（S-52 ~ S-59）：4 项内容 × 2 背景态。
+/// 分区配色（S-52 ~ S-59）：4 项内容 × 2 背景态。
 ///
 /// "偏暗"= 背景偏暗时使用（浅色），"偏亮"= 背景偏亮时使用（深色）。
-/// 仅 `JudgeMode::PerRegion` 生效；统一模式仍用 S-14/S-15。
+/// 两种判定粒度都使用这 8 个颜色；判定粒度只决定"用哪个亮/暗结论"。
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ItemColors {
     /// 正常态指示条。
@@ -382,22 +382,6 @@ impl RegionJudge {
             self.is_light = true;
         } else if self.luma <= lo {
             self.is_light = false;
-        }
-    }
-
-    /// 本分区应使用的前景色（S-10 强制端色优先于判定结果）。
-    #[must_use]
-    pub fn foreground(&self, cfg: &PolicyCfg) -> Rgba {
-        match cfg.force {
-            1 => cfg.on_dark,
-            2 => cfg.on_light,
-            _ => {
-                if self.is_light {
-                    cfg.on_light
-                } else {
-                    cfg.on_dark
-                }
-            }
         }
     }
 
@@ -1016,6 +1000,22 @@ impl Drop for RecolorService {
     }
 }
 
+/// 由三个判定器选出四项颜色：时间/日期用时钟区判定，托盘用托盘区，
+/// 正常态 / 选中态指示条用图标区。判定器来自分区还是统一，由调用方决定。
+fn four_colors(
+    cfg: &RuntimeCfg,
+    j_clock: &RegionJudge,
+    j_tray: &RegionJudge,
+    j_icons: &RegionJudge,
+) -> (Rgba, Rgba, Rgba, Rgba) {
+    (
+        j_clock.item_color(cfg.items.clock_on_dark, cfg.items.clock_on_light, &cfg.policy),
+        j_tray.item_color(cfg.items.tray_on_dark, cfg.items.tray_on_light, &cfg.policy),
+        j_icons.item_color(cfg.items.normal_on_dark, cfg.items.normal_on_light, &cfg.policy),
+        j_icons.item_color(cfg.items.selected_on_dark, cfg.items.selected_on_light, &cfg.policy),
+    )
+}
+
 fn run_loop(
     ipc: &mut Ipc,
     dll_path: &std::path::Path,
@@ -1088,23 +1088,10 @@ fn run_loop(
             j_icons.update(v, &cfg.policy);
         }
 
-        // 分项配色只在"分区独立"模式生效：每项按自己分区的判定端取 S-52~S-59。
-        // 统一模式沿用 S-14/S-15 判出的单一颜色。
+        // 配色与判定粒度解耦：判定只决定"取偏暗还是偏亮那一列"，
+        // 四项颜色始终来自 S-52~S-59（问题 2）。统一模式让三区共用一次判定。
         let (c_clock, c_tray, c_normal, c_selected) = match cfg.mode {
-            JudgeMode::PerRegion => (
-                j_clock.item_color(cfg.items.clock_on_dark, cfg.items.clock_on_light, &cfg.policy),
-                j_tray.item_color(cfg.items.tray_on_dark, cfg.items.tray_on_light, &cfg.policy),
-                j_icons.item_color(
-                    cfg.items.normal_on_dark,
-                    cfg.items.normal_on_light,
-                    &cfg.policy,
-                ),
-                j_icons.item_color(
-                    cfg.items.selected_on_dark,
-                    cfg.items.selected_on_light,
-                    &cfg.policy,
-                ),
-            ),
+            JudgeMode::PerRegion => four_colors(&cfg, &j_clock, &j_tray, &j_icons),
             JudgeMode::Global => {
                 // 全局模式：三区平均后统一判定
                 let avg = [luma.clock, luma.tray, luma.icons]
@@ -1115,8 +1102,7 @@ fn run_loop(
                 if avg.1 > 0 {
                     j.update(avg.0 / avg.1 as f32, &cfg.policy);
                 }
-                let fg = j.foreground(&cfg.policy);
-                (fg, fg, fg, fg)
+                four_colors(&cfg, &j, &j, &j)
             }
         };
 
@@ -1263,6 +1249,63 @@ mod tests {
         assert_eq!(alpha_pct_to_u8(0), 0);
         assert_eq!(alpha_pct_to_u8(100), 255);
         assert_eq!(RuntimeCfg::from_config(&c).policy.normal_alpha, 127);
+    }
+
+    /// 问题 2：统一判定下仍按 4 项各自配色，S-14/S-15 不再决定颜色。
+    #[test]
+    fn global_mode_still_uses_per_item_colors() {
+        let mut c = Config::default();
+        assert!(c.set(SettingKey::S47, 1));
+        assert!(c.set(SettingKey::S14, 0xFF12_3456));
+        assert!(c.set(SettingKey::S15, 0xFF65_4321));
+        for (key, argb) in [
+            (SettingKey::S52, 0xFF11_0000u32),
+            (SettingKey::S53, 0xFF22_0000),
+            (SettingKey::S54, 0xFF33_0000),
+            (SettingKey::S55, 0xFF44_0000),
+            (SettingKey::S56, 0xFF55_0000),
+            (SettingKey::S57, 0xFF66_0000),
+            (SettingKey::S58, 0xFF77_0000),
+            (SettingKey::S59, 0xFF88_0000),
+        ] {
+            assert!(c.set(key, i64::from(argb)));
+        }
+        let cfg = RuntimeCfg::from_config(&c);
+        assert_eq!(cfg.mode, JudgeMode::Global);
+
+        // 统一判定为暗背景 → 四项都取"偏暗"列
+        let j = RegionJudge { is_light: false, luma: 0.0 };
+        let (clock, tray, normal, selected) = four_colors(&cfg, &j, &j, &j);
+        assert_eq!(clock, Rgba::opaque(0x77, 0, 0), "时钟用 S-58");
+        assert_eq!(tray, Rgba::opaque(0x55, 0, 0), "托盘用 S-56");
+        assert_eq!(normal, Rgba::opaque(0x11, 0, 0), "正常态指示条用 S-52");
+        assert_eq!(selected, Rgba::opaque(0x33, 0, 0), "选中态指示条用 S-54");
+
+        // 统一判定为亮背景 → 四项切到"偏亮"列
+        let j = RegionJudge { is_light: true, luma: 1.0 };
+        let (clock, tray, normal, selected) = four_colors(&cfg, &j, &j, &j);
+        assert_eq!(clock, Rgba::opaque(0x88, 0, 0), "时钟用 S-59");
+        assert_eq!(tray, Rgba::opaque(0x66, 0, 0), "托盘用 S-57");
+        assert_eq!(normal, Rgba::opaque(0x22, 0, 0), "正常态指示条用 S-53");
+        assert_eq!(selected, Rgba::opaque(0x44, 0, 0), "选中态指示条用 S-55");
+    }
+
+    /// 问题 2：分区独立时每项按**自己分区**的判定端取色。
+    #[test]
+    fn per_region_colors_follow_each_region_side() {
+        let mut c = Config::default();
+        assert!(c.set(SettingKey::S58, 0xFF77_0000));
+        assert!(c.set(SettingKey::S59, 0xFF88_0000));
+        assert!(c.set(SettingKey::S56, 0xFF55_0000));
+        assert!(c.set(SettingKey::S57, 0xFF66_0000));
+        let cfg = RuntimeCfg::from_config(&c);
+        assert_eq!(cfg.mode, JudgeMode::PerRegion);
+
+        let light = RegionJudge { is_light: true, luma: 1.0 };
+        let dark = RegionJudge { is_light: false, luma: 0.0 };
+        let (clock, tray, _, _) = four_colors(&cfg, &dark, &light, &dark);
+        assert_eq!(clock, Rgba::opaque(0x77, 0, 0), "时钟区暗背景用 S-58");
+        assert_eq!(tray, Rgba::opaque(0x66, 0, 0), "托盘区亮背景用 S-57");
     }
 
     #[test]

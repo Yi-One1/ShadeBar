@@ -55,7 +55,7 @@ s31.help	Date text darkens or lightens to match the local background
 s32	System tray icons
 s32.help	System glyph icons such as network, volume and battery; app-drawn icons stay untouched
 s33	Running indicator bar (normal state)
-s33.help	The short bar under running icons; normal and selected can be coloured separately in per-region mode
+s33.help	The short bar under running icons; normal and selected states can be coloured separately
 s34	Indicator bar color source
 s34.help	Independent from the hover block; the two never affect each other
 s35	Fixed indicator color
@@ -91,7 +91,7 @@ opt.strategy.custom	Custom
 opt.source.adaptive	Follow adaptive
 opt.source.fixed	Independent fixed color
 s47	Judgement granularity
-s47.help	Per region: judged separately; Global: one average shared by all elements
+s47.help	Only affects how light/dark is judged, not the palette: per region = judged separately; global = one average, colours still set per item
 s48	Clock area adaptive colour
 s48.help	When off, time and date keep the system colour
 s49	Tray area adaptive colour

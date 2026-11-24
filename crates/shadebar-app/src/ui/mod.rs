@@ -124,9 +124,7 @@ enum Hit {
     Mode(usize),
     /// 三区卡片（0 图标 / 1 托盘 / 2 时钟）。
     Zone(usize),
-    /// 端色色样（0 = S-14，1 = S-15）。
-    Well(usize),
-    /// 分区配色矩阵（行, 列）。
+    /// 配色矩阵（行, 列）。
     ItemWell(usize, usize),
     /// 正常指示条不透明度滑条（S-60）。
     Opacity,
@@ -215,8 +213,7 @@ pub struct View {
     mode_rects: [Rect; 3],
     zone_rects: [Rect; 3],
     colors_card: Rect,
-    well_rects: [Rect; 2],
-    /// 分区独立配色的 2×4 色块矩阵（行 0 背景偏暗 / 行 1 背景偏亮）。
+    /// 4 项内容 × 2 背景态的色块矩阵（行 0 背景偏暗 / 行 1 背景偏亮）。
     item_wells: [[Rect; 4]; 2],
     /// 正常指示条不透明度滑条（S-60）。
     opacity_track: Rect,
@@ -263,7 +260,6 @@ impl View {
             mode_rects: [Rect::default(); 3],
             zone_rects: [Rect::default(); 3],
             colors_card: Rect::default(),
-            well_rects: [Rect::default(); 2],
             item_wells: [[Rect::default(); 4]; 2],
             opacity_track: Rect::default(),
             judge_rects: [Rect::default(); 2],
@@ -375,11 +371,6 @@ impl View {
         }
     }
 
-    /// 是否处于「分区独立」判定模式（S-47 = 0）。
-    fn per_region(&self) -> bool {
-        self.cfg.get(SettingKey::S47) == 0
-    }
-
     /// 预览用的"背景是否偏亮"（S-10 强制端色优先）。
     fn bg_is_light(&self) -> bool {
         match self.cfg.get(SettingKey::S10) {
@@ -393,26 +384,6 @@ impl View {
         }
     }
 
-    /// 当前判定色：`S-10` 强制端色优先，否则按阈值在 `S-14/S-15` 间选。
-    ///
-    /// 「亮端」指**亮端色**（浅色文字，配深色背景），「暗端」指暗端色。
-    /// 与需求文档 S-14/S-15 和引擎 `PolicyCfg::force` 同义。
-    fn decision_color(&self) -> Rgba {
-        match self.cfg.get(SettingKey::S10) {
-            1 => argb_to_rgba(self.cfg.get(SettingKey::S14)),
-            2 => argb_to_rgba(self.cfg.get(SettingKey::S15)),
-            _ => {
-                let thr = self.cfg.get(SettingKey::S12) as f32 / 1000.0;
-                let y = self.diag.y_milli as f32 / 1000.0;
-                if y < thr {
-                    argb_to_rgba(self.cfg.get(SettingKey::S14))
-                } else {
-                    argb_to_rgba(self.cfg.get(SettingKey::S15))
-                }
-            }
-        }
-    }
-
     /// 预览条是否用浅色（亮端）背景。
     ///
     /// 「亮端」= 亮端色 = 浅色文字，所以任务栏条必须**深色**才看得见；
@@ -420,7 +391,7 @@ impl View {
     ///
     /// * `S-10` 强制亮端色 → 深色条 + 浅色字；
     /// * `S-10` 强制暗端色 → 浅色条 + 深色字；
-    /// * 自动 → 与 [`Self::decision_color`] 同源：亮度高用浅色条（配深色文字），
+    /// * 自动 → 与 [`Self::bg_is_light`] 同源：亮度高用浅色条（配深色文字），
     ///   亮度低用深色条（配浅色文字）；
     /// * 暂停 / 关闭 / 降级时元素回落系统白，条必须保持深色，否则白字看不见。
     fn preview_bar_light(&self) -> bool {
@@ -430,11 +401,7 @@ impl View {
         match self.cfg.get(SettingKey::S10) {
             1 => false,
             2 => true,
-            _ => {
-                let thr = self.cfg.get(SettingKey::S12) as f32 / 1000.0;
-                let y = self.diag.y_milli as f32 / 1000.0;
-                y >= thr
-            }
+            _ => self.bg_is_light(),
         }
     }
 
@@ -449,27 +416,23 @@ impl View {
 
     /// 某一区实际会用的前景色（关闭 / 暂停 / 降级时回落到条上的前景色）。
     ///
-    /// 分区独立模式下按该区所属内容取 S-52~S-59；统一模式仍是 S-14/S-15。
+    /// 颜色始终按内容取 S-52~S-59（问题 2：配色与判定粒度解耦）；
+    /// 预览只展示图标区的采样亮度，用 [`Self::bg_is_light`] 决定取哪一列。
     fn zone_color(&self, key: SettingKey, p: &Palette) -> Rgba {
         if self.degraded || self.paused() || self.cfg.get(key) == 0 {
             let (_, ink, _) = self.bar_colors(p);
             return ink;
         }
-        if self.per_region() {
-            let (dark_key, light_key) = match key {
-                SettingKey::S48 => (SettingKey::S58, SettingKey::S59),
-                SettingKey::S49 => (SettingKey::S56, SettingKey::S57),
-                _ => (SettingKey::S52, SettingKey::S53),
-            };
-            let argb = if self.bg_is_light() {
-                self.cfg.get(light_key)
-            } else {
-                self.cfg.get(dark_key)
-            };
-            argb_to_rgba(argb)
+        let (dark_key, light_key) = match key {
+            SettingKey::S48 => (SettingKey::S58, SettingKey::S59),
+            SettingKey::S49 => (SettingKey::S56, SettingKey::S57),
+            _ => (SettingKey::S52, SettingKey::S53),
+        };
+        argb_to_rgba(if self.bg_is_light() {
+            self.cfg.get(light_key)
         } else {
-            self.decision_color()
-        }
+            self.cfg.get(dark_key)
+        })
     }
 
     /// 采样段：与 recolor 的真实生效范围一致 —— 起点 ≤50%、宽度 10~84%，
@@ -630,11 +593,7 @@ impl View {
 
                 self.colors_card = Rect::new(PAD, self.zone_rects[0].bottom() + GAP, cw, 214.0);
                 let inner = self.colors_card.inset(PAD);
-                let bw = (inner.w - 10.0) / 2.0;
-                let wy = inner.y + 34.0;
-                self.well_rects[0] = Rect::new(inner.x, wy, bw, 52.0);
-                self.well_rects[1] = Rect::new(inner.x + bw + 10.0, wy, bw, 52.0);
-                // 分区配色矩阵：左侧 52 dip 留给行标题。
+                // 4 项内容 × 2 背景态矩阵：左侧 52 dip 留给行标题。
                 let label_col = 52.0;
                 let col_gap = 8.0;
                 let cw4 = ((inner.w - label_col - 3.0 * col_gap) / 4.0).max(40.0);
@@ -713,18 +672,10 @@ impl View {
                         return Hit::Zone(i);
                     }
                 }
-                if self.per_region() {
-                    for (r, row) in self.item_wells.iter().enumerate() {
-                        for (c, rect) in row.iter().enumerate() {
-                            if rect.contains(x, y) {
-                                return Hit::ItemWell(r, c);
-                            }
-                        }
-                    }
-                } else {
-                    for (i, r) in self.well_rects.iter().enumerate() {
-                        if r.contains(x, y) {
-                            return Hit::Well(i);
+                for (r, row) in self.item_wells.iter().enumerate() {
+                    for (c, rect) in row.iter().enumerate() {
+                        if rect.contains(x, y) {
+                            return Hit::ItemWell(r, c);
                         }
                     }
                 }
@@ -887,10 +838,6 @@ impl View {
                 let v = i64::from(self.cfg.get(key) == 0);
                 self.push_set(key, v);
             }
-            Hit::Well(i) => {
-                let key = if i == 0 { SettingKey::S14 } else { SettingKey::S15 };
-                self.open_popup(PopupKind::ColorPicker(key));
-            }
             Hit::ItemWell(r, c) => {
                 let key = ITEM_KEYS[r.min(1)][c.min(3)];
                 self.open_popup(PopupKind::ColorPicker(key));
@@ -1020,20 +967,14 @@ impl View {
 
     /// 颜色键对应的色块矩形（浮层定位用）。
     fn color_anchor(&self, key: SettingKey) -> Rect {
-        match key {
-            SettingKey::S14 => self.well_rects[0],
-            SettingKey::S15 => self.well_rects[1],
-            _ => {
-                for (r, row) in ITEM_KEYS.iter().enumerate() {
-                    for (c, k) in row.iter().enumerate() {
-                        if *k == key {
-                            return self.item_wells[r][c];
-                        }
-                    }
+        for (r, row) in ITEM_KEYS.iter().enumerate() {
+            for (c, k) in row.iter().enumerate() {
+                if *k == key {
+                    return self.item_wells[r][c];
                 }
-                self.well_rects[0]
             }
         }
+        self.item_wells[0][0]
     }
 
     fn push_set(&mut self, key: SettingKey, value: i64) {
@@ -1566,8 +1507,8 @@ impl View {
             );
         }
 
-        if self.per_region() {
-            // 分区独立：2 行 × 4 列的色块矩阵。
+        // 2 行 × 4 列的色块矩阵：两种判定粒度都显示、都生效（问题 2）。
+        {
             for (c, label_key) in ITEM_LABELS.iter().enumerate() {
                 let cell = self.item_wells[0][c];
                 self.label_center(
@@ -1614,52 +1555,6 @@ impl View {
                         p.control_text(enabled),
                     );
                 }
-            }
-        } else {
-            // 统一模式：沿用两块大端色。
-            for (i, (key, label_key)) in [(SettingKey::S14, "color.on_dark"), (SettingKey::S15, "color.on_light")]
-                .iter()
-                .enumerate()
-            {
-                let box_r = self.well_rects[i];
-                ctx.fill_rounded_rect(rd(box_r), 7.0, p.card_alt);
-                ctx.stroke_rounded_rect(
-                    rd(box_r),
-                    7.0,
-                    if self.hover == Hit::Well(i) { p.accent } else { p.divider },
-                    1.0,
-                );
-                let argb = self.cfg.get(*key);
-                let color = argb_to_rgba(argb);
-                let well = Rect::new(box_r.x + 8.0, box_r.y + 5.0, 60.0, 42.0);
-                ctx.fill_rounded_rect(rd(well), 6.0, color);
-                ctx.stroke_rounded_rect(rd(well), 6.0, p.card_border, 1.0);
-                let sample_color = if color_light(color) {
-                    Rgba::opaque(0x1A, 0x1A, 0x1A)
-                } else {
-                    Rgba::opaque(0xFF, 0xFF, 0xFF)
-                };
-                self.label_center(
-                    ctx,
-                    "Aa",
-                    Rect::new(well.x, well.y + 9.0, well.w, 24.0),
-                    TextRole::Sample,
-                    sample_color,
-                );
-                self.label(
-                    ctx,
-                    text(label_key, self.lang),
-                    Rect::new(well.right() + 12.0, box_r.y + 10.0, box_r.w - 84.0, 15.0),
-                    TextRole::Caption,
-                    p.control_text(enabled),
-                );
-                self.label(
-                    ctx,
-                    &hex_rgb(argb),
-                    Rect::new(well.right() + 12.0, box_r.y + 28.0, box_r.w - 84.0, 18.0),
-                    TextRole::Body,
-                    p.control_text(enabled),
-                );
             }
         }
 
@@ -2416,12 +2311,6 @@ fn parse_hex(s: &str) -> i64 {
     i64::from_str_radix(s.trim_start_matches('#'), 16).unwrap_or(0) | 0xFF00_0000
 }
 
-/// 颜色是否偏亮（决定 "Aa" 用深色还是白色）。
-fn color_light(c: Rgba) -> bool {
-    let y = 0.299 * f32::from(c.r) + 0.587 * f32::from(c.g) + 0.114 * f32::from(c.b);
-    y > 140.0
-}
-
 fn local_time() -> (String, String) {
     // SAFETY: GetLocalTime 无前置条件，只读系统时间。
     let st: SYSTEMTIME = unsafe { GetLocalTime() };
@@ -2602,22 +2491,18 @@ mod tests {
         let p = crate::ui::theme::ThemeMode::Dark.palette();
 
         // 强制亮端色 → 深色条 + 浅色字
-        let light_ink = argb_to_rgba(cfg.get(SettingKey::S14));
         cfg.set(SettingKey::S10, 1);
         v.rebuild(&cfg, &DiagView::default(), false);
         assert!(!v.preview_bar_light(), "强制亮端色必须用深色任务栏");
         assert_eq!(v.bar_colors(p).0, p.preview_bar, "强制亮端色时条底色必须是深色");
         assert_eq!(v.bar_colors(p).1, p.preview_ink, "强制亮端色时文字必须是浅色");
-        assert_eq!(v.decision_color(), light_ink, "强制亮端色时判定色应取 S-14");
 
         // 强制暗端色 → 浅色条 + 深色字
-        let dark_ink = argb_to_rgba(cfg.get(SettingKey::S15));
         cfg.set(SettingKey::S10, 2);
         v.rebuild(&cfg, &DiagView::default(), false);
         assert!(v.preview_bar_light(), "强制暗端色必须用浅色任务栏");
         assert_eq!(v.bar_colors(p).0, p.preview_bar_light, "强制暗端色时条底色必须是浅色");
         assert_eq!(v.bar_colors(p).1, p.preview_ink_dark, "强制暗端色时文字必须是深色");
-        assert_eq!(v.decision_color(), dark_ink, "强制暗端色时判定色应取 S-15");
 
         cfg.set(SettingKey::S10, 0);
         cfg.set(SettingKey::S12, 500);
@@ -2776,14 +2661,11 @@ mod tests {
     #[test]
     fn color_well_opens_picker_and_swatch_writes_opaque_color() {
         let mut v = make_view();
-        // 两块大端色只在「全任务栏统一」模式出现；默认是分区独立。
-        let mut cfg = v.cfg.clone();
-        cfg.set(SettingKey::S47, 1);
-        v.rebuild(&cfg, &DiagView::default(), false);
-        let (x, y) = center(v.well_rects[0]);
+        // 问题 2 之后矩阵在两种判定粒度下都存在，默认配置即可点到 S-52。
+        let (x, y) = center(v.item_wells[0][0]);
         click(&mut v, x, y);
         let popup = v.popup.as_ref().expect("色样应打开取色浮层");
-        assert_eq!(popup.kind, PopupKind::ColorPicker(SettingKey::S14));
+        assert_eq!(popup.kind, PopupKind::ColorPicker(SettingKey::S52));
         let frame = popup.frame;
 
         // 第 2 格（默认白色已生效，选它不会产生写入，故取相邻色）。
@@ -2793,22 +2675,30 @@ mod tests {
         assert!(v.popup.is_none());
         assert_eq!(
             v.take_actions(),
-            vec![ViewAction::Set(SettingKey::S14, 0xFFFF_B4AB)]
+            vec![ViewAction::Set(SettingKey::S52, 0xFFFF_B4AB)]
         );
     }
 
-    /// 问题 1：分区独立模式的 8 个色块一一对应 S-52~S-59。
+    /// 问题 2：8 个色块与判定粒度解耦，两种模式都能点开对应键。
     #[test]
-    fn region_mode_matrix_wells_map_to_eight_keys() {
+    fn matrix_wells_map_to_eight_keys_in_both_judge_modes() {
         let mut v = make_view();
-        assert!(v.per_region(), "默认必须是分区独立");
-        for r in 0..2 {
-            for c in 0..4 {
-                let (x, y) = center(v.item_wells[r][c]);
-                click(&mut v, x, y);
-                let popup = v.popup.as_ref().expect("色块应打开取色浮层");
-                assert_eq!(popup.kind, PopupKind::ColorPicker(ITEM_KEYS[r][c]));
-                v.popup = None;
+        for mode in [0i64, 1] {
+            let mut cfg = v.cfg.clone();
+            cfg.set(SettingKey::S47, mode);
+            v.rebuild(&cfg, &DiagView::default(), false);
+            for r in 0..2 {
+                for c in 0..4 {
+                    let (x, y) = center(v.item_wells[r][c]);
+                    click(&mut v, x, y);
+                    let popup = v.popup.as_ref().expect("色块应打开取色浮层");
+                    assert_eq!(
+                        popup.kind,
+                        PopupKind::ColorPicker(ITEM_KEYS[r][c]),
+                        "S-47={mode} 时色块必须可点"
+                    );
+                    v.popup = None;
+                }
             }
         }
     }
@@ -2956,7 +2846,9 @@ mod tests {
             rects.extend_from_slice(&v.tab_rects);
             rects.extend_from_slice(&v.foot_rects);
             rects.extend_from_slice(&v.zone_rects);
-            rects.extend_from_slice(&v.well_rects);
+            for row in v.item_wells.iter() {
+                rects.extend_from_slice(row);
+            }
             rects.extend_from_slice(&v.judge_rects);
             rects.extend_from_slice(&v.mode_rects);
             rects.push(v.tint_toggle);
@@ -2994,11 +2886,7 @@ mod tests {
     #[test]
     fn popup_escape_closes_without_writing() {
         let mut v = make_view();
-        // 端色大色块只在统一模式出现。
-        let mut cfg = v.cfg.clone();
-        cfg.set(SettingKey::S47, 1);
-        v.rebuild(&cfg, &DiagView::default(), false);
-        let (x, y) = center(v.well_rects[0]);
+        let (x, y) = center(v.item_wells[0][0]);
         click(&mut v, x, y);
         assert!(v.popup.is_some());
         v.handle_key(VK_ESCAPE);

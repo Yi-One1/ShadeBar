@@ -93,8 +93,6 @@ pub enum TextRole {
     Caption,
     /// 大号数值（22 px Semibold，诊断页的 Y / 对比度）。
     Metric,
-    /// 色样上的 "Aa" 示例（19 px Semibold）。
-    Sample,
 }
 
 impl TextRole {
@@ -108,7 +106,6 @@ impl TextRole {
             Self::Body => 12.5,
             Self::Caption => 11.0,
             Self::Metric => 22.0,
-            Self::Sample => 19.0,
         }
     }
 }
@@ -429,14 +426,12 @@ struct TextFormats {
     body: IDWriteTextFormat,
     caption: IDWriteTextFormat,
     metric: IDWriteTextFormat,
-    sample: IDWriteTextFormat,
     subtitle_r: IDWriteTextFormat,
     body_r: IDWriteTextFormat,
     caption_r: IDWriteTextFormat,
     subtitle_c: IDWriteTextFormat,
     body_c: IDWriteTextFormat,
     caption_c: IDWriteTextFormat,
-    sample_c: IDWriteTextFormat,
 }
 
 impl TextFormats {
@@ -448,14 +443,12 @@ impl TextFormats {
             body: create_text_format(dwrite, BODY, 12.5 * scale, false, DWRITE_TEXT_ALIGNMENT_LEADING)?,
             caption: create_text_format(dwrite, BODY, 11.0 * scale, false, DWRITE_TEXT_ALIGNMENT_LEADING)?,
             metric: create_text_format(dwrite, DISPLAY, 22.0 * scale, true, DWRITE_TEXT_ALIGNMENT_LEADING)?,
-            sample: create_text_format(dwrite, DISPLAY, 19.0 * scale, true, DWRITE_TEXT_ALIGNMENT_LEADING)?,
             subtitle_r: create_text_format(dwrite, BODY, 13.0 * scale, true, DWRITE_TEXT_ALIGNMENT_TRAILING)?,
             body_r: create_text_format(dwrite, BODY, 12.5 * scale, false, DWRITE_TEXT_ALIGNMENT_TRAILING)?,
             caption_r: create_text_format(dwrite, BODY, 11.0 * scale, false, DWRITE_TEXT_ALIGNMENT_TRAILING)?,
             subtitle_c: create_text_format(dwrite, BODY, 13.0 * scale, true, DWRITE_TEXT_ALIGNMENT_CENTER)?,
             body_c: create_text_format(dwrite, BODY, 12.5 * scale, false, DWRITE_TEXT_ALIGNMENT_CENTER)?,
             caption_c: create_text_format(dwrite, BODY, 11.0 * scale, false, DWRITE_TEXT_ALIGNMENT_CENTER)?,
-            sample_c: create_text_format(dwrite, DISPLAY, 19.0 * scale, true, DWRITE_TEXT_ALIGNMENT_CENTER)?,
         })
     }
 
@@ -466,7 +459,6 @@ impl TextFormats {
             TextRole::Body => &self.body,
             TextRole::Caption => &self.caption,
             TextRole::Metric => &self.metric,
-            TextRole::Sample => &self.sample,
         }
     }
 
@@ -484,7 +476,6 @@ impl TextFormats {
             TextRole::Subtitle => &self.subtitle_c,
             TextRole::Body => &self.body_c,
             TextRole::Caption => &self.caption_c,
-            TextRole::Sample => &self.sample_c,
             other => self.of(other),
         }
     }

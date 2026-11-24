@@ -225,10 +225,10 @@ impl SettingKey {
     pub const fn ui_visible(self) -> bool {
         !matches!(
             self,
-            Self::S05 | Self::S06 | Self::S11 | Self::S13 | Self::S17 | Self::S19
-                | Self::S23 | Self::S30 | Self::S31 | Self::S32 | Self::S33 | Self::S34
-                | Self::S35 | Self::S36 | Self::S37 | Self::S42 | Self::S43 | Self::S44
-                | Self::S46
+            Self::S05 | Self::S06 | Self::S11 | Self::S13 | Self::S14 | Self::S15
+                | Self::S17 | Self::S19 | Self::S23 | Self::S30 | Self::S31 | Self::S32
+                | Self::S33 | Self::S34 | Self::S35 | Self::S36 | Self::S37 | Self::S42
+                | Self::S43 | Self::S44 | Self::S46
         )
     }
 
@@ -934,15 +934,17 @@ mod tests {
         assert_eq!(argb_to_rgba(0x8012_3456), Rgba::opaque(0x12, 0x34, 0x56));
     }
 
+    /// 问题 2 之后 S-14/S-15 端色不再参与取色，从设置页收起。
     #[test]
-    fn exactly_twenty_one_keys_are_visible() {
+    fn visible_keys_match_expectation() {
         let visible: Vec<SettingKey> = SettingKey::ALL
             .iter()
             .copied()
             .filter(|k| k.ui_visible())
-            .collect();        let want = [
+            .collect();
+        let want = [
             SettingKey::S01, SettingKey::S02, SettingKey::S03, SettingKey::S04,
-            SettingKey::S10, SettingKey::S12, SettingKey::S14, SettingKey::S15,
+            SettingKey::S10, SettingKey::S12,
             SettingKey::S16, SettingKey::S18, SettingKey::S20, SettingKey::S21,
             SettingKey::S22, SettingKey::S40, SettingKey::S41, SettingKey::S45,
             SettingKey::S47, SettingKey::S48, SettingKey::S49, SettingKey::S50,
@@ -954,10 +956,11 @@ mod tests {
         assert_eq!(visible, want);
         for key in [
             SettingKey::S05, SettingKey::S06, SettingKey::S11, SettingKey::S13,
-            SettingKey::S17, SettingKey::S19, SettingKey::S23, SettingKey::S30,
-            SettingKey::S31, SettingKey::S32, SettingKey::S33, SettingKey::S34,
-            SettingKey::S35, SettingKey::S36, SettingKey::S37, SettingKey::S42,
-            SettingKey::S43, SettingKey::S44, SettingKey::S46,
+            SettingKey::S14, SettingKey::S15, SettingKey::S17, SettingKey::S19,
+            SettingKey::S23, SettingKey::S30, SettingKey::S31, SettingKey::S32,
+            SettingKey::S33, SettingKey::S34, SettingKey::S35, SettingKey::S36,
+            SettingKey::S37, SettingKey::S42, SettingKey::S43, SettingKey::S44,
+            SettingKey::S46,
         ] {
             assert!(!key.ui_visible(), "{} 应已从设置页收起", key.id());
         }
