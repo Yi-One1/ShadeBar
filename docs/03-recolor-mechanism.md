@@ -83,9 +83,10 @@ v1.0.0 把「时间 / 日期 / 悬停块 / 指示条」标为**永久移出**，
 4. 一切 XAML 调用**必须**经 `ICoreDispatcher::RunAsync` 回到 UI 线程；回调对象必须 `IAgileObject`。
 5. 属性索引**只能**从 `GetPropertyValuesChain` 取，不能用 `GetPropertyIndex`。
 6. 订阅失败（`AdviseVisualTreeChange != S_OK`）必须**立即收手**，不得继续访问树（v1 探针正是在此之后 AV 崩溃）。
-7. 退出时必须**写回缓存的原色**（不是 `ClearProperty`，见下方例外），且**不要**调
-   `UnadviseVisualTreeChange`：卸载订阅后同一进程内无法再恢复，等于自断后路。
-   只有 explorer 退出才真正清空。
+7. 退出时必须**写回缓存的原色**（不是 `ClearProperty`，见下方例外）。常规退出**不卸订阅**；
+   只有两种场景显式 `UnadviseVisualTreeChange`，且必须紧接着在**同一 XAML UI 线程**重新订阅：
+   ① 树同步重放（v1.3.1 起，为拿到新窗口的元素）；② 连续重放失败后的会话重建（v1.5.1）。
+   卸载后久不重订阅，等于让后续新元素永久进不了树。
 
 > ⚠ **例外（v1.1 实测踩到的生产事故）**：`RunningIndicator` 的 `Fill` **不能用 `ClearProperty` 还原**。
 > 该属性由视觉状态（VisualState）驱动，清空本地值后没有任何机制重新赋值，状态条会变成**全透明**，
@@ -128,17 +129,18 @@ Rust 宿主 (shadebar-app)
   ├─ 判定：EWMA + 双阈值迟滞，默认分区独立（可切全局统一）
   ├─ IPC ：Local\ShadeBar.Ipc.v1（80 字节共享内存，含心跳/状态/四个颜色）
   └─ 注入：CreateRemoteThread + LoadLibraryW，explorer 重启后按 pid 变化自动重注入
-C++ 载荷 (ShadeBarTap.dll, ~206 KB)
+C++ 载荷 (ShadeBarTap.dll, ~220 KB)
   ├─ TAP 席位 → SetSite(XAML 线程) → Advise → 按 Name 扫描元素
   ├─ CoreDispatcher 编组 → SetProperty(Foreground/Fill)
   ├─ 心跳看门狗：宿主消失 7 s → 还原 + 常驻待命
-  └─ 退出：还原原色 → Unadvise
+  ├─ 树同步：按需重放（Unadvise + Advise），失败退避，连续失败重建会话
+  └─ 退出：还原原色，不卸订阅
 ```
 
 **已实测通过的完整生命周期**：启动→改色 ✅ ｜ 宿主被强杀→7 s 自动还原且状态条不消失 ✅ ｜
 宿主重启（不重启 explorer）→载荷恢复工作并重新改色 ✅ ｜ 版本升级→新文件名加载新载荷 ✅
 
-**体积**：载荷 DLL 206 KB（静态 CRT），宿主 exe 由 398.5 KB 增至约 621 KB（内嵌载荷），
+**体积**：载荷 DLL 220 KB（224,768 B，静态 CRT），宿主 exe 674 KB（690,176 B，内嵌载荷），
 仍远低于 NFR-01 的 4096 KB 硬限；**交付仍为单个 exe**（运行时释放载荷到 `%LOCALAPPDATA%\ShadeBar\`）。
 
 ---
@@ -302,6 +304,35 @@ SetProperty(brush, colorObj, idx=737)          → hr=0x0
 > 复现：`cd scratch/tap_probe && bash build.sh`，`mode.txt` 写
 > `allind`（逐条染色）/ `chain`（属性链）/ `refs`（引用计数）/ `brush`（改画刷试色）/
 > `surv` / `hold` / `clean`，`injector.exe` 注入（每次换 DLL 文件名）。
+
+---
+
+## 5.4 冷启动订阅失效（v1.5.1）
+
+**现象**：开机后任务栏背景已是深色，左侧图标下方的正常态指示条仍是系统默认的深色，
+只有重启 explorer 才恢复。时间、日期、托盘字形却正常。
+
+**日志证据**（故障会话）：
+`[Apply] seq=2810 mask=F time=1 date=1 tray=5 ind=0`，
+`[Replay] #1772 reason=apply hr=0x8000FFFF tree=8`，共 803 次重放全部失败。
+
+**根因链**：
+1. 开机自启把载荷注入得比任务栏 XAML 构建更早，首次订阅只拿到 8 个元素
+   （时间 / 日期 / 托盘），`RunningIndicator` 还没进树；
+2. 首拍 `ind=0` 触发自动重放（`Unadvise + Advise`），此时树仍在构建，
+   `Advise` 返回 `E_UNEXPECTED(0x8000FFFF)`；
+3. 旧代码失败后没有恢复路径，订阅永久失效；之后开机才启动的应用，
+   其指示条也不会再以可用事件到达，只能重启 explorer。
+
+**修复**（`payload/ShadeBarTap.cpp`）：
+- 订阅成功后 **10 s 预热**，且树事件静止 **2 s** 才允许自动重放；
+- 重放失败按 **2/5/10/30 s** 退避，失败时撤销 `clearOnAdd` 与 `advised` 标记；
+- 连续失败 **3 次**时请求主循环在 UI 线程释放整套诊断会话（`UiDetach`）并重新
+  `Initialize`，得到新端点 + 新 TAP 对象（会话自愈）；
+- `LogW` 增加 `[HH:MM:SS.mmm]` 时间戳，便于与宿主日志对齐。
+
+**回归**：`tools/check_payload_sync.py` 新增 C7（相邻重放 ≥ 1.5 s）、C8（首次自动重放
+距会话启动 ≥ 8 s）；explorer 重启真机验证 15/15 拍 `ind=4`，C1–C8 全 PASS。
 
 ---
 

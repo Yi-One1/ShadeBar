@@ -4,6 +4,23 @@ All notable changes to 随影 ShadeBar are documented here. The version is a sin
 source of truth in `Cargo.toml` (`[workspace.package] version`), also used for the
 artifact filename, the About page and the exe VERSIONINFO (FR-16 / A-16).
 
+## [1.5.1] - 2026-11-25
+
+### Fixed
+
+- **开机后任务栏左侧图标指示条不着色**：冷启动时载荷注入早于任务栏 XAML 建完，首次
+  订阅只拿到时间 / 日期 / 托盘 8 个元素；随后首拍发现指示条 0 命中而立即重放
+  （`Unadvise + Advise`），此时树仍在构建，返回 `E_UNEXPECTED(0x8000FFFF)`，订阅
+  永久失效——之后开机才启动的应用，其指示条再也进不了元素表，只能重启 explorer 恢复。
+  现在：订阅后预热 10 s 且树静止 2 s 才允许自动重放；重放失败按 2/5/10/30 s 退避；
+  连续失败 3 次释放整套诊断会话并在新端点上重新初始化（会话自愈）。
+- 载荷日志补 `[HH:MM:SS.mmm]` 时间戳，开机现场可与宿主日志对齐。
+
+### Added
+
+- `tools/check_payload_sync.py` 新增两条回归判据：**C7** 重放不刷屏（相邻重放
+  ≥ 1.5 s）、**C8** 启动预热（首次自动重放距会话启动 ≥ 8 s）。
+
 ## [1.5.0] - 2026-11-24
 
 ### Changed
