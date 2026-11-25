@@ -8,6 +8,10 @@
   C2 存在 [Replay]，且最后一次 hr == 0（订阅成功）
   C3 最近 20 条 [Apply] 不得三区同时为 0（整片不着色）
   C4 最后一次 [Replay] 之后有写过指示条
+  C5 所有正常态指示条共用一个画刷
+  C6 掩码要求时间/日期/托盘时，必须真的写到对应元素
+  C7 重放不刷屏（相邻两次重放至少间隔 1.5 s）
+  C8 启动预热（订阅后至少 8 s 才允许第一次自动重放）
   C5 重放耗时（仅报告，> 50 ms 给警告，不判失败）
 
 用法：
@@ -40,6 +44,18 @@ MASK_DATE = 0x2
 MASK_TRAY = 0x4
 MASK_INDICATOR = 0x8
 WINDOW = 20
+# 载荷日志行首时间戳：[HH:MM:SS.mmm]（v1.5.1 起）
+TS_RE = re.compile(r"^\[(\d{2}):(\d{2}):(\d{2})\.(\d{3})\]")
+WARMUP_MS = 8000
+MIN_REPLAY_GAP_MS = 1500
+
+
+def ts_ms(line: str) -> int | None:
+    m = TS_RE.match(line)
+    if not m:
+        return None
+    h, mi, s, ms = (int(g) for g in m.groups())
+    return ((h * 60 + mi) * 60 + s) * 1000 + ms
 
 
 def default_log() -> str:
@@ -70,6 +86,8 @@ def main() -> int:
     # 共享画刷检查：每个 [Apply] 之前的 [Ind] 块里，正常态应当只有一个画刷句柄
     block_brushes: set[str] = set()
     last_block: dict | None = None
+    session_start_ms: int | None = None
+    replay_ts: list[int] = []
 
     with open(args.log, encoding="utf-8", errors="replace") as fh:
         for line in fh:
@@ -82,6 +100,8 @@ def main() -> int:
                 last_replay = None
                 replay_count = 0
                 last_advise = None
+                session_start_ms = ts_ms(line)
+                replay_ts.clear()
                 continue
             m = APPLY_RE.search(line)
             if m:
@@ -107,6 +127,9 @@ def main() -> int:
                 elif m.group("ms"):
                     replay_ms.append(float(m.group("ms")))
                 replay_count += 1
+                t = ts_ms(line)
+                if t is not None:
+                    replay_ts.append(t)
                 replay_marks.append(apply_seq[-1][0] if apply_seq else 0)
                 continue
             m = ADVISE_RE.search(line)
@@ -165,6 +188,24 @@ def main() -> int:
         nb = last_block["brushes"]
         results.append(("C5 指示条共用画刷", len(nb) == 1,
                         f"seq={last_block['seq']} 正常态画刷 {len(nb)} 个：{', '.join(sorted(nb))[:60]}"))
+
+    # C7：重放不得刷屏。v1.5.1 之前冷启动会每 2 s 失败一次，一份日志刷出近两千条，
+    # 把"订阅已死"掩盖在噪音里；现在失败必须退避。
+    if len(replay_ts) >= 2:
+        gaps = [b - a for a, b in zip(replay_ts, replay_ts[1:])]
+        min_gap = min(gaps)
+        results.append(("C7 重放不刷屏", min_gap >= MIN_REPLAY_GAP_MS,
+                        f"最小间隔 {min_gap} ms（阈值 {MIN_REPLAY_GAP_MS}）"))
+    else:
+        results.append(("C7 重放不刷屏", True, f"本次会话仅 {len(replay_ts)} 次重放"))
+
+    # C8：订阅后必须预热 8 s 再做第一次自动重放，避免打断任务栏的首次全量投递。
+    if session_start_ms is not None and replay_ts:
+        first = replay_ts[0] - session_start_ms
+        results.append(("C8 启动预热", first >= WARMUP_MS,
+                        f"首次重放距启动 {first} ms（阈值 {WARMUP_MS}）"))
+    elif session_start_ms is None:
+        print("[WARN] 日志没有时间戳（旧版载荷），跳过 C8")
 
     def pct(vals: list[float], q: float) -> float:
         if not vals:
