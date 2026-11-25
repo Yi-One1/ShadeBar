@@ -3,9 +3,9 @@
 > **最后更新**：2026-11-25 (GMT+8)
 > **用途**：跨对话续接。新对话看不到聊天记录，本文件是唯一状态依据。
 >
-> **状态一句话**：**v1.5.1 已打包待发布**（修复开机后指示条不着色）——
-> 产物 `dist/随影ShadeBar_v1.5.1.exe`（690,176 B），真机与 232 项单测全绿；
-> 发布动作见 §1「发布清单」。
+> **状态一句话**：**v1.5.1 已发布**（2026-11-25，GitHub Releases，tag `v1.5.1`）——
+> 修复开机后指示条不着色；产物 `dist/随影ShadeBar_v1.5.1.exe`（690,176 B），
+> 真机与 232 项单测全绿。
 
 ---
 
@@ -30,8 +30,8 @@
 | 发布产物 | `dist/随影ShadeBar_v1.5.1.exe`（690,176 B，674 KB） |
 | SHA-256 | `F8AF2A9FB7BE9B66E985B62C649C7A2FA945CCDC6A99FC12FBB271EB19D9FE68` |
 | 门禁 | 5/5（体积 / 无 VC++ 运行时 / 版本资源 / 清单 PerMonitorV2+asInvoker / 图标） |
-| git tag | `v1.5.1` → 本次发布提交；历史：`v1.5.0` → `4484ce7`、`v1.4.0` → `1f33632` |
-| GitHub Release | `v1.5.1`（附件 `ShadeBar_v1.5.1.exe`；**GitHub 会自动去掉附件名中的中文字符**，本地产物仍是 `随影ShadeBar_v1.5.1.exe`） |
+| git tag | `v1.5.1` → `018d135`（annotated，已推）；历史：`v1.5.0` → `4484ce7`、`v1.4.0` → `1f33632` |
+| GitHub Release | **v1.5.1 已发布**（2026-11-25）：https://github.com/Yi-One1/ShadeBar/releases/tag/v1.5.1 ；附件 `ShadeBar_v1.5.1.exe`（690,176 B，SHA-256 与本地一致）。**GitHub 会自动去掉附件名中的中文字符**，本地产物仍是 `随影ShadeBar_v1.5.1.exe` |
 
 `dist/` **永远保留历史版本 exe**（用户要求，便于回滚）；exe 不进仓库，只走 Releases。
 
@@ -84,10 +84,10 @@
 ### 4.1 v1.5.1 发布收尾
 - [x] 版本 1.5.1（`Cargo.toml` / `Cargo.lock` / README / CHANGELOG / 本文件）。
 - [x] `cargo test --release` 全绿（133 + 97 + 2，另 1 ignored）+ `build.ps1` 五道门禁全绿。
-- [ ] 提交文档与版本变更 → `git push origin main`。
-- [ ] `git tag -a v1.5.1` 并推送。
-- [ ] GitHub Release `v1.5.1` 与附件 `ShadeBar_v1.5.1.exe`。
-- [ ] 回写本文件的发布状态。
+- [x] 提交文档与版本变更 → `git push origin main`（`ce785fa → 018d135`）。
+- [x] `git tag -a v1.5.1` 并推送（指向 `018d135`）。
+- [x] GitHub Release `v1.5.1` 已发布，附件 `ShadeBar_v1.5.1.exe`。
+- [x] 回写本文件的发布状态。
 
 ### 4.2 用户回归验证
 - [ ] 用 `dist/随影ShadeBar_v1.5.1.exe` 作为开机自启，重启电脑确认左侧指示条为浅色。
