@@ -30,7 +30,7 @@
 
 ## 下载
 
-- GitHub 附件：`随影ShadeBar_v1.5.4.exe`（672.5 KB / 688,640 B）
+- GitHub 附件：`ShadeBar_v1.5.4.exe`（GitHub 会去掉中文前缀；672.5 KB / 688,640 B）
 - 本地打包产物：`dist/随影ShadeBar_v1.5.4.exe`
 - SHA-256：`017AF671981B7527E5CB18EA9303975D3D63794C6B8DB455180E6104B8441DAC`
 
