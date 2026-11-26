@@ -30,7 +30,7 @@
 | 发布产物 | `dist/随影ShadeBar_v1.5.2.exe`（687,616 B，671.5 KB） |
 | SHA-256 | `24F66AF91F90655DEC932A814B162DC434707AA27AD497FF3568E64CC33EA982` |
 | 门禁 | 5/5（体积 / 无 VC++ 运行时 / 版本资源 / 清单 PerMonitorV2+asInvoker / 图标） |
-| git tag | `v1.5.2` → 本次发布提交；历史：`v1.5.1` → `018d135`、`v1.5.0` → `4484ce7` |
+| git tag | `v1.5.2` → `0b99b65`（annotated，已推）；历史：`v1.5.1` → `018d135`、`v1.5.0` → `4484ce7` |
 | GitHub Release | **v1.5.2 已发布**（2026-11-26）：https://github.com/Yi-One1/ShadeBar/releases/tag/v1.5.2 ；附件 `ShadeBar_v1.5.2.exe` |
 
 `dist/` **永远保留历史版本 exe**（用户要求，便于回滚）；exe 不进仓库，只走 Releases。
