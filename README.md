@@ -7,12 +7,12 @@ Windows 11 任务栏**文字与图标自适应着色**工具。实时采样任�
 配合 TranslucentTB 使用：任务栏透明/模糊后，时钟、日期、托盘图标在浅色壁纸上
 容易糊成一片，在深色壁纸上又会发灰；随影按**当前这块背景**自动决定深浅。
 
-> **当前版本：v1.5.3**。修复**一部分正常态指示条永远不亮**：根因是宿主每次启动
-> 都会向同一个 explorer 再注入一份载荷，第二次订阅拿到失效连接，部分指示条永远
-> 进不了树。现在注入前先探测载荷是否存活，已有则只接管颜色、**不再重复注入**。
-> 其余能力与 v1.5.0 相同。更早版本见 [`CHANGELOG.md`](CHANGELOG.md)。
+> **当前版本：v1.5.4**。修复**托盘「显示隐藏的图标」箭头不着色**：
+> `SystemTray.ChevronIconView` 没有任何 XAML 子元素，字形由 WinComp 内部绘制，
+> 现直接给控件本身写 `Foreground`，深色任务栏下箭头会跟随托盘配色变浅。
+> 其余能力与 v1.5.3 相同。更早版本见 [`CHANGELOG.md`](CHANGELOG.md)。
 >
-> **下载**：[v1.5.3 Release](https://github.com/Yi-One1/ShadeBar/releases/tag/v1.5.3)
+> **下载**：[v1.5.4 Release](https://github.com/Yi-One1/ShadeBar/releases/tag/v1.5.4)
 > 提供单文件 exe，免安装；`dist/` 不随仓库分发二进制。
 >
 > **验收 / 预览**：双击根目录的 `1. 一键启动预览.bat`，它会重新编译并启动
@@ -25,6 +25,7 @@ Windows 11 任务栏**文字与图标自适应着色**工具。实时采样任�
 | 时间（时钟文字） | ✅ | 按时钟区背景亮度自动取浅色/深色 |
 | 日期 | ✅ | 与时间同区判定 |
 | 系统托盘图标（网络/音量/电池/输入法…） | ✅ | 字形图标可着色；微信、QQ 等程序自绘位图图标保持原样 |
+| 托盘「显示隐藏的图标」箭头 | ✅ | v1.5.4 起直接给 `SystemTray.ChevronIconView` 写前景色 |
 | 运行中指示条（正常态） | ✅ | 图标下方那条短横线；透明度可调 |
 | 运行中指示条（选中态） | ✅ | 可与正常态分别配色；系统强调色不再覆盖 |
 | 悬停高亮块 | ❌ | 尚未验证，设置项暂不开放 |
@@ -56,7 +57,8 @@ CoreDispatcher 编组到 XAML UI 线程 → IVisualTreeService::SetProperty 改�
 * **中位数抗干扰**：三行各取行内均值，再取三行中位数，图标/文字边缘不会把判定带偏。
 * **元素按 Name 定位**，不依赖符号、偏移或版本号：`TimeInnerTextBlock`、
   `DateInnerTextBlock`、`RunningIndicator`，托盘字形取 `AdaptiveTextBlock` 下
-  名为 `Base` 的 `InnerTextBlock`（`Underlay` / `AccentOverlay` 是透明或强调覆盖层）。
+  名为 `Base` 的 `InnerTextBlock`（`Underlay` / `AccentOverlay` 是透明或强调覆盖层）；
+  托盘展开箭头 `SystemTray.ChevronIconView` 没有子元素，直接给控件本身写 `Foreground`。
 * **指示条两态可分别配色**：正常态写元素 `Fill`（所有正常态共用同一个画刷）；
   选中态 `Fill` 被 VisualState 插了更高优先级的槽，改为直接改 `Fill` 指向的画刷
   `Color`，必要时逐层染色。每条写完都会**回读**校验，避免"返回 S_OK 但屏幕没变"。
@@ -80,7 +82,7 @@ CoreDispatcher 编组到 XAML UI 线程 → IVisualTreeService::SetProperty 改�
 | 运行库 | **无需安装 VC++ 运行库**（静态 CRT） |
 | 权限 | 普通用户（Medium IL），`asInvoker`，**全生命周期 UAC = 0** |
 | 网络 | 完全离线，无任何出站连接 |
-| 体积 | 单 exe **674 KB**（690176 B；载荷 DLL 内嵌，运行时释放到 `%LOCALAPPDATA%\ShadeBar\`） |
+| 体积 | 单 exe **672 KB**（688640 B；载荷 DLL 内嵌，运行时释放到 `%LOCALAPPDATA%\ShadeBar\`） |
 | 常驻内存 | 托盘常驻（未打开过设置）**约 15 MB 工作集 / 4 MB 私有**；打开过设置页后收进托盘约 **8–12 MB 工作集**（NFR-02 要求 ≤ 20 MB）。注意：绘制过一帧后私有提交约 41 MB 不再归还，见 §内存口径 |
 | CPU | 托盘常驻 **0.05%**（NFR-03 要求 ≤ 0.1%） |
 
@@ -98,7 +100,7 @@ CoreDispatcher 编组到 XAML UI 线程 → IVisualTreeService::SetProperty 改�
 | 双击 / 无参数 | 单实例常驻托盘 + 采样线程 + 着色；连续双击进程数恒为 1 |
 | 右键托盘图标 | 打开设置 / 开机自启动 / 版本号（只读）/ 退出 |
 | `--ui` | 直接打开设置窗口 |
-| `--version` | 打印 `随影 ShadeBar v1.5.3` |
+| `--version` | 打印 `随影 ShadeBar v1.5.4` |
 | `--help` | 打印用法 |
 
 设置页共 **28 项可见设置**（配置里保留 49 项编号，未落地 / 无视觉表现的项从 UI
@@ -132,7 +134,7 @@ target/x86_64-pc-windows-msvc/release/shadebar-app.exe
 ```
 
 **顺序不能反**：`crates/shadebar-app/build.rs` 会读取 `payload/build/ShadeBarTap.dll`
-并计算内容指纹，指纹进入载荷文件名（`ShadeBarTap_v1.5.3_<hash>.dll`）。
+并计算内容指纹，指纹进入载荷文件名（`ShadeBarTap_v1.5.4_<hash>.dll`）。
 这样内容一变文件名就变，explorer 里不会因为「同名模块已加载」而静默跑旧代码。
 
 版本号只有 `Cargo.toml` 的 `[workspace.package] version` 一个来源，

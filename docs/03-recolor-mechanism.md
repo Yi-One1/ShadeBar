@@ -53,6 +53,7 @@ v1.0.0 把「时间 / 日期 / 悬停块 / 指示条」标为**永久移出**，
 | **时间** | `Windows.UI.Xaml.Controls.TextBlock` | `TimeInnerTextBlock` | `Text = "7:14"` |
 | **日期** | `Windows.UI.Xaml.Controls.TextBlock` | `DateInnerTextBlock` | 与时间同父 `SystemTray.DateTimeIconContent` |
 | **托盘系统字形图标** | `Windows.UI.Xaml.Controls.TextBlock`（`InnerTextBlock`） | 父级为 `SystemTray.AdaptiveTextBlock`，且父级名 `Base` | 只染 Base 层；`Underlay` / `AccentOverlay` 宽 0 或强调覆盖，不染；第三方图标走 `ImageIconContent`，不染 |
+| **托盘"显示隐藏的图标"箭头** | `SystemTray.ChevronIconView`（**无任何 XAML 子元素**） | 类型全名精确等于 `SystemTray.ChevronIconView` | v1.5.4：字形由 WinComp 内部绘制，只能给控件本身写 `Foreground`；实测索引 876 |
 | **图标状态条** | `Windows.UI.Xaml.Shapes.Rectangle` | `RunningIndicator` | `Height=3`、`RadiusX/Y=1.5`、`Fill`=画刷；**正常 `ActualWidth=6`，选中 `ActualWidth=16`** |
 | 图标背景（选中/悬停） | `Border` / `Rectangle` | `BackgroundElement` / `BackgroundBorder` | 预留，v1.1 不做 |
 | 图标区容器 | `SystemTray.StackListView` | `IconStack` | — |
@@ -349,6 +350,23 @@ SetProperty(brush, colorObj, idx=737)          → hr=0x0
 **修复**：载荷主循环每轮递增 `reserved[6]`（与宿主开关无关）；宿主注入前连读两次，
 两次不同即说明已有载荷存活，直接接管颜色并**跳过注入**。实测重启软件日志为
 `payload alive: explorer pid=..., skip inject`，指示条保持 7/7 不变。
+
+### 5.6 托盘"显示隐藏的图标"箭头不着色（v1.5.4）
+
+**现象**：任务栏右下托盘展开箭头（`SystemTray.ChevronIconView`）在深色任务栏下仍是
+系统色，没有跟随随影的托盘配色变浅。
+
+**根因**：该控件在 XAML 诊断树里**没有任何子元素**——字形由 WinComp 内部绘制。
+此前按"子 `TextBlock` / `FontIcon`"匹配的规则永远命中不到它；而且不能用
+`Type.find(L"TextBlock")` 做子串匹配，否则会把 `SystemTray.AdaptiveTextBlock`
+误收进来（实测托盘计数从 5 膨胀到 30）。
+
+**修复**（`payload/ShadeBarTap.cpp`）：把 `SystemTray.ChevronIconView` **控件本身**
+归入 `InnerTextBlock` 通道，直接写它的 `Foreground`，复用托盘的着色 / 还原逻辑；
+`Remove` 时同步清句柄。托盘内元素计数 5 → 6。
+
+**回归**：`tools/check_payload_sync.py` 新增 C8——箭头进树后必须能解析出
+`Foreground`（日志 `[Tray+] chevron Foreground ok idx=876`），否则判失败。
 
 ---
 

@@ -4,6 +4,23 @@ All notable changes to 随影 ShadeBar are documented here. The version is a sin
 source of truth in `Cargo.toml` (`[workspace.package] version`), also used for the
 artifact filename, the About page and the exe VERSIONINFO (FR-16 / A-16).
 
+## [1.5.4] - 2026-11-27
+
+### Fixed
+
+- **托盘「显示隐藏的图标」箭头在深色任务栏下不着色**：`SystemTray.ChevronIconView`
+  在 XAML 诊断树里**没有任何子元素**，字形由 WinComp 内部绘制；此前按子
+  `TextBlock` / `FontIcon` 匹配的规则永远命中不到它。现在把该控件本身归入
+  `InnerTextBlock` 通道，直接给控件写 `Foreground`，复用托盘的着色 / 还原逻辑。
+  注意不能用 `Type` 子串匹配 `TextBlock`，否则会误收 `SystemTray.AdaptiveTextBlock`
+  （实测托盘计数从 5 膨胀到 30）。
+- 托盘内参与着色的元素计数由 5 变为 6（5 个托盘字形 + 1 个箭头）。
+
+### Added
+
+- `tools/check_payload_sync.py` 新增 **C8**：箭头进树后必须能解析出 `Foreground`
+  （`[Tray+] chevron Foreground ok idx=…`），否则判失败。
+
 ## [1.5.3] - 2026-11-27
 
 ### Fixed
