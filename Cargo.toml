@@ -23,7 +23,7 @@ exclude = [
 # 版本单一来源：build.ps1 从这里读取版本号，同时决定产物文件名与 VERSIONINFO，
 # 三处（文件名 / 关于页 / exe 属性）物理上不可能漂移（FR-16 / A-16）。
 [workspace.package]
-version = "1.5.2"
+version = "1.5.3"
 edition = "2021"
 rust-version = "1.99"
 license = "MIT"

@@ -1114,6 +1114,11 @@ static DWORD WINAPI Worker(LPVOID) {
     int staleLoops = 0;
 
     for (;;) {
+        // 活跃标记：即使宿主不在、enabled=0，也持续递增。
+        // 宿主注入前用它判断"这个 explorer 里是否已有活着的载荷"——
+        // 已有载荷时绝不能再注入：同一 explorer 第二次订阅会撞上失效连接，
+        // 表现为"一部分正常态指示条永远不亮"，只能重启 explorer 恢复。
+        InterlockedIncrement((volatile LONG*)&g_ipc->reserved[6]);
         // 被更新的副本取代：不还原（还原会抹掉新副本刚写的颜色），但**必须先退订**。
         // 退订是 v1.3.1 的关键修复：旧副本不退订时，新副本的 Advise 会拿到
         // E_UNEXPECTED 并"放弃改色"，屏幕上什么都不变；而宿主重启不会重载 DLL，

@@ -469,6 +469,15 @@ impl Ipc {
         unsafe { ((*self.view).status, (*self.view).heartbeat) }
     }
 
+    /// 载荷活跃计数（载荷主循环每轮 +1，与宿主开关无关）。
+    ///
+    /// 宿主凭它判断 explorer 里是否已有活着的载荷，避免重复注入。
+    #[must_use]
+    pub fn payload_tick(&self) -> u32 {
+        // SAFETY: 视图有效且布局已对齐。
+        unsafe { (*self.view).reserved[6] }
+    }
+
     /// 下发配色（`enabled = 1`）。
     pub fn apply(&mut self, plan: &ColorPlan) {
         // SAFETY: 视图有效；写入为单字宽字段，载荷侧以 volatile 读。
@@ -1050,25 +1059,38 @@ fn run_loop(
             continue;
         }
 
-        // 1) 保活注入：explorer 重启后 pid 会变，必须重新注入
+        // 1) 保活注入：explorer 重启后 pid 会变，必须重新注入。
+        //    但同一个 explorer **绝不重复注入**：第二次订阅会拿到一条失效的
+        //    诊断连接，现场表现就是"一部分正常态指示条永远不亮、重启软件也没用"，
+        //    只能重启 explorer 恢复。先探一次载荷活跃计数，活着就直接接管颜色。
         let cur = taskbar_pid().unwrap_or(0);
         if cur != 0 && cur != injected_pid {
-            // 注入失败以前是**静默**的（只把 injected_pid 归零），现场表现就是
-            // "改色整片失效、日志里什么都没有"。这里至少留一行，便于定位是
-            // 杀软拦截、架构不匹配，还是路径被占用。
-            match inject(dll_path) {
-                Ok(pid) => {
-                    injected_pid = pid;
-                    last_plan = ColorPlan::NONE;
-                    if last_inject_err.take().is_some() || pid != 0 {
-                        crate::config::note(&format!("inject ok: explorer pid={pid}"));
+            let tick0 = ipc.payload_tick();
+            std::thread::sleep(Duration::from_millis(700));
+            let tick1 = ipc.payload_tick();
+            if tick1 != tick0 {
+                injected_pid = cur;
+                last_plan = ColorPlan::NONE;
+                last_inject_err = None;
+                crate::config::note(&format!("payload alive: explorer pid={cur}, skip inject"));
+            } else {
+                // 注入失败以前是**静默**的（只把 injected_pid 归零），现场表现就是
+                // "改色整片失效、日志里什么都没有"。这里至少留一行，便于定位是
+                // 杀软拦截、架构不匹配，还是路径被占用。
+                match inject(dll_path) {
+                    Ok(pid) => {
+                        injected_pid = pid;
+                        last_plan = ColorPlan::NONE;
+                        if last_inject_err.take().is_some() || pid != 0 {
+                            crate::config::note(&format!("inject ok: explorer pid={pid}"));
+                        }
                     }
-                }
-                Err(e) => {
-                    injected_pid = 0;
-                    if last_inject_err.as_deref() != Some(e.as_str()) {
-                        crate::config::note(&format!("inject failed: {e}"));
-                        last_inject_err = Some(e);
+                    Err(e) => {
+                        injected_pid = 0;
+                        if last_inject_err.as_deref() != Some(e.as_str()) {
+                            crate::config::note(&format!("inject failed: {e}"));
+                            last_inject_err = Some(e);
+                        }
                     }
                 }
             }

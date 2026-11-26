@@ -7,13 +7,12 @@ Windows 11 任务栏**文字与图标自适应着色**工具。实时采样任�
 配合 TranslucentTB 使用：任务栏透明/模糊后，时钟、日期、托盘图标在浅色壁纸上
 容易糊成一片，在深色壁纸上又会发灰；随影按**当前这块背景**自动决定深浅。
 
-> **当前版本：v1.5.2**。修复**冷启动后整条着色链路失效**（时间、日期、托盘一起不着色）：
-> 上一版在任务栏构建期自动重放（退订 + 重订阅），`Advise` 返回 `E_UNEXPECTED` 后会拆掉
-> 唯一有效的订阅；现在**只订阅一次，不再重放**，完全依赖 XAML 的 `Add/Remove` 增量事件
-> （实测新打开的应用窗口会正常送来 `Add`，指示条即时着色）。其余能力与 v1.5.0 相同。
-> 更早版本见 [`CHANGELOG.md`](CHANGELOG.md)。
+> **当前版本：v1.5.3**。修复**一部分正常态指示条永远不亮**：根因是宿主每次启动
+> 都会向同一个 explorer 再注入一份载荷，第二次订阅拿到失效连接，部分指示条永远
+> 进不了树。现在注入前先探测载荷是否存活，已有则只接管颜色、**不再重复注入**。
+> 其余能力与 v1.5.0 相同。更早版本见 [`CHANGELOG.md`](CHANGELOG.md)。
 >
-> **下载**：[v1.5.2 Release](https://github.com/Yi-One1/ShadeBar/releases/tag/v1.5.2)
+> **下载**：[v1.5.3 Release](https://github.com/Yi-One1/ShadeBar/releases/tag/v1.5.3)
 > 提供单文件 exe，免安装；`dist/` 不随仓库分发二进制。
 >
 > **验收 / 预览**：双击根目录的 `1. 一键启动预览.bat`，它会重新编译并启动
@@ -99,7 +98,7 @@ CoreDispatcher 编组到 XAML UI 线程 → IVisualTreeService::SetProperty 改�
 | 双击 / 无参数 | 单实例常驻托盘 + 采样线程 + 着色；连续双击进程数恒为 1 |
 | 右键托盘图标 | 打开设置 / 开机自启动 / 版本号（只读）/ 退出 |
 | `--ui` | 直接打开设置窗口 |
-| `--version` | 打印 `随影 ShadeBar v1.5.2` |
+| `--version` | 打印 `随影 ShadeBar v1.5.3` |
 | `--help` | 打印用法 |
 
 设置页共 **28 项可见设置**（配置里保留 49 项编号，未落地 / 无视觉表现的项从 UI
@@ -133,7 +132,7 @@ target/x86_64-pc-windows-msvc/release/shadebar-app.exe
 ```
 
 **顺序不能反**：`crates/shadebar-app/build.rs` 会读取 `payload/build/ShadeBarTap.dll`
-并计算内容指纹，指纹进入载荷文件名（`ShadeBarTap_v1.5.2_<hash>.dll`）。
+并计算内容指纹，指纹进入载荷文件名（`ShadeBarTap_v1.5.3_<hash>.dll`）。
 这样内容一变文件名就变，explorer 里不会因为「同名模块已加载」而静默跑旧代码。
 
 版本号只有 `Cargo.toml` 的 `[workspace.package] version` 一个来源，

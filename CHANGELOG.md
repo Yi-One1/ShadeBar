@@ -4,6 +4,17 @@ All notable changes to 随影 ShadeBar are documented here. The version is a sin
 source of truth in `Cargo.toml` (`[workspace.package] version`), also used for the
 artifact filename, the About page and the exe VERSIONINFO (FR-16 / A-16).
 
+## [1.5.3] - 2026-11-27
+
+### Fixed
+
+- **一部分正常态指示条永远不亮（重启软件也没用，只能重启 explorer）**：根因是
+  **重复注入**。宿主每次启动都会向同一个 explorer 再注入一份载荷，第二次订阅
+  拿到的是失效的诊断连接——能写的那部分元素正常，其余指示条永远进不了树。
+  现在宿主注入前先读载荷活跃计数（`reserved[6]`，载荷主循环每轮 +1，与开关无关）：
+  探测到已有载荷存活就直接接管颜色、**跳过注入**。实测重启软件后日志为
+  `payload alive: explorer pid=..., skip inject`，指示条保持 7/7 不变。
+
 ## [1.5.2] - 2026-11-26
 
 ### Fixed
