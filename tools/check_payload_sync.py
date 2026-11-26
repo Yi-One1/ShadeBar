@@ -11,6 +11,7 @@
   C5 所有正常态指示条共用一个画刷
   C6 掩码要求时间/日期/托盘时，必须真的写到对应元素
   C7 不发起自动重放（v1.5.2 起只订阅一次；出现 [Replay] 说明跑的是旧载荷）
+  C8 托盘"显示隐藏的图标"箭头（ChevronIconView）若出现在树里，必须能解析出 Foreground
 
 用法：
   python tools/check_payload_sync.py
@@ -32,6 +33,9 @@ APPLY_RE = re.compile(
 )
 REPLAY_RE = re.compile(r"\[Replay\] #(?P<n>\d+) reason=(?P<reason>\S+) hr=0x(?P<hr>[0-9A-Fa-f]+) tree=(?P<tree>\d+)(?: (?:ms=(?P<ms>\d+)|us=(?P<us>\d+)))?")
 ADVISE_RE = re.compile(r"\[Tap\] Advise hr=0x(?P<hr>[0-9A-Fa-f]+)")
+# 托盘"显示隐藏的图标"箭头：它没有 XAML 子元素，只能给控件本身写 Foreground
+CHEVRON_RE = re.compile(r"\[Tray\+\] chevron handle=0x(?P<h>[0-9A-Fa-f]+)")
+CHEVRON_FG_RE = re.compile(r"\[Tray\+\] chevron Foreground (?P<res>ok|MISSING)")
 IND_RE = re.compile(
     r"\[Ind\] h=0x(?P<h>[0-9A-Fa-f]+) w=(?P<w>[\d.]+) (?P<state>选中|正常) "
     r"b=0x(?P<b>[0-9A-Fa-f]+) -> (?P<color>[0-9A-Fa-f]+)"
@@ -81,6 +85,9 @@ def main() -> int:
     # 共享画刷检查：每个 [Apply] 之前的 [Ind] 块里，正常态应当只有一个画刷句柄
     block_brushes: set[str] = set()
     last_block: dict | None = None
+    chevron_seen = 0
+    chevron_fg_ok = 0
+    chevron_fg_missing = 0
 
     with open(args.log, encoding="utf-8", errors="replace") as fh:
         for line in fh:
@@ -92,6 +99,9 @@ def main() -> int:
                 replay_count = 0
                 last_advise = None
                 advise_mark = None
+                chevron_seen = 0
+                chevron_fg_ok = 0
+                chevron_fg_missing = 0
                 continue
             m = APPLY_RE.search(line)
             if m:
@@ -121,6 +131,17 @@ def main() -> int:
                 last_advise = int(m.group("hr"), 16)
                 if last_advise == 0:
                     advise_mark = apply_seq[-1][0] if apply_seq else 0
+                continue
+            if CHEVRON_RE.search(line):
+                chevron_seen += 1
+                continue
+            m = CHEVRON_FG_RE.search(line)
+            if m:
+                if m.group("res") == "ok":
+                    chevron_fg_ok += 1
+                else:
+                    chevron_fg_missing += 1
+                continue
 
     if not applies:
         print(f"[FAIL] 日志里没有 [Apply] 记录，无法判定（{args.log}）")
@@ -176,6 +197,18 @@ def main() -> int:
     # explorer 里跑的还是旧载荷（或代码回退），必须当作失败处理。
     results.append(("C7 不发起自动重放", replay_count == 0,
                     f"本次会话 [Replay] {replay_count} 次（期望 0）"))
+
+    # C8：托盘箭头（SystemTray.ChevronIconView）没有 XAML 子元素，v1.5.4 起直接给
+    # 控件本身写 Foreground。只要它进了树，就必须能解析出 Foreground 属性，
+    # 否则说明"箭头被算进托盘通道但根本没染上色"（写不进去但日志全是成功）。
+    if chevron_seen == 0:
+        results.append(("C8 托盘箭头可着色", True,
+                        "本次会话未发现箭头元素（系统可能未启用隐藏图标）"))
+    else:
+        results.append(("C8 托盘箭头可着色",
+                        chevron_fg_ok > 0 and chevron_fg_missing == 0,
+                        f"发现箭头 {chevron_seen} 次，Foreground ok {chevron_fg_ok} 次，"
+                        f"MISSING {chevron_fg_missing} 次"))
 
     def pct(vals: list[float], q: float) -> float:
         if not vals:

@@ -105,6 +105,10 @@ static std::map<InstanceHandle, std::wstring> g_typeMap;
 // 句柄 → 名字。托盘字形只取 AdaptiveTextBlock 里名为 Base 的那一层
 // （Underlay/AccentOverlay 是透明/强调覆盖层，宽 0，不该染色）。
 static std::map<InstanceHandle, std::wstring> g_nameMap;
+// "显示隐藏的图标"箭头控件（SystemTray.ChevronIconView）。它没有 XAML 子元素，
+// 只能直接给控件本身写 Foreground，保留最近一次句柄用于属性诊断。
+static InstanceHandle g_chevronHandle = 0;
+static volatile LONG  g_chevronDumped = 0;
 static CRITICAL_SECTION      g_treeCs;
 static INIT_ONCE             g_treeOnce = INIT_ONCE_STATIC_INIT;
 
@@ -162,6 +166,7 @@ static volatile LONG g_clearOnAdd = 0;   // 首次订阅的第一个 Add 到来�
 static std::map<InstanceHandle, bool> g_indSelState;
 static volatile LONG g_urgent = 0;       // 1 = 绕过 250 ms 限流，立即应用
 static int g_addLogBudget = 200;         // Add 事件诊断日志预算（防刷屏）
+static int g_trayExtraLogBudget = 60;    // 托盘扩展元素（箭头）命中日志预算
 static int g_indFailBudget = 30;         // 指示条写入失败日志预算
 
 // 定义在下方（共享画刷一节）；重放/还原后必须丢弃句柄，这里先声明。
@@ -247,7 +252,9 @@ public:
         EnterCriticalSection(&g_treeCs);
         if (type == Add) {
             // 重放开始：第一个 Add 到达时清掉旧树，之后重新累积。
-            if (InterlockedExchange(&g_clearOnAdd, 0)) { g_tree.clear(); g_typeMap.clear(); g_nameMap.clear(); }
+            if (InterlockedExchange(&g_clearOnAdd, 0)) {
+                g_tree.clear(); g_typeMap.clear(); g_nameMap.clear();
+            }
 
             VisEntry e;
             e.handle = element.Handle;
@@ -273,6 +280,20 @@ public:
                 auto pn = g_nameMap.find(relation.Parent);
                 want = (pn != g_nameMap.end() && pn->second == L"Base");
             }
+            // "显示隐藏的图标"箭头：实测 SystemTray.ChevronIconView **没有任何 XAML 子元素**
+            // （字形由 WinComp 内部绘制），因此不能靠子 TextBlock 染色，只能直接给这个
+            // 控件本身写 Foreground。归入 InnerTextBlock 通道，复用托盘的着色 / 还原逻辑。
+            if (!want && T == L"SystemTray.ChevronIconView") {
+                want = true;
+                e.name = L"InnerTextBlock";
+                g_chevronHandle = element.Handle;
+                if (g_trayExtraLogBudget > 0) {
+                    --g_trayExtraLogBudget;
+                    LogW(L"[Tray+] chevron handle=0x%llX parent=0x%llX",
+                         (unsigned long long)element.Handle,
+                         (unsigned long long)relation.Parent);
+                }
+            }
             if (want) {
                 // 重放时同一个句柄可能被再发一次，去重，避免 g_tree 无限增长。
                 bool dup = false;
@@ -285,6 +306,7 @@ public:
         } else {
             g_typeMap.erase(element.Handle);
             g_nameMap.erase(element.Handle);
+            if (element.Handle == g_chevronHandle) g_chevronHandle = 0;
             for (auto it = g_tree.begin(); it != g_tree.end(); ++it) {
                 if (it->handle == element.Handle) { g_tree.erase(it); break; }
             }
@@ -690,6 +712,12 @@ static void ApplyColors() {
     const unsigned mask = cmd.reserved[0];
 
     auto v = Snapshot();
+    if (g_chevronHandle && !InterlockedExchange(&g_chevronDumped, 1)) {
+        unsigned idx = 0;
+        const bool hasFg = IndexFromChain(g_chevronHandle, L"Foreground", &idx);
+        LogW(L"[Tray+] chevron Foreground %s idx=%u",
+             hasFg ? L"ok" : L"MISSING", hasFg ? idx : 0u);
+    }
     int nTime = 0, nDate = 0, nTray = 0, nInd = 0, nUndo = 0, nShared = 0;
 
     // 树组成诊断：只在变化时打一行，用来区分"元素没进树"和"进了树但写不进去"。
