@@ -5,14 +5,12 @@
 
 判据（任一不满足即退出码 1）：
   C1 最近 20 条 [Apply] 中，掩码要求指示条时必须真的写到（ind > 0）
-  C2 存在 [Replay]，且最后一次 hr == 0（订阅成功）
+  C2 订阅成功（[Tap] Advise hr == 0）
   C3 最近 20 条 [Apply] 不得三区同时为 0（整片不着色）
-  C4 最后一次 [Replay] 之后有写过指示条
+  C4 订阅成功后确实写过指示条
   C5 所有正常态指示条共用一个画刷
   C6 掩码要求时间/日期/托盘时，必须真的写到对应元素
-  C7 重放不刷屏（相邻两次重放至少间隔 1.5 s）
-  C8 启动预热（订阅后至少 8 s 才允许第一次自动重放）
-  C5 重放耗时（仅报告，> 50 ms 给警告，不判失败）
+  C7 不发起自动重放（v1.5.2 起只订阅一次；出现 [Replay] 说明跑的是旧载荷）
 
 用法：
   python tools/check_payload_sync.py
@@ -46,8 +44,6 @@ MASK_INDICATOR = 0x8
 WINDOW = 20
 # 载荷日志行首时间戳：[HH:MM:SS.mmm]（v1.5.1 起）
 TS_RE = re.compile(r"^\[(\d{2}):(\d{2}):(\d{2})\.(\d{3})\]")
-WARMUP_MS = 8000
-MIN_REPLAY_GAP_MS = 1500
 
 
 def ts_ms(line: str) -> int | None:
@@ -76,32 +72,26 @@ def main() -> int:
         return 1
 
     applies: deque[dict] = deque(maxlen=args.window)
-    last_replay = None
     replay_count = 0
     replay_ms: list[float] = []
     last_advise = None
-    # 记录每次重放之后是否真的着色：以行号为序，末尾重放可能还没来得及应用
-    replay_marks: list[int] = []
+    # 订阅成功那一刻的 apply 序号；C4 用它判断"之后有没有真的着色"
+    advise_mark: int | None = None
     apply_seq: list[tuple[int, int]] = []
     # 共享画刷检查：每个 [Apply] 之前的 [Ind] 块里，正常态应当只有一个画刷句柄
     block_brushes: set[str] = set()
     last_block: dict | None = None
-    session_start_ms: int | None = None
-    replay_ts: list[int] = []
 
     with open(args.log, encoding="utf-8", errors="replace") as fh:
         for line in fh:
-            # 只看本次载荷会话：上一轮运行的重放耗时（启动瞬间 200-400 ms）会把均值拉歪
+            # 只看本次载荷会话：更早的会话日志不能参与判定
             if "载荷启动" in line:
                 applies.clear()
-                replay_marks.clear()
                 apply_seq.clear()
                 replay_ms.clear()
-                last_replay = None
                 replay_count = 0
                 last_advise = None
-                session_start_ms = ts_ms(line)
-                replay_ts.clear()
+                advise_mark = None
                 continue
             m = APPLY_RE.search(line)
             if m:
@@ -120,21 +110,17 @@ def main() -> int:
                 continue
             m = REPLAY_RE.search(line)
             if m:
-                last_replay = {"n": int(m.group("n")), "hr": int(m.group("hr"), 16),
-                               "tree": int(m.group("tree")), "reason": m.group("reason")}
                 if m.group("us"):
                     replay_ms.append(int(m.group("us")) / 1000.0)
                 elif m.group("ms"):
                     replay_ms.append(float(m.group("ms")))
                 replay_count += 1
-                t = ts_ms(line)
-                if t is not None:
-                    replay_ts.append(t)
-                replay_marks.append(apply_seq[-1][0] if apply_seq else 0)
                 continue
             m = ADVISE_RE.search(line)
             if m:
                 last_advise = int(m.group("hr"), 16)
+                if last_advise == 0:
+                    advise_mark = apply_seq[-1][0] if apply_seq else 0
 
     if not applies:
         print(f"[FAIL] 日志里没有 [Apply] 记录，无法判定（{args.log}）")
@@ -148,24 +134,21 @@ def main() -> int:
     results.append(("C1 指示条有写入", want_ind and ratio >= 0.9,
                     f"{len(hits)}/{len(want_ind)} 拍写过 ind>0（{ratio:.0%}）"))
 
-    results.append(("C2 订阅成功", last_replay is not None and last_replay["hr"] == 0,
-                    "无 [Replay] 记录" if last_replay is None else
-                    f"最后 #%d hr=0x%08X tree=%d" % (last_replay["n"], last_replay["hr"], last_replay["tree"])))
+    results.append(("C2 订阅成功", last_advise == 0,
+                    "无 [Tap] Advise 记录" if last_advise is None else
+                    f"最后 Advise hr=0x{last_advise:08X}"))
 
     dead = [a for a in applies if a["time"] == 0 and a["date"] == 0 and a["tray"] == 0]
     results.append(("C3 未整片失效", not dead, f"整片为 0 的拍数：{len(dead)}"))
 
-    # 取"后面确实还有 Apply"的最后一次重放，避免把刚发生、尚未应用的重放算成 0/0
-    ind_after = 0
-    total_after = 0
-    for mark in reversed(replay_marks):
-        tail = [ind for idx, ind in apply_seq if idx > mark]
-        if tail:
-            total_after = len(tail)
-            ind_after = len([i for i in tail if i > 0])
-            break
-    results.append(("C4 重放后确实着色", ind_after > 0,
-                    f"最后一次有效重放后 {ind_after}/{total_after} 拍写过指示条"))
+    # C4：订阅成功之后必须真的把指示条写进任务栏。
+    if advise_mark is None:
+        results.append(("C4 订阅后确实着色", False, "没有成功的订阅记录"))
+    else:
+        tail = [ind for idx, ind in apply_seq if idx > advise_mark]
+        ind_after = len([i for i in tail if i > 0])
+        results.append(("C4 订阅后确实着色", ind_after > 0,
+                        f"订阅后 {ind_after}/{len(tail)} 拍写过指示条"))
 
     # C6：掩码要求时间/日期/托盘时，必须真的写到对应元素。
     # 这条专门拦"元素没进树"——v1.3.2 的托盘元素曾被误认成 AdaptiveTextBlock，
@@ -189,23 +172,10 @@ def main() -> int:
         results.append(("C5 指示条共用画刷", len(nb) == 1,
                         f"seq={last_block['seq']} 正常态画刷 {len(nb)} 个：{', '.join(sorted(nb))[:60]}"))
 
-    # C7：重放不得刷屏。v1.5.1 之前冷启动会每 2 s 失败一次，一份日志刷出近两千条，
-    # 把"订阅已死"掩盖在噪音里；现在失败必须退避。
-    if len(replay_ts) >= 2:
-        gaps = [b - a for a, b in zip(replay_ts, replay_ts[1:])]
-        min_gap = min(gaps)
-        results.append(("C7 重放不刷屏", min_gap >= MIN_REPLAY_GAP_MS,
-                        f"最小间隔 {min_gap} ms（阈值 {MIN_REPLAY_GAP_MS}）"))
-    else:
-        results.append(("C7 重放不刷屏", True, f"本次会话仅 {len(replay_ts)} 次重放"))
-
-    # C8：订阅后必须预热 8 s 再做第一次自动重放，避免打断任务栏的首次全量投递。
-    if session_start_ms is not None and replay_ts:
-        first = replay_ts[0] - session_start_ms
-        results.append(("C8 启动预热", first >= WARMUP_MS,
-                        f"首次重放距启动 {first} ms（阈值 {WARMUP_MS}）"))
-    elif session_start_ms is None:
-        print("[WARN] 日志没有时间戳（旧版载荷），跳过 C8")
+    # C7：v1.5.2 起只订阅一次，不再自动重放。日志里出现 [Replay] 说明
+    # explorer 里跑的还是旧载荷（或代码回退），必须当作失败处理。
+    results.append(("C7 不发起自动重放", replay_count == 0,
+                    f"本次会话 [Replay] {replay_count} 次（期望 0）"))
 
     def pct(vals: list[float], q: float) -> float:
         if not vals:
@@ -224,9 +194,9 @@ def main() -> int:
         ok_all = ok_all and bool(ok)
 
     if median_ms is None:
-        print("[WARN] 日志里没有 ms= 字段（旧版载荷），未测重放耗时")
+        print(f"[INFO] 本次会话未发生重放（v1.5.2 设计如此），[Replay] 计数 {replay_count}")
     else:
-        warn = "  <-- p95 超过 50 ms，5 s 节奏会占用可观察 CPU" if (p95_ms or 0) > 50 else ""
+        warn = "  <-- p95 超过 50 ms，说明跑的是旧载荷" if (p95_ms or 0) > 50 else ""
         print(f"[INFO] 本次会话重放 {replay_count} 次：中位 {median_ms:.1f} ms，p95 {p95_ms:.1f} ms{warn}")
 
     if last_advise is not None and last_advise != 0:

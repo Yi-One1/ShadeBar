@@ -22,7 +22,7 @@ dependencies = [
 
 [[package]]
 name = "shadebar-app"
-version = "1.5.1"
+version = "1.5.2"
 dependencies = [
  "shadebar-core",
  "windows",
@@ -30,7 +30,7 @@ dependencies = [
 
 [[package]]
 name = "shadebar-core"
-version = "1.5.1"
+version = "1.5.2"
 dependencies = [
  "windows",
 ]

@@ -141,45 +141,27 @@ static unsigned g_generation = 0;
 // RunningIndicator 的 Fill 一旦被 ClearProperty 会变全透明（v1.1 生产事故）。
 static volatile LONG g_touched = 0;
 
-/* 树同步（v1.3.1 修「一部分指示条永远不改色 / 重启软件也不恢复」）
+/* 元素来源（订阅一次，不再重放）
  *
- * 事实：XAML 诊断接口只给两条获取元素的途径 —— 订阅时的**一次全量重放**，
- * 以及之后的 Add/Remove 增量事件；没有"遍历整棵树"的接口。
- * 实测（26H2 26300）：打开一个新的应用窗口时，日志里**一条 [Add] 都没有**，
- * 但任务栏确实多了一条指示条 —— 说明新按钮不会以可用的 Add 事件到达，
- * 于是这条指示条永远进不了 g_tree。宿主重启时 DLL 已驻留、DllMain 不再执行，
- * 也就**不会重新订阅** —— 漏掉的元素永远漏掉，表现成"一部分改色、一部分不改"，
- * 而且重启软件只能靠运气恢复。
+ * XAML 诊断接口提供两条途径：订阅时的**一次全量投递**，以及之后的 Add/Remove
+ * 增量事件；没有"遍历整棵树"的接口。
  *
- * 对策：需要时 Unadvise + Advise 重新全量重放（必须是 XAML UI 线程）。
- * 触发点：①宿主重新连接/心跳恢复；②本拍想要指示条却一条都没命中；
- * ③兜底轮询——用户有输入时 5 s、空闲时 30 s（没有输入就不会有新窗口）。
+ * v1.3.1 曾用 Unadvise + Advise 重放来补新窗口的元素，但 v1.5.2 实测：
+ * 第一次 Advise 成功后，之后任何一次 Advise（无论先退订、还是换新回调对象）
+ * 都会返回 E_UNEXPECTED，频繁重放还会把整个诊断连接弄坏，连时间/日期都不再着色。
+ * 而保持初始订阅时，新打开的应用窗口**确实会送来 Add 事件**
+ * （打开记事本后 ind 5→6，期间没有任何重放）。
  *
- * v1.5.1（冷启动指示条不着色）：注入发生在任务栏 XAML 还没建完时，最初的订阅只
- * 拿到时间/日期/托盘 8 个元素；随后第一次"重放"就退订/订阅失败（hr=E_UNEXPECTED），
- * 之后开机才启动的应用图标再也进不了树，且没有任何自愈路径。现在：
- *   1) 订阅后 10 s 预热、树静止 2 s 才允许自动重放，避免打断首次全量投递；
- *   2) 重放失败按 2/5/10/30 s 退避，不再每 2 s 无效重放；
- *   3) 连续失败 3 次请求主循环重建诊断会话（新端点 + 新 TAP 对象）。
+ * 因此现在只建立一次订阅，完全依赖 Add/Remove 增量；不重放、不重建会话。
+ * 冷启动最坏只是"稍晚收到元素"，不会再让整条链路失效。
  */
-static volatile LONG g_needResync = 1;   // 1 = 下一拍强制重放
-static volatile LONG g_replayReq = 0;    // 主循环置位，UI 线程消费
-static volatile LONG g_clearOnAdd = 0;   // 重放的第一个 Add 到来时清空旧树（避免重复与失效句柄）
-static volatile LONG g_lastIndCount = -1;// 上一拍改到的指示条条数
-static ULONGLONG g_readyTick = 0;        // 订阅就绪时刻（启动预热用）
-static ULONGLONG g_lastTreeEventTick = 0;// 最近一次 Add/Remove（判断树是否静止）
-static ULONGLONG g_nextReplayTick = 0;   // 退避：早于此刻不重放
-static int g_replayFailStreak = 0;       // 连续重放失败次数
-static int g_rebuildCount = 0;           // 诊断会话重建次数
-static volatile LONG g_rebuildReq = 0;   // 1 = 请求重建诊断会话（主循环消费）
+static volatile LONG g_clearOnAdd = 0;   // 首次订阅的第一个 Add 到来时清空旧树
 // 指示条选中态缓存（UI 线程独占）。实测 OnElementStateChanged 对指示条的
 // "选中 ↔ 正常"切换**根本不触发**，g_dirty 没机会置位，只能等宿主下一条指令
 // （约 2 s）才改色。这里由 UI 线程定时只读 ActualWidth，发现变化就置脏。
 static std::map<InstanceHandle, bool> g_indSelState;
 static volatile LONG g_urgent = 0;       // 1 = 绕过 250 ms 限流，立即应用
-static ULONGLONG g_lastReplayTick = 0;
-static int g_replayCount = 0;
-static int g_addLogBudget = 60;          // Add 事件诊断日志预算（防刷屏）
+static int g_addLogBudget = 200;         // Add 事件诊断日志预算（防刷屏）
 static int g_indFailBudget = 30;         // 指示条写入失败日志预算
 
 // 定义在下方（共享画刷一节）；重放/还原后必须丢弃句柄，这里先声明。
@@ -201,6 +183,10 @@ static IVisualTreeService* VtsBase() {
 // ---------------------------------------------------------------- TAP 对象
 
 class TapObject;
+
+// 当前订阅使用的回调对象。重放时会换成一个新的对象（先订阅成功再拆旧的），
+// 因此不能只由 IClassFactory 持有。
+static TapObject* g_tap = nullptr;
 
 class TapObject final : public IObjectWithSite, public IVisualTreeServiceCallback2 {
 public:
@@ -255,65 +241,8 @@ public:
         return E_NOTIMPL;
     }
 
-    /// 重新订阅，强制 XAML 重放整棵树。**必须在 XAML UI 线程调用**。
-    ///
-    /// 旧树不在这里清：清空后若重放是异步投递的，中间会出现"空树拍"，
-    /// 那一拍会把该改色的元素当成不存在。改为让重放的第一个 Add 清空（g_clearOnAdd）。
-    bool ReplayTree(const wchar_t* reason) {
-        if (!g_vts3 && !g_vts2) return false;
-        const ULONGLONG now = GetTickCount64();
-        // 退避期内不发起重放：冷启动时连续失败会把日志刷满，也救不回来。
-        if (g_nextReplayTick && now < g_nextReplayTick) return false;
-        InitOnceExecuteOnce(&g_treeOnce, TreeInit_, nullptr, nullptr);
-        const ULONGLONG t0 = NowUs();
-        InterlockedExchange(&g_clearOnAdd, 1);
-        // 退订的返回值以前被丢掉，正是"重放永远失败"查不出来的原因；现在一并记录。
-        HRESULT hrUnadv = E_FAIL;
-        HRESULT hr = S_OK;
-        if (g_vts3) {
-            hrUnadv = g_vts3->UnadviseVisualTreeChange(this);
-            hr = g_vts3->AdviseVisualTreeChange(this);
-        } else {
-            hrUnadv = g_vts2->UnadviseVisualTreeChange(this);
-            hr = g_vts2->AdviseVisualTreeChange(this);
-        }
-        g_lastReplayTick = now;
-        ++g_replayCount;
-        if (FAILED(hr)) {
-            // 撤销"清树"标记：否则下一次无关的 Add 会把旧树清掉，而这一次并没有重放来补全它。
-            InterlockedExchange(&g_clearOnAdd, 0);
-            InterlockedExchange(&g_advised, 0);
-            ++g_replayFailStreak;
-            const ULONGLONG backoff = g_replayFailStreak <= 1 ? 2000ULL
-                                    : g_replayFailStreak == 2 ? 5000ULL
-                                    : g_replayFailStreak == 3 ? 10000ULL : 30000ULL;
-            g_nextReplayTick = now + backoff;
-            // 连续失败说明这个订阅已经救不回来（冷启动实测退订/订阅互相打架），
-            // 请求主循环重建整个诊断会话；时间/日期/托盘不受影响。
-            if (g_replayFailStreak >= 3) {
-                g_replayFailStreak = 0;
-                InterlockedExchange(&g_rebuildReq, 1);
-            }
-        } else {
-            g_replayFailStreak = 0;
-            g_nextReplayTick = 0;
-            InterlockedExchange(&g_advised, 1);
-        }
-        int treeN = 0;
-        EnterCriticalSection(&g_treeCs);
-        treeN = (int)g_tree.size();
-        LeaveCriticalSection(&g_treeCs);
-        LogW(L"[Replay] #%d reason=%s hr=0x%08X tree=%d us=%llu unadv=0x%08X",
-             g_replayCount, reason, (unsigned)hr, treeN,
-             (unsigned long long)(NowUs() - t0), (unsigned)hrUnadv);
-        // 重放会重建元素，旧画刷句柄可能已经失效：下一拍重新造一个。
-        if (SUCCEEDED(hr)) ResetSharedBrush();
-        return SUCCEEDED(hr);
-    }
-
     HRESULT STDMETHODCALLTYPE OnVisualTreeChange(
         ParentChildRelation relation, VisualElement element, VisualMutationType type) override {
-        g_lastTreeEventTick = GetTickCount64();
         InitOnceExecuteOnce(&g_treeOnce, TreeInit_, nullptr, nullptr);
         EnterCriticalSection(&g_treeCs);
         if (type == Add) {
@@ -373,8 +302,6 @@ public:
 private:
     LONG m_ref = 1;
 };
-
-static TapObject* g_tap = nullptr;
 
 class TapFactory final : public IClassFactory {
 public:
@@ -912,7 +839,6 @@ static void ApplyColors() {
 
     g_activeMask = mask;
     if (nTime + nDate + nTray + nInd > 0) InterlockedExchange(&g_touched, 1);
-    InterlockedExchange(&g_lastIndCount, nInd);
     LogW(L"[Apply] seq=%ld mask=%X time=%d date=%d tray=%d ind=%d undo=%d",
          (long)cmd.seq, mask, nTime, nDate, nTray, nInd, nUndo);
     InterlockedExchange(&g_applied, cmd.seq);
@@ -1025,10 +951,6 @@ static void UiPollProc() {
 }
 
 static void UiApplyProc() {
-    // 重放请求由主循环置位、这里（UI 线程）消费：Advise 必须在 UI 线程调用。
-    if (InterlockedExchange(&g_replayReq, 0) && g_tap) {
-        g_tap->ReplayTree(L"apply");
-    }
     ApplyColors();
     if (g_uiDoneEvent) SetEvent(g_uiDoneEvent);
 }
@@ -1047,24 +969,6 @@ static void UiUnadviseProc() {
     if (g_uiDoneEvent) SetEvent(g_uiDoneEvent);
 }
 
-/// 退订并释放整个诊断会话（会话自愈的最后一步，必须在 UI 线程执行，
-/// 否则会和 UiApply/UiPoll 抢 g_diag/g_vts 指针）。释放后由主循环重新 InitTap。
-static void UiDetachProc() {
-    bool ok = false;
-    if (g_tap) {
-        if (g_vts3) ok = SUCCEEDED(g_vts3->UnadviseVisualTreeChange(g_tap));
-        else if (g_vts2) ok = SUCCEEDED(g_vts2->UnadviseVisualTreeChange(g_tap));
-    }
-    InterlockedExchange(&g_advised, 0);
-    InterlockedExchange(&g_clearOnAdd, 1);
-    if (g_vts3) { g_vts3->Release(); g_vts3 = nullptr; }
-    if (g_vts2) { g_vts2->Release(); g_vts2 = nullptr; }
-    if (g_diag) { g_diag->Release(); g_diag = nullptr; }
-    if (g_tap) { g_tap->Release(); g_tap = nullptr; }
-    LogW(L"[Tap] 诊断会话已释放 ok=%d tid=%lu", (int)ok, GetCurrentThreadId());
-    if (g_uiDoneEvent) SetEvent(g_uiDoneEvent);
-}
-
 static void UiRestoreProc() {
     RestoreAll();
     if (g_uiDoneEvent) SetEvent(g_uiDoneEvent);
@@ -1072,7 +976,7 @@ static void UiRestoreProc() {
 
 /// UI 线程上要执行的动作。原来只有 apply/restore 两态，退位退订是第三态；
 /// 用 bool 已经表达不清，改枚举。poll 只读状态、发现变化才让主循环应用。
-enum UiOp { UiApply = 0, UiRestore = 1, UiUnadvise = 2, UiPoll = 3, UiDetach = 4 };
+enum UiOp { UiApply = 0, UiRestore = 1, UiUnadvise = 2, UiPoll = 3 };
 
 class DispatchedHandler final : public ABI::Windows::UI::Core::IDispatchedHandler {
 public:
@@ -1099,7 +1003,6 @@ public:
         switch (m_op) {
         case UiRestore:  UiRestoreProc();  break;
         case UiUnadvise: UiUnadviseProc(); break;
-        case UiDetach:   UiDetachProc();   break;
         case UiPoll:     UiPollProc();     break;
         case UiApply:
         default:         UiApplyProc();    break;
@@ -1139,26 +1042,9 @@ static HRESULT PostToUi(UiOp op) {
 
 // ---------------------------------------------------------------- 会话初始化
 
-static void MarkReady() {
-    g_readyTick = GetTickCount64();
-    g_lastTreeEventTick = g_readyTick;
-    g_nextReplayTick = 0;
-    g_replayFailStreak = 0;
-}
-
 static bool InitTap() {
-    // 会话已建立、只是订阅掉了：优先在同一个 TAP 对象上重新订阅。
-    // 反复 InitializeXamlDiagnosticsEx 会不断新建诊断会话，越修越乱。
-    if (!g_advised && g_tap && (g_vts3 || g_vts2)) {
-        HRESULT hr = g_vts3 ? g_vts3->AdviseVisualTreeChange(g_tap)
-                            : g_vts2->AdviseVisualTreeChange(g_tap);
-        LogW(L"[Init] 复用会话重新订阅 hr=0x%08X", (unsigned)hr);
-        if (FAILED(hr)) return false;
-        InterlockedExchange(&g_advised, 1);
-        InterlockedExchange(&g_clearOnAdd, 1);
-        MarkReady();
-        return true;
-    }
+    // 注意：这里运行在 worker 线程，**不能**调 AdviseVisualTreeChange
+    // （非 XAML UI 线程一律返回 E_UNEXPECTED）。订阅只在 SetSite（XAML 线程）里建立一次。
     HMODULE xaml = GetModuleHandleW(L"Windows.UI.Xaml.dll");
     if (!xaml) xaml = LoadLibraryW(L"Windows.UI.Xaml.dll");
     if (!xaml) { LogW(L"[Init] 无 Windows.UI.Xaml.dll"); return false; }
@@ -1191,7 +1077,6 @@ static bool InitTap() {
     if (g_advisedEvent) WaitForSingleObject(g_advisedEvent, 5000);
     if (!g_advised) { LogW(L"[Init] 未订阅成功"); return false; }
     LogW(L"[Init] 就绪 diag=%p vts3=%p", (void*)g_diag, (void*)g_vts3);
-    MarkReady();
     return true;
 }
 
@@ -1258,8 +1143,6 @@ static DWORD WINAPI Worker(LPVOID) {
             }
             g_activeMask = 0;
             g_ipc->status = SHADEBAR_STATUS_IDLE;
-            // 宿主下次连上来时重放一次：期间可能有窗口增删，旧树已经不准了。
-            InterlockedExchange(&g_needResync, 1);
             Sleep(200);
             continue;
         }
@@ -1280,20 +1163,6 @@ static DWORD WINAPI Worker(LPVOID) {
                 g_ipc->status = SHADEBAR_STATUS_FAILED;
                 Sleep(initAttempts >= 60 ? 10000 : 2000);
             }
-            continue;
-        }
-
-        // 订阅已救不回来（连续重放失败）：重建诊断会话。
-        // 冷启动时任务栏 XAML 尚未建完就注入，最初的订阅只拿到半棵树；
-        // 这里在 UI 线程释放旧会话，下一轮 InitTap 用新端点 / 新 TAP 对象重新订阅。
-        if (InterlockedExchange(&g_rebuildReq, 0)) {
-            LogW(L"[Session] 重建诊断会话（第 %d 次）", ++g_rebuildCount);
-            if (SUCCEEDED(PostToUi(UiDetach)) && g_uiDoneEvent) {
-                WaitForSingleObject(g_uiDoneEvent, 3000);
-            }
-            ready = false;
-            initAttempts = 0;
-            Sleep(1000);
             continue;
         }
 
@@ -1321,27 +1190,6 @@ static DWORD WINAPI Worker(LPVOID) {
 
             const bool urgent = InterlockedExchange(&g_urgent, 0) != 0;
             if (seq != g_applied || urgent || (g_dirty && nowTick - lastApplyTick >= 250)) {
-                // 树同步：①宿主重连后强制重放；②想要指示条却一条没命中（说明新窗口没进树）；
-                // ③每 5 s 兜底一次，保证"新开的窗口最迟 5 s 内被收进树"。
-                const bool wantInd = (g_ipc->reserved[0] & kMaskIndicator) != 0;
-                // 订阅后 10 s 内不重放：冷启动时任务栏还在构建，此时退订/订阅
-                // 会把刚建立的订阅打死，之后新窗口的指示条再也进不了树。
-                // 另外要求树静止 2 s，避免在 XAML 还在批量投递初始元素时动手。
-                const bool warmup = (nowTick - g_readyTick) < 10000ULL;
-                const bool treeQuiet = (nowTick - g_lastTreeEventTick) >= 2000ULL;
-                const bool needNow = !warmup && treeQuiet &&
-                    InterlockedCompareExchange(&g_needResync, 0, 1) == 1;
-                const bool indMissing = wantInd && g_lastIndCount == 0 &&
-                                        !warmup && treeQuiet &&
-                                        (nowTick - g_lastReplayTick) >= 2000;
-                // 新窗口不产生可用的 Add 事件（实测：打开设置窗口 0 条 Add），
-                // 只能靠定时重放兜住。但 5 s 一次重放约 4 ms，折合 0.08% CPU，
-                // 会把 NFR-03 的 0.1% 预算吃满。改为自适应：用户最近有输入（15 s 内）
-                // 才用 5 s 节奏，空闲时降到 30 s——没有输入，就不会有新窗口。
-                const ULONGLONG cadence = UserActiveRecently() ? 5000ULL : 30000ULL;
-                const bool periodic = !warmup && (nowTick - g_lastReplayTick) >= cadence;
-                if (needNow || indMissing || periodic) InterlockedExchange(&g_replayReq, 1);
-
                 if (SUCCEEDED(PostToUi(UiApply)) && g_uiDoneEvent) {
                     WaitForSingleObject(g_uiDoneEvent, 3000);
                 }
@@ -1378,7 +1226,6 @@ static DWORD WINAPI Worker(LPVOID) {
                 g_appliedIndColor = 0;
                 g_appliedIndSelectedColor = 0;
                 wasEnabled = false;
-                InterlockedExchange(&g_needResync, 1);
                 // 关键：把 seq 标记为"已处理"。
                 // RestoreAll 内部会把 g_applied 归零，而共享内存里的 seq 仍是最后一条，
                 // 下一轮主循环看到 seq != g_applied 就会立刻重新上色 ——

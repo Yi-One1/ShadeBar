@@ -4,6 +4,19 @@ All notable changes to 随影 ShadeBar are documented here. The version is a sin
 source of truth in `Cargo.toml` (`[workspace.package] version`), also used for the
 artifact filename, the About page and the exe VERSIONINFO (FR-16 / A-16).
 
+## [1.5.2] - 2026-11-26
+
+### Fixed
+
+- **冷启动后整条着色链路失效（时间 / 日期 / 托盘一起失效）**：v1.5.1 的自动重放
+  （`Unadvise + Advise`）在任务栏构建期返回 `E_UNEXPECTED(0x8000FFFF)`；此时唯一的
+  有效订阅已被拆掉，连时间/日期都不再着色。再尝试重建诊断会话，新的 `Advise`
+  同样返回 `E_UNEXPECTED`，且会反复重试。
+  v1.5.2 起**彻底移除自动重放**：只建立一次订阅，完全依赖 `Add/Remove` 增量事件。
+  实测保持订阅时，新打开的应用窗口**会正常送来 Add 事件**（打开计算器后指示条
+  立即从 4 条变为 5 条并着色），不需要也不应该重放。
+- 同时移除会话重建、启动预热与重放退避逻辑；`Add` 诊断日志预算 60 → 200。
+
 ## [1.5.1] - 2026-11-25
 
 ### Fixed

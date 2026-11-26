@@ -83,10 +83,9 @@ v1.0.0 把「时间 / 日期 / 悬停块 / 指示条」标为**永久移出**，
 4. 一切 XAML 调用**必须**经 `ICoreDispatcher::RunAsync` 回到 UI 线程；回调对象必须 `IAgileObject`。
 5. 属性索引**只能**从 `GetPropertyValuesChain` 取，不能用 `GetPropertyIndex`。
 6. 订阅失败（`AdviseVisualTreeChange != S_OK`）必须**立即收手**，不得继续访问树（v1 探针正是在此之后 AV 崩溃）。
-7. 退出时必须**写回缓存的原色**（不是 `ClearProperty`，见下方例外）。常规退出**不卸订阅**；
-   只有两种场景显式 `UnadviseVisualTreeChange`，且必须紧接着在**同一 XAML UI 线程**重新订阅：
-   ① 树同步重放（v1.3.1 起，为拿到新窗口的元素）；② 连续重放失败后的会话重建（v1.5.1）。
-   卸载后久不重订阅，等于让后续新元素永久进不了树。
+7. 退出时必须**写回缓存的原色**（不是 `ClearProperty`，见下方例外）。常规退出**不卸订阅**。
+   **订阅只建立一次，不做重放**：第二次 `AdviseVisualTreeChange` 会返回 `E_UNEXPECTED`
+   并破坏唯一有效的连接（v1.5.2 真机结论）；新元素由 `Add/Remove` 增量事件补齐。
 
 > ⚠ **例外（v1.1 实测踩到的生产事故）**：`RunningIndicator` 的 `Fill` **不能用 `ClearProperty` 还原**。
 > 该属性由视觉状态（VisualState）驱动，清空本地值后没有任何机制重新赋值，状态条会变成**全透明**，
@@ -133,7 +132,7 @@ C++ 载荷 (ShadeBarTap.dll, ~220 KB)
   ├─ TAP 席位 → SetSite(XAML 线程) → Advise → 按 Name 扫描元素
   ├─ CoreDispatcher 编组 → SetProperty(Foreground/Fill)
   ├─ 心跳看门狗：宿主消失 7 s → 还原 + 常驻待命
-  ├─ 树同步：按需重放（Unadvise + Advise），失败退避，连续失败重建会话
+  ├─ 元素更新：只订阅一次 + Add/Remove 增量事件（不重放）
   └─ 退出：还原原色，不卸订阅
 ```
 
@@ -307,32 +306,35 @@ SetProperty(brush, colorObj, idx=737)          → hr=0x0
 
 ---
 
-## 5.4 冷启动订阅失效（v1.5.1）
+## 5.4 冷启动整条链路失效（v1.5.2）
 
-**现象**：开机后任务栏背景已是深色，左侧图标下方的正常态指示条仍是系统默认的深色，
-只有重启 explorer 才恢复。时间、日期、托盘字形却正常。
+**现象**：开机后任务栏时间、日期、托盘、指示条全部不再着色；软件仍在运行，
+只有重启 explorer 才恢复。v1.5.1 曾把范围缩小到"只有指示条"，但真机再次复现时
+时间/日期也已失效。
 
 **日志证据**（故障会话）：
-`[Apply] seq=2810 mask=F time=1 date=1 tray=5 ind=0`，
-`[Replay] #1772 reason=apply hr=0x8000FFFF tree=8`，共 803 次重放全部失败。
+`[19:19:02] [Replay] #2 reason=apply hr=0x8000FFFF` →
+重建会话后 `[Tap] Advise hr=0x8000FFFF` → 此后每 10 s 一条
+`[Init] 复用会话重新订阅 hr=0x8000FFFF`，持续 700+ 次。
 
-**根因链**：
-1. 开机自启把载荷注入得比任务栏 XAML 构建更早，首次订阅只拿到 8 个元素
-   （时间 / 日期 / 托盘），`RunningIndicator` 还没进树；
-2. 首拍 `ind=0` 触发自动重放（`Unadvise + Advise`），此时树仍在构建，
-   `Advise` 返回 `E_UNEXPECTED(0x8000FFFF)`；
-3. 旧代码失败后没有恢复路径，订阅永久失效；之后开机才启动的应用，
-   其指示条也不会再以可用事件到达，只能重启 explorer。
+**根因**：`AdviseVisualTreeChange` 对一个 XAML 诊断连接只允许成功一次。
+第二次调用（无论先 `Unadvise`、还是换新的回调对象）都会返回 `E_UNEXPECTED`；
+如果重放时先退订，唯一有效的订阅就被拆掉，整条链路（含时间/日期）立即失效。
+之后再 `InitializeXamlDiagnosticsEx` 拿到的是同一条已失效的连接，`Advise` 永远失败。
+
+**决定性实测**：保持订阅、完全不重放时打开计算器，任务栏新增一条指示条，
+载荷**未收到显式 Add 日志但元素已进入树并即时着色**（ind 4 → 5），
+说明 XAML 会持续投递增量事件，重放既无必要也有害。
 
 **修复**（`payload/ShadeBarTap.cpp`）：
-- 订阅成功后 **10 s 预热**，且树事件静止 **2 s** 才允许自动重放；
-- 重放失败按 **2/5/10/30 s** 退避，失败时撤销 `clearOnAdd` 与 `advised` 标记；
-- 连续失败 **3 次**时请求主循环在 UI 线程释放整套诊断会话（`UiDetach`）并重新
-  `Initialize`，得到新端点 + 新 TAP 对象（会话自愈）；
-- `LogW` 增加 `[HH:MM:SS.mmm]` 时间戳，便于与宿主日志对齐。
+- 删除 `ReplayTree` 与全部触发点（宿主重连、指示条缺失、定时兜底）；
+- 删除会话重建、启动预热、重放退避；
+- 只保留一次订阅 + `Add/Remove` 增量事件；
+- `Add` 诊断日志预算 60 → 200，便于观察新窗口元素。
 
-**回归**：`tools/check_payload_sync.py` 新增 C7（相邻重放 ≥ 1.5 s）、C8（首次自动重放
-距会话启动 ≥ 8 s）；explorer 重启真机验证 15/15 拍 `ind=4`，C1–C8 全 PASS。
+**回归**：`tools/check_payload_sync.py` C7 改为「不发起自动重放」（出现 `[Replay]`
+即判失败）；C2 改看 `[Tap] Advise hr=0`。真机 explorer 重启后 C1–C7 全 PASS、
+新开计算器指示条正常着色。
 
 ---
 
