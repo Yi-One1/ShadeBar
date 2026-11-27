@@ -85,8 +85,10 @@ v1.0.0 把「时间 / 日期 / 悬停块 / 指示条」标为**永久移出**，
 5. 属性索引**只能**从 `GetPropertyValuesChain` 取，不能用 `GetPropertyIndex`。
 6. 订阅失败（`AdviseVisualTreeChange != S_OK`）必须**立即收手**，不得继续访问树（v1 探针正是在此之后 AV 崩溃）。
 7. 退出时必须**写回缓存的原色**（不是 `ClearProperty`，见下方例外）。常规退出**不卸订阅**。
-   **订阅只建立一次，不做重放**：第二次 `AdviseVisualTreeChange` 会返回 `E_UNEXPECTED`
-   并破坏唯一有效的连接（v1.5.2 真机结论）；新元素由 `Add/Remove` 增量事件补齐。
+   **同一条连接只订阅一次，不做重放**：同一连接第二次 `AdviseVisualTreeChange` 会返回
+   `E_UNEXPECTED` 并破坏该连接（v1.5.2 真机结论）；新元素由 `Add/Remove` 增量事件补齐。
+   例外是 v1.5.5 的**新连接重连**：冷开机后事件流被后连接者独占时，用新线程重新
+   `InitializeXamlDiagnosticsEx`（全新连接）夺回，**不是**重订旧连接（见 §5.7）。
 
 > ⚠ **例外（v1.1 实测踩到的生产事故）**：`RunningIndicator` 的 `Fill` **不能用 `ClearProperty` 还原**。
 > 该属性由视觉状态（VisualState）驱动，清空本地值后没有任何机制重新赋值，状态条会变成**全透明**，
@@ -133,7 +135,7 @@ C++ 载荷 (ShadeBarTap.dll, ~220 KB)
   ├─ TAP 席位 → SetSite(XAML 线程) → Advise → 按 Name 扫描元素
   ├─ CoreDispatcher 编组 → SetProperty(Foreground/Fill)
   ├─ 心跳看门狗：宿主消失 7 s → 还原 + 常驻待命
-  ├─ 元素更新：只订阅一次 + Add/Remove 增量事件（不重放）
+  ├─ 元素更新：同连接只订阅一次 + Add/Remove 增量；冷开机用新连接重连夺回（v1.5.5）
   └─ 退出：还原原色，不卸订阅
 ```
 
@@ -367,6 +369,34 @@ SetProperty(brush, colorObj, idx=737)          → hr=0x0
 
 **回归**：`tools/check_payload_sync.py` 新增 C8——箭头进树后必须能解析出
 `Foreground`（日志 `[Tray+] chevron Foreground ok idx=876`），否则判失败。
+
+### 5.7 冷开机后新开程序指示条灰色（v1.5.5，第 1 组）
+
+**现象**：冷开机后新开的程序（浏览器 / 记事本 / WB）任务栏图标下的指示条保持灰色，
+开机时已在的程序（QQ）正常。重启 explorer 或重启随影后恢复。
+
+**根因**：Windows XAML 诊断在**单进程内只有一个实时消费者**——后连接者接管
+`Add/Remove` 增量事件流，先连接者只保留连接瞬间的全量快照（写颜色仍成功，但收不到
+后续事件）。冷开机时序：随影载荷先连（17:56:01）、TranslucentTB 的 `ExplorerTAP.dll`
+后连（17:56:03），于是所有新窗口的 Add 都归 TTB，随影的树停在开机快照。
+
+**关键约束（实测）**：
+- 同一连接 `Unadvise` 后再 `Advise` 必 `E_UNEXPECTED` → 只能开**新连接**；
+- 每次 `InitializeXamlDiagnosticsEx` 尝试必须在**新线程**，失败过的线程复用无效；
+- 连接名 `VisualDiagConnection1..60`，每次 InitTap 从 1 号重扫（失败不要推进槽位）；
+- 全量快照在 `Advise` 内**同步投递**，`g_clearOnAdd` 必须先置位、失败回滚，
+  否则快照填满树后会被下一个无关 Add 误清（实测树 n=10 → n=1）。
+
+**修复（第 1 组）**：哨兵 `%LOCALAPPDATA%\ShadeBar\reconnect.req` 触发一次新连接
+（新线程 + 新连接名），`SetSite` 检测到新 site 后切换服务并重新 `Advise`，
+旧连接保持订阅不动；重建快照时丢弃全部失效句柄。第 2 组将改为自动触发。
+
+**实测证据**：TTB 后连接 → 开记事本 0 个 `Add` → 哨兵 →
+`[Tap] SetSite #2` / `Advise hr=0x00000000` / `[Tree] n=18 time=1 date=1 tray=6 ind=10`
+→ 再开记事本 `[Add] RunningIndicator`，ind 10 → 11 且着色。
+
+**回归**：`tools/check_reconnect_logic.py` R1–R9（含反向自测）；
+`check_payload_sync.py` C9（重连后必须快照重建并重新着色）。
 
 ---
 
