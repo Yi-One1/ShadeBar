@@ -1155,6 +1155,20 @@ static bool InitTap() {
     return true;
 }
 
+// ---------------------------------------------------------------- 陈旧 shutdown 判定
+
+// 纯函数：判定"陈旧 shutdown"——enabled!=0 且 shutdown!=0 时返回 true（应忽略）。
+//
+// 不变量（见 ShadeBarIpc.h）：任何写 shutdown=1 的一方必须先写 enabled=0。
+// 因此 enabled=1 + shutdown=1 只可能是旧 recolor 线程的陈旧值/竞态残留，
+// 不可能是宿主正常退出（正常退出必 enabled=0）。心跳不参与判定。
+//
+// 真值表由 tools/check_shutdown_logic.py --self-test 覆盖（6 组合）。
+// 判定保持纯函数，便于 Python 侧按同一逻辑做发热验证，防止注释与实现漂移。
+static bool IsStaleShutdown(int enabled, int shutdown) {
+    return enabled != 0 && shutdown != 0;
+}
+
 // ---------------------------------------------------------------- 工作线程
 
 static DWORD WINAPI Worker(LPVOID) {
@@ -1213,13 +1227,12 @@ static DWORD WINAPI Worker(LPVOID) {
             // 旧 recolor 线程退出写 shutdown=1，但新宿主已接管、enabled=1 且
             // 心跳持续在涨 —— 此时若照单全收，载荷永久待命，新增元素全不染色
             // （冷开机后新开程序指示条灰色、重启 explorer 才恢复，2026-11-27 现场）。
-            // 判据：enabled=1 且心跳仍在变化 = 宿主其实活着 = shutdown 是陈旧值。
-            const LONG nowBeat = g_ipc->heartbeat;
-            // 只看 enabled：宿主 shutdown() 必然同时置 enabled=0，
+            // 判据只看 enabled：宿主 shutdown() 必然先把 enabled 置 0 再置 shutdown=1，
             // 所以 enabled=1 + shutdown=1 只能是陈旧值 / 竞态残留，不可能是正常退出。
-            // （不依赖 staleLoops：它在待命分支不更新，会误判。）
-            const bool hostAlive = (g_ipc->enabled != 0);
-            if (hostAlive) {
+            // 心跳仅用于下面日志读数，不参与判定（不依赖 staleLoops：待命分支不更新，会误判）。
+            // 判定抽成纯函数 IsStaleShutdown，真值表由 tools/check_shutdown_logic.py 覆盖。
+            const LONG nowBeat = g_ipc->heartbeat;
+            if (IsStaleShutdown((int)g_ipc->enabled, (int)g_ipc->shutdown)) {
                 // 陈旧 shutdown：不仅忽略，还要主动清掉，避免每拍都进来判一次。
                 InterlockedExchange((volatile LONG*)&g_ipc->shutdown, 0);
                 LogW(L"[Loop] 忽略陈旧 shutdown（enabled=1 heartbeat=%ld），继续着色", nowBeat);

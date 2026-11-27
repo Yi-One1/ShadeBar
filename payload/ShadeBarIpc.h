@@ -22,6 +22,12 @@ struct ShadeBarIpc {
     unsigned int version;            /* 4  */
     volatile LONG seq;               /* 8    宿主每次下发 +1 */
     volatile LONG enabled;           /* 12   1=应用配色 0=还原 */
+    /* shutdown: 1=还原并退出载荷（偏移 16）。
+     * 不变量：任何写 shutdown=1 的一方必须先写 enabled=0（宿主 Ipc::shutdown()
+     * 已按此顺序：enabled=0 → seq+1 → shutdown=1）。载荷据此区分正常退出与陈旧值：
+     * 因正常退出必 enabled=0，故 enabled=1 && shutdown=1 只能是旧线程的陈旧值/竞态残留，
+     * 载荷忽略之并清 shutdown=0（见 ShadeBarTap.cpp::IsStaleShutdown）。
+     * 破坏此顺序会导致新宿主已接管、enabled=1 时旧 shutdown=1 使载荷永久待命、颜色不更新。 */
     volatile LONG shutdown;          /* 16   1=还原并退出载荷 */
     volatile LONG heartbeat;         /* 20   载荷每轮 +1（存活心跳） */
     volatile LONG status;            /* 24   载荷回报状态 */

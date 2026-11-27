@@ -500,6 +500,10 @@ impl Ipc {
     }
 
     /// 要求载荷还原并退出。
+    ///
+    /// 不变量（见 `payload/ShadeBarIpc.h`）：写 `shutdown=1` 前必须先写 `enabled=0`。
+    /// 载荷据此把 `enabled=1 && shutdown=1` 判为陈旧值并忽略；若顺序颠倒，
+    /// 新宿主接管后旧 shutdown 会让载荷永久待命、颜色不更新（v1.5.5 事故）。
     pub fn shutdown(&mut self) {
         // SAFETY: 同上。
         unsafe {
@@ -509,6 +513,7 @@ impl Ipc {
                 std::thread::current().name().unwrap_or("unnamed"),
                 (*p).seq, (*p).heartbeat, (*p).enabled
             ));
+            // 顺序不可交换：先 enabled=0，最后才 shutdown=1。
             (*p).enabled = 0;
             (*p).seq = (*p).seq.wrapping_add(1);
             (*p).shutdown = 1;

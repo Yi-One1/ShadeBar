@@ -687,14 +687,18 @@ pub const fn argb_to_rgba(v: i64) -> Rgba {
 }
 
 /// 极简日志：配置加载/损坏/落盘失败都留痕，不含任何用户隐私内容。
+///
+/// 每行统一前缀 `[pid=<进程号> <HH:MM:SS.mmm>]`：冷开机会话里测试进程与真实宿主
+/// 会写同一份日志，没有 PID 就无法判断 `ipc shutdown` 是谁写的（QA P1-3）。
 pub fn note(line: &str) {
     let dir = Config::data_dir();
     if std::fs::create_dir_all(&dir).is_err() {
         return;
     }
     let path = dir.join("shadebar.log");
-    let mut text = String::with_capacity(line.len() + 24);
-    text.push_str("config: ");
+    let mut text = String::with_capacity(line.len() + 48);
+    text.push_str(&local_stamp());
+    text.push_str(" config: ");
     text.push_str(line);
     text.push('\n');
     let _ = std::fs::OpenOptions::new()
@@ -705,6 +709,26 @@ pub fn note(line: &str) {
             use std::io::Write;
             f.write_all(text.as_bytes())
         });
+}
+
+/// 生成 `[pid=<id> <HH:MM:SS.mmm>]` 前缀。
+///
+/// 复用项目已启用的 `GetLocalTime`（与载荷 `LogW` 同款本地时间分量），日志可按
+/// 时间把宿主与载荷对齐；`SystemTime` 是 UTC，直接换算需额外时区偏移，故不采用。
+/// 纯读系统时间 + 进程号，测试构建调用无副作用。
+fn local_stamp() -> String {
+    use windows::Win32::Foundation::SYSTEMTIME;
+    use windows::Win32::System::SystemInformation::GetLocalTime;
+    // SAFETY: GetLocalTime 无前置条件，只读系统时间。
+    let st: SYSTEMTIME = unsafe { GetLocalTime() };
+    format!(
+        "[pid={} {:02}:{:02}:{:02}.{:03}]",
+        std::process::id(),
+        st.wHour,
+        st.wMinute,
+        st.wSecond,
+        st.wMilliseconds
+    )
 }
 
 fn push_u64(out: &mut String, mut v: u64) {
@@ -752,6 +776,29 @@ fn push_u128(out: &mut String, mut v: u128) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn local_stamp_has_pid_and_local_hms_ms_prefix() {
+        let stamp = local_stamp();
+        // 形如 "[pid=12345 09:07:05.042]"：PID 必须是本进程，时间三段+毫秒各就位。
+        let body = stamp
+            .strip_prefix("[pid=")
+            .and_then(|s| s.strip_suffix(']'))
+            .expect("必须是 [pid=... ...] 形式");
+        let (pid, hms) = body.split_once(' ').expect("PID 与时间之间必须有空格");
+        assert_eq!(pid, std::process::id().to_string(), "PID 必须是当前进程");
+        let parts: Vec<&str> = hms.split('.').collect();
+        assert_eq!(parts.len(), 2, "必须有 HH:MM:SS.mmm 的毫秒部分");
+        let (hms_part, ms) = (parts[0], parts[1]);
+        assert_eq!(ms.len(), 3, "毫秒必须三位");
+        assert!(ms.chars().all(|c| c.is_ascii_digit()));
+        let hms_nums: Vec<&str> = hms_part.split(':').collect();
+        assert_eq!(hms_nums.len(), 3, "必须有 HH:MM:SS 三段");
+        for n in &hms_nums {
+            assert_eq!(n.len(), 2, "时分秒必须两位补零");
+            assert!(n.chars().all(|c| c.is_ascii_digit()));
+        }
+    }
 
     #[test]
     fn exactly_35_settings_with_unique_indices() {
