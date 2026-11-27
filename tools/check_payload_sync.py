@@ -89,6 +89,7 @@ def main() -> int:
     # 共享画刷检查：每个 [Apply] 之前的 [Ind] 块里，正常态应当只有一个画刷句柄
     block_brushes: set[str] = set()
     last_block: dict | None = None
+    normal_seen = False   # 本会话是否出现过正常态指示条（全是选中态时 C5 无法校验）
     chevron_seen = 0
     chevron_fg_ok = 0
     chevron_fg_missing = 0
@@ -115,6 +116,9 @@ def main() -> int:
                 applies_after_reconnect = []
                 rebuild_after_reconnect = False
                 pending_rebuild = False
+                block_brushes = set()
+                last_block = None
+                normal_seen = False
                 continue
             m = APPLY_RE.search(line)
             if m:
@@ -124,7 +128,7 @@ def main() -> int:
                 apply_seq.append((apply_seq[-1][0] + 1 if apply_seq else 1, d["ind"]))
                 if reconnect_n:
                     applies_after_reconnect.append(d)
-                if d["ind"] > 0:
+                if d["ind"] > 0 and block_brushes:
                     last_block = {"seq": d["seq"], "ind": d["ind"], "brushes": set(block_brushes)}
                 block_brushes = set()
                 continue
@@ -132,6 +136,7 @@ def main() -> int:
             if m:
                 if m.group("state") == "正常" and m.group("b") != "0":
                     block_brushes.add(m.group("b"))
+                    normal_seen = True
                 continue
             m = REPLAY_RE.search(line)
             if m:
@@ -214,7 +219,11 @@ def main() -> int:
 
     # C5：所有正常态指示条必须指向同一个画刷对象（方案 B 的结构性证据）
     if last_block is None:
-        results.append(("C5 指示条共用画刷", False, "没有 ind>0 的 Apply 记录"))
+        # 只有一个前台窗口时，指示条可能全是"选中态"，没有正常态可供校验；
+        # 这不是回归，不能误报失败。若日志里出现过正常态却找不到对应 Apply，才算失败。
+        results.append(("C5 指示条共用画刷", not normal_seen,
+                        "本会话未出现正常态指示条（仅选中态），跳过校验"
+                        if not normal_seen else "有正常态日志但未找到对应 Apply"))
     else:
         nb = last_block["brushes"]
         results.append(("C5 指示条共用画刷", len(nb) == 1,
