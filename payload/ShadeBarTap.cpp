@@ -85,6 +85,8 @@ static void LogW(const wchar_t* fmt, ...) {
 static HMODULE g_self = nullptr;
 static IXamlDiagnostics*   g_diag = nullptr;
 static IVisualTreeService3* g_vts3 = nullptr;
+// 探针线程亲和取证：记录 SetSite 建立订阅的线程，探针里与当前线程对比（只记录，不改调用线程）。
+static DWORD g_setSiteTid = 0;
 static IVisualTreeService2* g_vts2 = nullptr;
 
 static HANDLE g_advisedEvent = nullptr;
@@ -227,7 +229,8 @@ public:
 
     HRESULT STDMETHODCALLTYPE SetSite(IUnknown* site) override {
         if (!site) return S_OK;
-        LogW(L"[Tap] SetSite tid=%lu", GetCurrentThreadId());
+        g_setSiteTid = GetCurrentThreadId();
+        LogW(L"[Tap] SetSite tid=%lu", g_setSiteTid);
 
         IXamlDiagnostics* d = nullptr;
         if (SUCCEEDED(site->QueryInterface(__uuidof(IXamlDiagnostics), (void**)&d))) g_diag = d;
@@ -1102,12 +1105,24 @@ static void ProbeUiaCount(HWND tray) {
 static void UiProbeProc() {
     // 与 UiPollProc 一样不 SetEvent：主循环不等探针结束，避免打乱 apply 同步。
     const HWND tray = FindWindowW(L"Shell_TrayWnd", nullptr);
-    LogW(L"[Probe] ==== BEGIN tid=%lu hwnd=0x%p ====", GetCurrentThreadId(), (void*)tray);
+    const DWORD probeTid = GetCurrentThreadId();
+    LogW(L"[Probe] ==== BEGIN tid=%lu hwnd=0x%p ====", probeTid, (void*)tray);
     if (!g_diag) {
         LogW(L"[Probe] P1 hr=0x80004005 count=0 (no diagnostics)");
         LogW(L"[Probe] ==== END ====");
         return;
     }
+
+    // A. 环境与前提诊断。GetUiLayer 返回视觉诊断根 IInspectable**，不是矩形，勿当坐标用。
+    const UINT dpiSys = GetDpiForSystem();
+    const UINT dpiTray = tray ? GetDpiForWindow(tray) : 0;
+    LogW(L"[Probe] ENV tid=%lu dpiSys=%u dpiTray=%u", probeTid, dpiSys, dpiTray);
+    LogW(L"[Probe] AFFINITY setSiteTid=%lu probeTid=%lu", (unsigned long)g_setSiteTid,
+         (unsigned long)probeTid);
+    IInspectable* layer = nullptr;
+    const HRESULT hrLayer = g_diag->GetUiLayer(&layer);
+    LogW(L"[Probe] GetUiLayer hr=0x%08X ptr=%p", (unsigned)hrLayer, (void*)layer);
+    if (layer) layer->Release();
 
     RECT wr{};
     if (!tray || !GetWindowRect(tray, &wr)) wr = { 0, 0, 0, 0 };
@@ -1124,19 +1139,42 @@ static void UiProbeProc() {
         icons.top += 2;
         icons.bottom -= 2;
     }
-    const RECT rects[3] = { wr, cr, icons };
-    const wchar_t* labels[3] = { L"window", L"client", L"icons" };
+    // B. 七种候选坐标系。C0-C2 屏幕物理（原 3 条），C3 原点小矩形判"整块越界"，
+    //    C4 任务栏根局部，C5 窗口 DIP，C6 全屏 DIP。任一 C3-C6 S_OK 即坐标系问题。
+    UINT dpi = dpiTray ? dpiTray : dpiSys;
+    if (!dpi) dpi = 96;
+    const float scale = dpi / 96.0f;
+    auto toDip = [scale](const RECT& r) -> RECT {
+        return { (LONG)(r.left / scale), (LONG)(r.top / scale),
+                 (LONG)(r.right / scale), (LONG)(r.bottom / scale) };
+    };
+    const RECT rects[7] = {
+        wr,                                                               // C0 window     屏幕物理
+        cr,                                                               // C1 client     屏幕物理
+        icons,                                                            // C2 icons      屏幕物理
+        { 0, 0, 100, 100 },                                               // C3 origin     原点小矩形
+        { 0, 0, wr.right - wr.left, wr.bottom - wr.top },                 // C4 local      任务栏根局部
+        toDip(wr),                                                        // C5 dip-window C0 的 DIP 版
+        { 0, 0, (LONG)GetSystemMetrics(SM_CXSCREEN) * 96 / (LONG)dpi,     // C6 dip-screen 全屏 DIP
+               (LONG)GetSystemMetrics(SM_CYSCREEN) * 96 / (LONG)dpi },
+    };
+    const wchar_t* labels[7] = {
+        L"window", L"client", L"icons", L"origin", L"local", L"dip-window", L"dip-screen"
+    };
 
     // 同一个指示条会被多块矩形命中；用句柄去重，SUMMARY 才等于真实指示条数。
     std::map<InstanceHandle, bool> seenInd;
-    for (int ri = 0; ri < 3; ++ri) {
+    bool allInvalidArg = true;
+    for (int ri = 0; ri < 7; ++ri) {
         unsigned int count = 0;
         InstanceHandle* handles = nullptr;
         const HRESULT hr = g_diag->HitTest(rects[ri], &count, &handles);
+        if (hr != E_INVALIDARG) allInvalidArg = false;
         const RECT& r = rects[ri];
-        LogW(L"[Probe] P1 rect=%d hr=0x%08X count=%u", ri, (unsigned)hr, count);
-        LogW(L"[Probe] P2 rect=%d label=%s RECT=(%ld,%ld,%ld,%ld) count=%u",
-             ri, labels[ri], r.left, r.top, r.right, r.bottom, count);
+        LogW(L"[Probe] P1 rect=%d hr=0x%08X count=%u handles=%p",
+             ri, (unsigned)hr, count, (void*)handles);
+        LogW(L"[Probe] P2 rect=%d label=%s RECT=(%ld,%ld,%ld,%ld) count=%u handles=%p",
+             ri, labels[ri], r.left, r.top, r.right, r.bottom, count, (void*)handles);
         if (FAILED(hr) || !handles) continue;
 
         unsigned int readOk = 0, hitLogged = 0;
@@ -1159,6 +1197,21 @@ static void UiProbeProc() {
         LogW(L"[Probe] P3 rect=%d scanned=%u readOk=%u hitLogged=%u", ri, count, readOk, hitLogged);
         CoTaskMemFree(handles);
     }
+
+    // C. 七种坐标全 E_INVALIDARG：判别实现是否把 count 当输入容量（传 0 被拒）。
+    //    若 BUF S_OK，正式代码预分配缓冲区即可绕开，无需改坐标。
+    if (allInvalidArg) {
+        const unsigned CAP = 512;
+        InstanceHandle* orig = (InstanceHandle*)CoTaskMemAlloc(CAP * sizeof(InstanceHandle));
+        unsigned n = CAP;
+        InstanceHandle* p = orig;
+        const HRESULT hrB = g_diag->HitTest(rects[0], &n, &p);
+        LogW(L"[Probe] BUF hr=0x%08X count=%u p=%p orig=%p",
+             (unsigned)hrB, n, (void*)p, (void*)orig);
+        if (p && p != orig) CoTaskMemFree(p);   // 被调用方替换过
+        CoTaskMemFree(orig);
+    }
+
     LogW(L"[Probe] SUMMARY indCount=%zu", seenInd.size());
     if (tray) ProbeUiaCount(tray);
     else LogW(L"[Probe] UIA hr=0x80004005 count=-1");

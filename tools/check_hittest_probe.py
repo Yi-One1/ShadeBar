@@ -1,13 +1,18 @@
 #!/usr/bin/env python3
-"""HitTest 只读探针判定（冷开机 P1-P4 取证）。
+"""HitTest 只读探针判定（冷开机 P1-P4 取证 + 坐标/缓冲区契约诊断）。
 
 载荷侧 UiProbeProc 每次触发会写一组 `[Probe]` 日志；本脚本按 BEGIN/END 切成轮次，
 逐轮判定四项，再给出整体验证结论：
 
   P1  存在性：HitTest hr=S_OK(0) 且 count>0
-  P2  坐标系：三种 RECT 中至少一种命中数>0
+  P2  坐标系：七种 RECT 中至少一种命中数>0
   P3  可用性：当场读到 name=RunningIndicator 的句柄
   P4  有效性：第 2 轮（开新窗口后）indCount 比第 1 轮增加
+
+新增诊断（只定位根因，不参与 P1-P4 verdict）：
+  ENV / AFFINITY / GetUiLayer  DPI、SetSite 与探针线程、视觉诊断根是否可用
+  S_OK 坐标                    C0-C6 哪种坐标返回 S_OK；C3-C6 任一成功即坐标系问题
+  BUF                          七坐标全 E_INVALIDARG 时，预分配 count 容量能否成功
 
 结论分支：
   READY_TO_IMPLEMENT  四项全中，可把主动重扫并入 PollIndicatorState
@@ -31,14 +36,34 @@ ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), 
 BEGIN_RE = re.compile(r"\[Probe\] ==== BEGIN tid=\d+ hwnd=0x[0-9A-Fa-f]+ ====")
 END_RE = re.compile(r"\[Probe\] ==== END ====")
 TRIGGER_RE = re.compile(r"\[Probe\] TRIGGER posted hr=0x([0-9A-Fa-f]+)")
-P1_RE = re.compile(r"\[Probe\] P1 rect=(\d+) hr=0x([0-9A-Fa-f]+) count=(\d+)")
+# handles=%p 是新增字段，做成可选组，兼容旧日志。
+P1_RE = re.compile(
+    r"\[Probe\] P1 rect=(\d+) hr=0x([0-9A-Fa-f]+) count=(\d+)"
+    r"(?: handles=([0-9A-Fa-f]+))?"
+)
 P2_RE = re.compile(
     r"\[Probe\] P2 rect=(\d+) label=(\S+) RECT=\((-?\d+),(-?\d+),(-?\d+),(-?\d+)\) count=(\d+)"
+    r"(?: handles=([0-9A-Fa-f]+))?"
 )
 P3_RE = re.compile(r"\[Probe\] P3 rect=(\d+) scanned=(\d+) readOk=(\d+) hitLogged=(\d+)")
 HIT_RE = re.compile(r"\[Probe\] HIT h=0x([0-9A-Fa-f]+) name=(\S+) type=(\S+)")
 SUMMARY_RE = re.compile(r"\[Probe\] SUMMARY indCount=(\d+)")
 UIA_RE = re.compile(r"\[Probe\] UIA hr=0x([0-9A-Fa-f]+) count=(-?\d+)")
+ENV_RE = re.compile(r"\[Probe\] ENV tid=(\d+) dpiSys=(\d+) dpiTray=(\d+)")
+AFFINITY_RE = re.compile(r"\[Probe\] AFFINITY setSiteTid=(\d+) probeTid=(\d+)")
+LAYER_RE = re.compile(r"\[Probe\] GetUiLayer hr=0x([0-9A-Fa-f]+) ptr=([0-9A-Fa-f]+)")
+BUF_RE = re.compile(
+    r"\[Probe\] BUF hr=0x([0-9A-Fa-f]+) count=(\d+) p=([0-9A-Fa-f]+) orig=([0-9A-Fa-f]+)"
+)
+
+# 新增的四种候选坐标（C0-C2 是原有 window/client/icons）。
+COORD_NAME = {
+    3: "原点小矩形",
+    4: "任务栏根局部",
+    5: "窗口 DIP",
+    6: "全屏 DIP",
+}
+E_INVALIDARG = 0x80070057
 
 
 def default_log() -> str:
@@ -49,7 +74,10 @@ def default_log() -> str:
 
 
 def new_round() -> dict:
-    return {"p1": [], "p2": [], "p3": [], "hits": [], "summary": [], "uia": [], "trigger": []}
+    return {
+        "p1": [], "p2": [], "p3": [], "hits": [], "summary": [], "uia": [], "trigger": [],
+        "env": [], "affinity": [], "layer": [], "buf": [],
+    }
 
 
 def parse_rounds(lines: list[str]) -> list[dict]:
@@ -76,7 +104,7 @@ def parse_rounds(lines: list[str]) -> list[dict]:
             continue
         m = P1_RE.search(line)
         if m:
-            cur["p1"].append((int(m.group(1)), int(m.group(2), 16), int(m.group(3))))
+            cur["p1"].append((int(m.group(1)), int(m.group(2), 16), int(m.group(3)), m.group(4)))
             continue
         m = P2_RE.search(line)
         if m:
@@ -97,6 +125,22 @@ def parse_rounds(lines: list[str]) -> list[dict]:
         m = UIA_RE.search(line)
         if m:
             cur["uia"].append((int(m.group(1), 16), int(m.group(2))))
+            continue
+        m = ENV_RE.search(line)
+        if m:
+            cur["env"].append((int(m.group(1)), int(m.group(2)), int(m.group(3))))
+            continue
+        m = AFFINITY_RE.search(line)
+        if m:
+            cur["affinity"].append((int(m.group(1)), int(m.group(2))))
+            continue
+        m = LAYER_RE.search(line)
+        if m:
+            cur["layer"].append((int(m.group(1), 16), m.group(2)))
+            continue
+        m = BUF_RE.search(line)
+        if m:
+            cur["buf"].append((int(m.group(1), 16), int(m.group(2)), m.group(3), m.group(4)))
     return rounds
 
 
@@ -150,6 +194,44 @@ def judge(rounds: list[dict]) -> tuple[str, list[str]]:
     return verdict, notes
 
 
+def diagnose(rounds: list[dict]) -> list[str]:
+    """新增分支判定：哪个坐标系/缓冲区契约让 HitTest 返回 S_OK。不改变 verdict。"""
+    out: list[str] = []
+    for idx, r in enumerate(rounds, 1):
+        labels = {p[0]: p[1] for p in r["p2"]}
+        sok = sorted({x[0] for x in r["p1"] if x[1] == 0 and x[2] > 0})
+        if sok:
+            names = []
+            for c in sok:
+                lab = labels.get(c, "?")
+                suffix = f" [{COORD_NAME[c]}]" if c in COORD_NAME else ""
+                names.append(f"C{c} {lab}{suffix}")
+            out.append(f"ROUND {idx}: S_OK 坐标 = {', '.join(names)}")
+        else:
+            buf = r["buf"][-1] if r["buf"] else None
+            if buf and buf[0] == 0:
+                out.append(
+                    f"ROUND {idx}: 七坐标全失败但 BUF S_OK "
+                    f"(count={buf[1]} p={buf[2]} orig={buf[3]}) → count 被当输入容量，预分配可绕开"
+                )
+            elif buf:
+                code = "仍 E_INVALIDARG" if buf[0] == E_INVALIDARG else f"hr=0x{buf[0]:08X}"
+                out.append(f"ROUND {idx}: 七坐标全失败，BUF {code} → 非容量问题，查线程亲和与 Advise 前提")
+            else:
+                out.append(f"ROUND {idx}: 七坐标均未 S_OK 且无 BUF → 查线程亲和与 Advise 前提")
+        env = r["env"][-1] if r["env"] else None
+        if env:
+            out.append(f"         ENV dpiSys={env[1]} dpiTray={env[2]}")
+        aff = r["affinity"][-1] if r["affinity"] else None
+        if aff:
+            same = "SAME" if aff[0] == aff[1] else "DIFF"
+            out.append(f"         AFFINITY setSiteTid={aff[0]} probeTid={aff[1]} {same}")
+        layer = r["layer"][-1] if r["layer"] else None
+        if layer:
+            out.append(f"         GetUiLayer hr=0x{layer[0]:08X} ptr={layer[1]}")
+    return out
+
+
 def verify_source_contract() -> tuple[bool, str]:
     """核对 C/Rust 两侧的探针契约未漂移（只检查，不修改）。"""
     try:
@@ -176,6 +258,12 @@ def verify_source_contract() -> tuple[bool, str]:
         ("Rust reserved 下标为 2", "PROBE_TRIGGER_INDEX: usize = 2" in rs),
         ("Rust 有 request_probe", "pub fn request_probe" in rs),
         ("Rust 哨兵文件名一致", 'PROBE_TRIGGER_FILE: &str = "probe.trigger"' in rs),
+        # 新增探针迭代的契约：7 坐标 + 环境诊断 + 缓冲区判别 + 线程亲和。
+        ("C++ 枚举 7 种坐标", "const RECT rects[7]" in cpp),
+        ("C++ ENV 诊断", "[Probe] ENV tid=" in cpp),
+        ("C++ GetUiLayer 前提诊断", "g_diag->GetUiLayer(&layer)" in cpp),
+        ("C++ BUF 容量判别", "[Probe] BUF hr=" in cpp),
+        ("C++ 记录 SetSite 线程", "g_setSiteTid = GetCurrentThreadId();" in cpp),
     ]
     bad = [name for name, ok in checks if not ok]
     if bad:
@@ -235,21 +323,73 @@ FIXTURE_FAILED = """\
 [16:54:48.112] [Probe] ==== END ====
 """
 
+# 新增：C0-C4/C6 全 E_INVALIDARG，只有 C5 dip-window（窗口物理 RECT 除以 DPI）成功。
+# 150% DPI：物理 2560x1440 -> DIP 1280x720，任务栏 y=1392 -> 696。
+FIXTURE_DIP = """\
+[17:30:00.100] [Probe] TRIGGER posted hr=0x00000000
+[17:30:00.101] [Probe] ==== BEGIN tid=8748 hwnd=0x0000000000010150 ====
+[17:30:00.101] [Probe] ENV tid=8748 dpiSys=192 dpiTray=192
+[17:30:00.101] [Probe] AFFINITY setSiteTid=8748 probeTid=8748
+[17:30:00.102] [Probe] GetUiLayer hr=0x00000000 ptr=0000021455A12C30
+[17:30:00.102] [Probe] P1 rect=0 hr=0x80070057 count=0 handles=0000000000000000
+[17:30:00.102] [Probe] P2 rect=0 label=window RECT=(0,1392,2560,1440) count=0 handles=0000000000000000
+[17:30:00.102] [Probe] P1 rect=1 hr=0x80070057 count=0 handles=0000000000000000
+[17:30:00.102] [Probe] P2 rect=1 label=client RECT=(0,1392,2560,1440) count=0 handles=0000000000000000
+[17:30:00.102] [Probe] P1 rect=2 hr=0x80070057 count=0 handles=0000000000000000
+[17:30:00.102] [Probe] P2 rect=2 label=icons RECT=(0,1394,1280,1438) count=0 handles=0000000000000000
+[17:30:00.103] [Probe] P1 rect=3 hr=0x80070057 count=0 handles=0000000000000000
+[17:30:00.103] [Probe] P2 rect=3 label=origin RECT=(0,0,100,100) count=0 handles=0000000000000000
+[17:30:00.103] [Probe] P1 rect=4 hr=0x80070057 count=0 handles=0000000000000000
+[17:30:00.103] [Probe] P2 rect=4 label=local RECT=(0,0,2560,48) count=0 handles=0000000000000000
+[17:30:00.103] [Probe] P1 rect=5 hr=0x00000000 count=247 handles=0000021455B00040
+[17:30:00.103] [Probe] P2 rect=5 label=dip-window RECT=(0,696,1280,720) count=247 handles=0000021455B00040
+[17:30:00.104] [Probe] P3 rect=5 scanned=247 readOk=200 hitLogged=1
+[17:30:00.104] [Probe] HIT h=0x19DF0010 name=RunningIndicator type=Windows.UI.Xaml.Shapes.Rectangle
+[17:30:00.105] [Probe] P1 rect=6 hr=0x80070057 count=0 handles=0000000000000000
+[17:30:00.105] [Probe] P2 rect=6 label=dip-screen RECT=(0,0,1280,720) count=0 handles=0000000000000000
+[17:30:00.106] [Probe] SUMMARY indCount=1
+[17:30:00.106] [Probe] UIA hr=0x00000000 count=0
+[17:30:00.106] [Probe] ==== END ====
+[17:31:00.100] [Probe] TRIGGER posted hr=0x00000000
+[17:31:00.101] [Probe] ==== BEGIN tid=8748 hwnd=0x0000000000010150 ====
+[17:31:00.101] [Probe] ENV tid=8748 dpiSys=192 dpiTray=192
+[17:31:00.101] [Probe] AFFINITY setSiteTid=8748 probeTid=8748
+[17:31:00.102] [Probe] GetUiLayer hr=0x00000000 ptr=0000021455A12C30
+[17:31:00.103] [Probe] P1 rect=5 hr=0x00000000 count=251 handles=0000021455B00040
+[17:31:00.103] [Probe] P2 rect=5 label=dip-window RECT=(0,696,1280,720) count=251 handles=0000021455B00040
+[17:31:00.104] [Probe] P3 rect=5 scanned=251 readOk=203 hitLogged=2
+[17:31:00.104] [Probe] HIT h=0x19DF0010 name=RunningIndicator type=Windows.UI.Xaml.Shapes.Rectangle
+[17:31:00.104] [Probe] HIT h=0x19DF0020 name=RunningIndicator type=Windows.UI.Xaml.Shapes.Rectangle
+[17:31:00.106] [Probe] SUMMARY indCount=2
+[17:31:00.106] [Probe] UIA hr=0x00000000 count=0
+[17:31:00.106] [Probe] ==== END ====
+"""
+
 
 def self_test() -> int:
     ok = True
+    # 新 fixture 除 verdict 外，还要在诊断里明确点出 C5。
     cases = [
-        ("READY_TO_IMPLEMENT", FIXTURE_READY),
-        ("PARTIAL", FIXTURE_PARTIAL),
-        ("FAILED", FIXTURE_FAILED),
+        ("READY_TO_IMPLEMENT", FIXTURE_READY, None),
+        ("PARTIAL", FIXTURE_PARTIAL, None),
+        ("FAILED", FIXTURE_FAILED, None),
+        ("READY_TO_IMPLEMENT", FIXTURE_DIP, "C5 dip-window"),
     ]
-    for expect, fixture in cases:
-        got, notes = judge(parse_rounds(fixture.splitlines()))
+    for expect, fixture, diag_expect in cases:
+        rounds = parse_rounds(fixture.splitlines())
+        got, notes = judge(rounds)
         flag = "PASS" if got == expect else "FAIL"
         ok &= got == expect
         print(f"[{flag}] fixture 期望={expect} 实际={got}（{len(notes)} 项说明）")
         for n in notes:
             print(f"       {n}")
+        if diag_expect:
+            d = diagnose(rounds)
+            hit = any(diag_expect in line for line in d)
+            ok &= hit
+            print(f"[{'PASS' if hit else 'FAIL'}] 新分支判定含 '{diag_expect}'")
+            for line in d:
+                print(f"       {line}")
 
     src_ok, detail = verify_source_contract()
     print(f"[{'PASS' if src_ok else 'FAIL'}] 源码契约: {detail}")
@@ -274,6 +414,9 @@ def main() -> int:
         rounds = parse_rounds(fh.read().splitlines())
     verdict, notes = judge(rounds)
     for n in notes:
+        print(n)
+    print("--- 坐标/契约诊断 ---")
+    for n in diagnose(rounds):
         print(n)
     print(f"RESULT: {verdict} ({len(rounds)} 轮探针)")
     return 0 if verdict == "READY_TO_IMPLEMENT" else 1
