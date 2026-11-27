@@ -130,6 +130,8 @@ static ShadeBarIpc* g_ipc = nullptr;
 // SetSite 连接序号：冷开机后其他工具可能后连接并抢走增量 Add 事件流，
 // 随影需要建立"新连接"夺回席位。序号只用于日志与取证。
 static volatile LONG g_connNo = 0;
+// 重连串行化：自动触发与手动哨兵可能同时发生，同一时刻只允许一个重连线程。
+static volatile LONG g_reconnecting = 0;
 // %LOCALAPPDATA%\ShadeBar：哨兵文件目录（Worker 启动时填充）。
 static wchar_t g_localDir[MAX_PATH] = L"";
 
@@ -1471,13 +1473,22 @@ static DWORD WINAPI ReconnectThread(LPVOID) {
     LogW(L"[Reconnect] 新线程 tid=%lu 发起诊断连接", GetCurrentThreadId());
     const bool ok = InitTap();
     LogW(L"[Reconnect] 结束 ok=%d advised=%ld", (int)ok, (long)g_advised);
+    InterlockedExchange(&g_reconnecting, 0);
     return 0;
 }
 
 static void TriggerReconnect() {
+    if (InterlockedExchange(&g_reconnecting, 1)) {
+        LogW(L"[Reconnect] 已有重连在进行，跳过本次");
+        return;
+    }
     HANDLE th = CreateThread(nullptr, 0, ReconnectThread, nullptr, 0, nullptr);
-    if (th) CloseHandle(th);
-    else LogW(L"[Reconnect] CreateThread 失败 err=%lu", GetLastError());
+    if (th) {
+        CloseHandle(th);
+    } else {
+        InterlockedExchange(&g_reconnecting, 0);
+        LogW(L"[Reconnect] CreateThread 失败 err=%lu", GetLastError());
+    }
 }
 
 // ---------------------------------------------------------------- 陈旧 shutdown 判定
@@ -1618,6 +1629,38 @@ static DWORD WINAPI Worker(LPVOID) {
                     LogW(L"[Reconnect] 收到哨兵 reconnect.req，发起新连接");
                     TriggerReconnect();
                 }
+            }
+        }
+
+        // 自动夺回：首连成功后 10 s 自动重连一次；若检测到 TranslucentTB 的
+        // ExplorerTAP.dll 在首连之后才注入 explorer，则提前到 +2 s（晚点连接的工具
+        // 会反过来抢走事件流）。两者都只触发一次，避免反复重建快照；
+        // 手动哨兵 reconnect.req 仍保留为兜底。
+        {
+            static bool tapSeen = false;
+            static bool autoScheduled = false;
+            static bool autoDone = false;
+            static ULONGLONG autoAt = 0;
+            const ULONGLONG now = GetTickCount64();
+            if (!autoDone && !autoScheduled) {
+                autoScheduled = true;
+                autoAt = now + 10000;
+                LogW(L"[Reconnect] 已安排首连后 10 s 自动重连");
+            }
+            if (!autoDone && !tapSeen && GetModuleHandleW(L"ExplorerTAP.dll")) {
+                tapSeen = true;
+                const ULONGLONG t = now + 2000;
+                if (!autoScheduled || t < autoAt) {
+                    autoScheduled = true;
+                    autoAt = t;
+                    LogW(L"[Reconnect] 检测到 ExplorerTAP，2 s 后自动重连");
+                }
+            }
+            if (autoScheduled && now >= autoAt) {
+                autoScheduled = false;
+                autoDone = true;
+                LogW(L"[Reconnect] 自动触发（首连后定时 / TTB 加载）");
+                TriggerReconnect();
             }
         }
 

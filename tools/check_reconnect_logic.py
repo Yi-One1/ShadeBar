@@ -14,6 +14,8 @@
   R7 丢弃句柄时必须同时重置共享画刷 / 箭头 / 选中态画刷缓存
   R8 哨兵 reconnect.req 必须"检测 → 删除 → 触发重连"
   R9 "清树"标志必须在 Advise 之前置位（快照在 Advise 内同步投递），且失败要回滚
+  R10 自动重连：首连后 10 s 一次，且检测到 ExplorerTAP 新加载时提前到 +2 s，只触发一次
+  R11 重连串行化：自动触发与手动哨兵不得并发开两条连接
 
 用法：
   python tools/check_reconnect_logic.py            # 检查真实源码
@@ -127,6 +129,20 @@ def r9_clear_before_advise(text: str) -> bool:
     return 0 <= i < j < k
 
 
+def r10_auto_trigger(text: str) -> bool:
+    return all(k in text for k in (
+        "autoAt = now + 10000",
+        'GetModuleHandleW(L"ExplorerTAP.dll")',
+        "[Reconnect] 自动触发",
+        "autoDone = true",
+    ))
+
+
+def r11_reconnect_serialized(text: str) -> bool:
+    return ("InterlockedExchange(&g_reconnecting, 1)" in text
+            and "InterlockedExchange(&g_reconnecting, 0)" in text)
+
+
 # (编号, 名称, 判定函数, 反例改写（用于 --self-test 证明断言真的会失败）)
 CHECKS: list[tuple[str, str, Callable[[str], bool], tuple[str, str]]] = [
     ("R1", "重连走新线程", r1_new_thread,
@@ -148,6 +164,10 @@ CHECKS: list[tuple[str, str, Callable[[str], bool], tuple[str, str]]] = [
      ("DeleteFileW(req);", "")),
     ("R9", "清树先于 Advise 且失败回滚", r9_clear_before_advise,
      ("prevClear = InterlockedExchange(&g_clearOnAdd, 1)", "prevClear = 0")),
+    ("R10", "首连后定时+TTB 检测自动重连", r10_auto_trigger,
+     ("autoAt = now + 10000", "autoAt = now")),
+    ("R11", "重连串行化", r11_reconnect_serialized,
+     ("InterlockedExchange(&g_reconnecting, 1)", "")),
 ]
 
 
