@@ -1208,23 +1208,41 @@ static DWORD WINAPI Worker(LPVOID) {
             return 0;
         }
         if (g_ipc->shutdown) {
-            // 宿主正常退出：还原颜色后**继续待命**，绝不退出循环。
-            // 曾经这里直接 break，导致线程结束后 DLL 仍驻留 explorer：
-            // 后续注入命中已加载模块、DllMain 不再执行 → 载荷永久失效，
-            // 表现为"重启随影后颜色再也不变"（v1.1 实测踩坑）。
-            // 也不能 Unadvise：那会丢掉订阅，恢复时拿不到树。
-            LogW(L"[Loop] 宿主退出，还原后转入待命");
-            if (ready && g_touched) {
-                if (SUCCEEDED(PostToUi(UiRestore)) && g_uiDoneEvent) {
-                    WaitForSingleObject(g_uiDoneEvent, 3000);
+            // v1.5.5 关键修复：忽略"陈旧 shutdown"。
+            // 正常退出时宿主会同时置 enabled=0 + shutdown=1；而实测踩坑是
+            // 旧 recolor 线程退出写 shutdown=1，但新宿主已接管、enabled=1 且
+            // 心跳持续在涨 —— 此时若照单全收，载荷永久待命，新增元素全不染色
+            // （冷开机后新开程序指示条灰色、重启 explorer 才恢复，2026-11-27 现场）。
+            // 判据：enabled=1 且心跳仍在变化 = 宿主其实活着 = shutdown 是陈旧值。
+            const LONG nowBeat = g_ipc->heartbeat;
+            // 只看 enabled：宿主 shutdown() 必然同时置 enabled=0，
+            // 所以 enabled=1 + shutdown=1 只能是陈旧值 / 竞态残留，不可能是正常退出。
+            // （不依赖 staleLoops：它在待命分支不更新，会误判。）
+            const bool hostAlive = (g_ipc->enabled != 0);
+            if (hostAlive) {
+                // 陈旧 shutdown：不仅忽略，还要主动清掉，避免每拍都进来判一次。
+                InterlockedExchange((volatile LONG*)&g_ipc->shutdown, 0);
+                LogW(L"[Loop] 忽略陈旧 shutdown（enabled=1 heartbeat=%ld），继续着色", nowBeat);
+                // 落到下面的正常处理流程（不 continue）。
+            } else {
+                // 宿主正常退出：还原颜色后**继续待命**，绝不退出循环。
+                // 曾经这里直接 break，导致线程结束后 DLL 仍驻留 explorer：
+                // 后续注入命中已加载模块、DllMain 不再执行 → 载荷永久失效，
+                // 表现为"重启随影后颜色再也不变"（v1.1 实测踩坑）。
+                // 也不能 Unadvise：那会丢掉订阅，恢复时拿不到树。
+                LogW(L"[Loop] 宿主退出，还原后转入待命");
+                if (ready && g_touched) {
+                    if (SUCCEEDED(PostToUi(UiRestore)) && g_uiDoneEvent) {
+                        WaitForSingleObject(g_uiDoneEvent, 3000);
+                    }
+                    InterlockedExchange(&g_touched, 0);
+                    g_restore = RestoreColors{};
                 }
-                InterlockedExchange(&g_touched, 0);
-                g_restore = RestoreColors{};
+                g_activeMask = 0;
+                g_ipc->status = SHADEBAR_STATUS_IDLE;
+                Sleep(200);
+                continue;
             }
-            g_activeMask = 0;
-            g_ipc->status = SHADEBAR_STATUS_IDLE;
-            Sleep(200);
-            continue;
         }
 
         if (!ready) {

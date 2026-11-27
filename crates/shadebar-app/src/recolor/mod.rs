@@ -455,6 +455,10 @@ impl Ipc {
             } else {
                 // 复用上一次会话的内存：必须清掉 shutdown，否则载荷会在启动瞬间
                 // 又执行一次"宿主已退出"的还原流程（v1.1 实测：先还原再立刻被覆盖）
+                crate::config::note(&format!(
+                    "ipc create: reuse, clear shutdown (was={} enabled={} hb={})",
+                    (*p).shutdown, (*p).enabled, (*p).heartbeat
+                ));
                 (*p).shutdown = 0;
                 (*p).enabled = 0;
             }
@@ -500,6 +504,11 @@ impl Ipc {
         // SAFETY: 同上。
         unsafe {
             let p = self.view;
+            crate::config::note(&format!(
+                "ipc shutdown: write shutdown=1 (thread={:?} seq={} hb={} enabled={})",
+                std::thread::current().name().unwrap_or("unnamed"),
+                (*p).seq, (*p).heartbeat, (*p).enabled
+            ));
             (*p).enabled = 0;
             (*p).seq = (*p).seq.wrapping_add(1);
             (*p).shutdown = 1;

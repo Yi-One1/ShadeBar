@@ -152,6 +152,16 @@ impl App {
     /// 载荷 DLL 以字节内嵌在 exe 中，运行时释放到 `%LOCALAPPDATA%\ShadeBar\`，
     /// 因此交付物仍是**单个 exe**。
     pub fn start_recolor(&self) {
+        // 单测绝不启动真实配色服务：它会 Ipc::create() 清共享内存，
+        // 测试结束 drop 时又 shutdown() 写 shutdown=1，污染用户正在运行的载荷
+        // （2026-11-27 实测：apply_actions 测试导致冷开机后着色全失效）。
+        #[cfg(test)]
+        {
+            let _ = self;
+            return;
+        }
+        #[cfg(not(test))]
+        {
         let Ok(mut slot) = self.recolor.lock() else { return };
         if slot.is_some() {
             return;
@@ -183,6 +193,7 @@ impl App {
                 self.mark_degraded(true, &format!("recolor service failed: {e}"));
             }
         }
+        } // #[cfg(not(test))] 块结束
     }
 
     /// 把最新配置推给配色服务（配置变更后调用）。
@@ -685,6 +696,12 @@ mod tests {
         let _ = app.apply_actions(vec![ViewAction::Set(SettingKey::S16, 5000)]);
         let _ = app.apply_actions(vec![ViewAction::RestoreDefaults]);
         assert_eq!(app.config().get(SettingKey::S16), 1000);
+        // 回归：apply_actions → sync_recolor 不得在测试里启动真实配色服务，
+        // 否则 drop 时会 shutdown() 污染用户正在运行的载荷（2026-11-27 实测）。
+        assert!(
+            app.recolor.lock().map(|g| g.is_none()).unwrap_or(false),
+            "测试构建不得启动真实 recolor 服务"
+        );
     }
 
     #[test]
