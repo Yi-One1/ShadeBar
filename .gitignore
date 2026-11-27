@@ -20,6 +20,9 @@
 # 开发期探针：可用但含大量截图/二进制，不进仓库
 /scratch/
 
+# 本地取证：原始日志含机器路径，只留本地不公开
+/evidence/tap-consume-*/
+
 # 本地配置与备份
 *.json.bak
 *.exe.tmp

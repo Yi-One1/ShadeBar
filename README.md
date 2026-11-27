@@ -7,12 +7,13 @@ Windows 11 任务栏**文字与图标自适应着色**工具。实时采样任�
 配合 TranslucentTB 使用：任务栏透明/模糊后，时钟、日期、托盘图标在浅色壁纸上
 容易糊成一片，在深色壁纸上又会发灰；随影按**当前这块背景**自动决定深浅。
 
-> **当前版本：v1.5.4**。修复**托盘「显示隐藏的图标」箭头不着色**：
-> `SystemTray.ChevronIconView` 没有任何 XAML 子元素，字形由 WinComp 内部绘制，
-> 现直接给控件本身写 `Foreground`，深色任务栏下箭头会跟随托盘配色变浅。
-> 其余能力与 v1.5.3 相同。更早版本见 [`CHANGELOG.md`](CHANGELOG.md)。
+> **当前版本：v1.5.5**。修复**冷开机后新开程序指示条灰色**：Windows XAML 诊断在
+> 单进程内只有一个实时消费者，TranslucentTB 的 `ExplorerTAP` 后连接会独占增量
+> `Add/Remove` 事件流。现在载荷会在首连后自动重连，并在 TranslucentTB 每次启动时
+> 重新夺回席位；已通过真冷开机验收。其余能力与 v1.5.4 相同，更早版本见
+> [`CHANGELOG.md`](CHANGELOG.md)。
 >
-> **下载**：[v1.5.4 Release](https://github.com/Yi-One1/ShadeBar/releases/tag/v1.5.4)
+> **下载**：[v1.5.5 Release](https://github.com/Yi-One1/ShadeBar/releases/tag/v1.5.5)
 > 提供单文件 exe，免安装；`dist/` 不随仓库分发二进制。
 >
 > **验收 / 预览**：双击根目录的 `1. 一键启动预览.bat`，它会重新编译并启动
@@ -66,10 +67,11 @@ CoreDispatcher 编组到 XAML UI 线程 → IVisualTreeService::SetProperty 改�
   `OnElementStateChanged` 对指示条也不触发；载荷在 XAML UI 线程每 250 ms（空闲 1 s）
   只读 `ActualWidth` 探测状态变化，变化即置脏并置急，下一拍应用（实测 0.14–0.48 s）；
   运行中新开的窗口由树变化事件接住。
-* **元素靠一次订阅 + 增量事件**：订阅时拿到一次全量元素，之后新开窗口由 XAML 的
-  `Add/Remove` 事件补齐（实测打开计算器后指示条立即增加并着色）。**不做重放**：
-  实测第二次 `Advise` 会返回 `E_UNEXPECTED`，还会把唯一的诊断连接弄坏，连时间/
-  日期一起失效。
+* **元素靠一次订阅 + 增量事件，必要时开新连接**：订阅时拿到一次全量快照，之后
+  新开窗口由 XAML 的 `Add/Remove` 事件补齐（实测打开计算器后指示条立即增加并着色）。
+  同一连接**不做重放**（第二次 `Advise` 必返 `E_UNEXPECTED`，还会弄坏该连接）。
+  XAML 诊断在单进程内只有一个实时消费者；若 TranslucentTB 等工具后连接抢走事件流，
+  载荷会在首连后 10 s、或检测到它启动后自动建立**新连接**夺回。
 
 细节与全部实测数据见 [`docs/03-recolor-mechanism.md`](docs/03-recolor-mechanism.md)。
 
@@ -88,8 +90,9 @@ CoreDispatcher 编组到 XAML UI 线程 → IVisualTreeService::SetProperty 改�
 
 ## 与其它工具共存
 
-* **TranslucentTB**：可共存。它的 TAP 常驻不影响随影抢到诊断席位（已实测），
-  透明/模糊照常生效，随影只改元素颜色。
+* **TranslucentTB**：可共存。两者都会连接 XAML 诊断，它的 `ExplorerTAP` 若在随影
+  之后连接会独占增量事件流；随影会在首连后自动重连，并在 TranslucentTB 每次启动时
+  重新夺回席位。透明/模糊照常生效，随影只改元素颜色。
 * **CTM 工具的同类开关**：会互相抢同一个 `TextBlock`。两者同时开启时颜色会打架，
   建议只留一个。随影不检测也不改动其它工具的设置。
 
@@ -100,7 +103,7 @@ CoreDispatcher 编组到 XAML UI 线程 → IVisualTreeService::SetProperty 改�
 | 双击 / 无参数 | 单实例常驻托盘 + 采样线程 + 着色；连续双击进程数恒为 1 |
 | 右键托盘图标 | 打开设置 / 开机自启动 / 版本号（只读）/ 退出 |
 | `--ui` | 直接打开设置窗口 |
-| `--version` | 打印 `随影 ShadeBar v1.5.4` |
+| `--version` | 打印 `随影 ShadeBar v1.5.5` |
 | `--help` | 打印用法 |
 
 设置页共 **28 项可见设置**（配置里保留 49 项编号，未落地 / 无视觉表现的项从 UI
@@ -134,7 +137,7 @@ target/x86_64-pc-windows-msvc/release/shadebar-app.exe
 ```
 
 **顺序不能反**：`crates/shadebar-app/build.rs` 会读取 `payload/build/ShadeBarTap.dll`
-并计算内容指纹，指纹进入载荷文件名（`ShadeBarTap_v1.5.4_<hash>.dll`）。
+并计算内容指纹，指纹进入载荷文件名（`ShadeBarTap_v1.5.5_<hash>.dll`）。
 这样内容一变文件名就变，explorer 里不会因为「同名模块已加载」而静默跑旧代码。
 
 版本号只有 `Cargo.toml` 的 `[workspace.package] version` 一个来源，
@@ -145,8 +148,9 @@ target/x86_64-pc-windows-msvc/release/shadebar-app.exe
 1. **需要注入 explorer**：这是元素级着色的唯一可行路径（与 CTM 工具同构）。
    写错会让任务栏重启——不会损坏系统，重启资源管理器即恢复；随影在订阅失败时
    会立刻收手，不做任何后续树操作。
-2. **可能被杀软 / SmartScreen 标记**：注入行为天然敏感。若被拦截，`payload.log`
-   会记录 `远程 LoadLibraryW 失败`，任务栏恢复系统默认外观，不会卡死。
+2. **可能被杀软 / SmartScreen 标记**：注入行为天然敏感。若被拦截，
+   `%LOCALAPPDATA%\ShadeBar\payload.log` 会记录 `远程 LoadLibraryW 失败`，
+   任务栏恢复系统默认外观，不会卡死。
 3. **Windows 大版本更新后可能失效**：元素按 Name 定位，比重定位偏移稳，但微软仍可能
    改名。失效表现是「颜色不再变化」，不会崩溃。
 4. ~~状态条选中态暂不由随影决定~~ → **v1.1.3 已支持**。做法是改画刷自身的 `Color`
@@ -166,7 +170,7 @@ crates/shadebar-core/     共享核心库（无 UI / 无窗口 / 可单测）：
 crates/shadebar-app/      主程序：Win32/COM 适配、设置页、托盘、单实例、注入与 IPC
 payload/                  C++ 注入载荷（TAP + XAML 诊断 + 画刷改写），编进 exe
 resources/                图标、清单、Win32 资源脚本、内嵌双语文案（lang/*.tsv）
-tools/                    回归检查（check_payload_sync.py）、探针与验证脚本
+tools/                    回归检查（check_payload_sync.py / check_reconnect_logic.py）、探针与验证脚本
 docs/03-recolor-mechanism.md  改色机制、元素定位表与全部踩坑记录
 evidence/recolor-spike/   真机证据（改色/还原截图 + 载荷日志）
 dist/                     发布产物（不进仓库，只走 GitHub Releases）

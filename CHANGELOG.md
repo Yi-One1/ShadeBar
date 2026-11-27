@@ -4,6 +4,30 @@ All notable changes to 随影 ShadeBar are documented here. The version is a sin
 source of truth in `Cargo.toml` (`[workspace.package] version`), also used for the
 artifact filename, the About page and the exe VERSIONINFO (FR-16 / A-16).
 
+## [1.5.5] - 2026-11-27
+
+### Fixed
+
+- **冷开机后新开程序的任务栏指示条保持灰色**：Windows XAML 诊断在单进程内只有
+  一个实时消费者，后连接者独占 `Add/Remove` 增量事件流。冷开机时随影载荷先连接，
+  TranslucentTB 的 `ExplorerTAP.dll` 后连接，之后新开程序的事件全部丢失。
+  现在载荷会建立**新连接**重新夺回席位（同一连接 `Unadvise` 后重 `Advise` 必返
+  `E_UNEXPECTED`，只能开新连接）。
+
+### Added
+
+- 自动重连：首连成功后 10 s 兜底；TranslucentTB 每次进程启动 +8 s；
+  `ExplorerTAP.dll` 在本次连接后加载 +2 s；两次自动重连至少间隔 10 s。
+- 手动兜底：创建 `%LOCALAPPDATA%\ShadeBar\reconnect.req` 立即触发一次重连。
+- 回归检查：`tools/check_reconnect_logic.py` R1–R12（含反向自测）；
+  `tools/check_payload_sync.py` C9（重连后必须重建快照并重新着色）。
+
+### Validation
+
+- 真冷开机验收：22:29:27 首连 → 22:29:31 TranslucentTB 启动 → 22:29:34 自动重连
+  → 之后新开程序均送来 `[Add] RunningIndicator`，指示条为白色，全程无人工操作。
+- 单元测试 235 项通过（app 136 / core 97 / doc 2）。
+
 ## [1.5.4] - 2026-11-27
 
 ### Fixed
@@ -20,6 +44,9 @@ artifact filename, the About page and the exe VERSIONINFO (FR-16 / A-16).
 
 - `tools/check_payload_sync.py` 新增 **C8**：箭头进树后必须能解析出 `Foreground`
   （`[Tray+] chevron Foreground ok idx=…`），否则判失败。
+
+> 更正（2026-11-27）：用户澄清箭头一直是系统白色，该问题为误报；
+> “改画刷对象 `Color`”的尝试已回滚，直接写 `Foreground` 的代码保留。
 
 ## [1.5.3] - 2026-11-27
 

@@ -369,7 +369,7 @@ config: recolor start: enabled=true follow=true mask=F force=0 thr=0.50 on_dark=
 config: recolor start: enabled=true follow=true mask=F force=0 thr=0.50 on_dark=#F2F2F2
 config: recolor start: enabled=true follow=true mask=F force=0 thr=0.50 on_dark=#F2F2F2
 config: recolor start: enabled=true follow=true mask=F force=0 thr=0.50 on_dark=#F2F2F2
-config: config corrupted, fallback to defaults; backup=C:\Users\caihongyi\AppData\Local\ShadeBar\config.json.bak
+config: config corrupted, fallback to defaults; backup=C:\Users\<user>\AppData\Local\ShadeBar\config.json.bak
 config: recolor start: enabled=true follow=true mask=F force=0 thr=0.50 on_dark=#F2F2F2
 config: recolor start: enabled=true follow=true mask=F force=0 thr=0.50 on_dark=#F2F2F2
 config: recolor start: enabled=true follow=true mask=F force=0 thr=0.50 on_dark=#F2F2F2
@@ -1474,7 +1474,7 @@ config: config S-47 = 1
 config: config S-47 = 0
 config: config S-47 = 1
 config: config S-47 = 0
-config: diagnostic bundle written: C:\Users\caihongyi\AppData\Local\ShadeBar\diagnostics\shadebar-diag-1795187784.zip
+config: diagnostic bundle written: C:\Users\<user>\AppData\Local\ShadeBar\diagnostics\shadebar-diag-1795187784.zip
 config: config S-01 = 0
 config: config S-01 = 1
 config: config S-01 = 0
@@ -1486,9 +1486,9 @@ config: config S-42 = 0
 config: config S-10 = 1
 config: config S-10 = 2
 config: config S-10 = 0
-config: config exported: C:\Users\caihongyi\AppData\Local\ShadeBar\config-export.json
-config: config exported: C:\Users\caihongyi\AppData\Local\ShadeBar\config-export.json
-config: config exported: C:\Users\caihongyi\AppData\Local\ShadeBar\config-export.json
+config: config exported: C:\Users\<user>\AppData\Local\ShadeBar\config-export.json
+config: config exported: C:\Users\<user>\AppData\Local\ShadeBar\config-export.json
+config: config exported: C:\Users\<user>\AppData\Local\ShadeBar\config-export.json
 config: config S-12 = 510
 config: config S-12 = 520
 config: config S-12 = 530
@@ -2729,8 +2729,8 @@ config: config S-20 = 0
 config: config S-45 = 0
 config: config S-45 = 1
 config: config S-45 = 2
-config: diagnostic bundle written: C:\Users\caihongyi\AppData\Local\ShadeBar\diagnostics\shadebar-diag-1795188239.zip
-config: diagnostic bundle written: C:\Users\caihongyi\AppData\Local\ShadeBar\diagnostics\shadebar-diag-1795188239.zip
+config: diagnostic bundle written: C:\Users\<user>\AppData\Local\ShadeBar\diagnostics\shadebar-diag-1795188239.zip
+config: diagnostic bundle written: C:\Users\<user>\AppData\Local\ShadeBar\diagnostics\shadebar-diag-1795188239.zip
 config: config S-47 = 1
 config: config S-47 = 0
 config: sampler thread exiting (stop flag set)
@@ -4309,13 +4309,13 @@ config: config S-21 = 81
 config: config S-21 = 82
 config: config S-21 = 83
 config: config S-21 = 84
-config: diagnostic bundle written: C:\Users\caihongyi\AppData\Local\ShadeBar\diagnostics\shadebar-diag-1795190228.zip
-config: diagnostic bundle written: C:\Users\caihongyi\AppData\Local\ShadeBar\diagnostics\shadebar-diag-1795190230.zip
+config: diagnostic bundle written: C:\Users\<user>\AppData\Local\ShadeBar\diagnostics\shadebar-diag-1795190228.zip
+config: diagnostic bundle written: C:\Users\<user>\AppData\Local\ShadeBar\diagnostics\shadebar-diag-1795190230.zip
 config: sampler thread exiting (stop flag set)
 config: autostart registry entry reconciled
 config: recolor start: enabled=true follow=true mask=F force=0 thr=0.50 on_dark=#FFFFFF
-config: diagnostic bundle written: C:\Users\caihongyi\AppData\Local\ShadeBar\diagnostics\shadebar-diag-1795190254.zip
-config: config exported: C:\Users\caihongyi\AppData\Local\ShadeBar\config-export.json
+config: diagnostic bundle written: C:\Users\<user>\AppData\Local\ShadeBar\diagnostics\shadebar-diag-1795190254.zip
+config: config exported: C:\Users\<user>\AppData\Local\ShadeBar\config-export.json
 config: restore defaults confirmed
 config: config S-21 = 83
 config: config S-21 = 82

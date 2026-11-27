@@ -370,7 +370,10 @@ SetProperty(brush, colorObj, idx=737)          → hr=0x0
 **回归**：`tools/check_payload_sync.py` 新增 C8——箭头进树后必须能解析出
 `Foreground`（日志 `[Tray+] chevron Foreground ok idx=876`），否则判失败。
 
-### 5.7 冷开机后新开程序指示条灰色（v1.5.5，第 1 组）
+> 后续更正：用户澄清“箭头一直是白的”，箭头并非当时的真问题；针对箭头的
+> “改画刷对象 `Color`”尝试已回滚，直接写 `Foreground` 的代码保留（无害）。
+
+### 5.7 冷开机后新开程序指示条灰色（v1.5.5，已闭环）
 
 **现象**：冷开机后新开的程序（浏览器 / 记事本 / WB）任务栏图标下的指示条保持灰色，
 开机时已在的程序（QQ）正常。重启 explorer 或重启随影后恢复。
@@ -387,15 +390,27 @@ SetProperty(brush, colorObj, idx=737)          → hr=0x0
 - 全量快照在 `Advise` 内**同步投递**，`g_clearOnAdd` 必须先置位、失败回滚，
   否则快照填满树后会被下一个无关 Add 误清（实测树 n=10 → n=1）。
 
-**修复（第 1 组）**：哨兵 `%LOCALAPPDATA%\ShadeBar\reconnect.req` 触发一次新连接
-（新线程 + 新连接名），`SetSite` 检测到新 site 后切换服务并重新 `Advise`，
-旧连接保持订阅不动；重建快照时丢弃全部失效句柄。第 2 组将改为自动触发。
+**修复**：发现事件流被抢时建立**新连接**夺回（新线程 + 新连接名），`SetSite`
+检测到新 site 后切换服务并重新 `Advise`，旧连接保持订阅不动；重建快照时丢弃
+全部失效句柄。触发方式：
 
-**实测证据**：TTB 后连接 → 开记事本 0 个 `Add` → 哨兵 →
-`[Tap] SetSite #2` / `Advise hr=0x00000000` / `[Tree] n=18 time=1 date=1 tray=6 ind=10`
-→ 再开记事本 `[Add] RunningIndicator`，ind 10 → 11 且着色。
+- 首连成功后 10 s 兜底重连一次；
+- TranslucentTB **每次进程启动** +8 s 重连（不能一次性锁死——用户可能开机很久后
+  才打开 TTB，实测会再次抢走事件流）；
+- `ExplorerTAP.dll` 在本次连接之后加载 +2 s 重连；
+- 两次自动重连至少间隔 10 s；手动哨兵 `%LOCALAPPDATA%\ShadeBar\reconnect.req`
+  保留为兜底。
 
-**回归**：`tools/check_reconnect_logic.py` R1–R9（含反向自测）；
+**实测证据**：
+
+- 手动阶段：TTB 后连接 → 开记事本 0 个 `Add` → 哨兵 →
+  `[Tap] SetSite #2` / `Advise hr=0x00000000` / `[Tree] n=18 … ind=10`
+  → 再开记事本 `[Add] RunningIndicator`，ind 10 → 11 且着色。
+- 真冷开机（2026-11-27 22:28）：22:29:27 首连 #1 → 22:29:31 TTB 启动 →
+  22:29:34 自动重连 #2 → 之后每个新程序都送来 `[Add] RunningIndicator`，
+  指示条为白色，全程无人工操作。
+
+**回归**：`tools/check_reconnect_logic.py` R1–R12（含反向自测）；
 `check_payload_sync.py` C9（重连后必须快照重建并重新着色）。
 
 ---
