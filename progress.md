@@ -3,22 +3,25 @@
 > **最后更新**：2026-11-27 (GMT+8)
 > **用途**：跨对话续接。新对话看不到聊天记录，本文件是唯一状态依据。
 >
-> **状态一句话**：**v1.5.4 已收尾**——修掉托盘「显示隐藏的图标」箭头不着色
-> （`SystemTray.ChevronIconView` 无 XAML 子元素，改为直接给控件本身写 `Foreground`）。
-> 待用户用新包冷开机做最终确认。
+> **状态一句话**：v1.5.4 已发布，但发现一个**未解决的真问题**——冷开机后手动新开的程序
+> （浏览器/记事本/WB）指示条灰色不染色，开机时就在的 QQ 正常，重启 explorer 才恢复。
+> 根因已锁定为**冷开机后 IVTS 增量 Add 事件不通**，正在找修复路径，**当前按用户要求暂停**。
+> 详见 `evidence/INVESTIGATION-STATUS.md`。
 
 ---
 
-## 0. 新对话先做这三件事（五分钟上手）
+## 0. 新对话先做这几件事
 
-1. `git log -8 --oneline` —— 最新应有 `fix(payload): 直接着色托盘"显示隐藏的图标"箭头`
-   与发布提交。
-2. `cargo test --release` —— 应全绿；`cargo check --release --all-targets` 零警告。
-3. 需要重新体验：双击 `1. 一键启动预览.bat`（重新编译并启动 `target\` 最新版，
-   **不覆盖 dist**）。重新打包：`powershell -ExecutionPolicy Bypass -File build.ps1`。
+1. `git log -12 --oneline` —— HEAD 应为 `a393df7`（证据归档），其上是本次调查的一批提交。
+2. `cargo test --release` —— 应全绿（**235 项**：app 136 + core 97 + doc 2，1 ignored）。
+3. **先读 `evidence/INVESTIGATION-STATUS.md`** —— 本次调查的真根因、已排除方向、剩余路径全在里面；
+   不要重走已排除的方向。
+4. 需要重新体验：双击 `1. 一键启动预览.bat`（重编并启动 `target\` 最新版，**不覆盖 dist**）。
+   重新打包：`powershell -ExecutionPolicy Bypass -File build.ps1`。
 
-> **验收闸门**：用户明确要求——每组做完必须由他真机验收，他说「没问题」之后才允许
+> **验收闸门**：用户明确要求——每组做完必须真机验收，他说「没问题」之后才允许
 > 更新文档并进入下一组。不要跳过，也不要替他判断"应该没问题"。
+> **汇报要带任务清单与进度**；发现问题先说清根因，再给方案。
 
 ---
 
@@ -26,68 +29,82 @@
 
 | 项 | 值 |
 |---|---|
-| 版本 | **1.5.4**（PATCH：托盘箭头直接着色） |
-| 版本唯一来源 | `Cargo.toml` → `[workspace.package] version`（资源 / 关于页 / 文件名自动跟随） |
-| 发布产物 | `dist/随影ShadeBar_v1.5.4.exe` |
+| 版本号 | **1.5.4**（`Cargo.toml` → `[workspace.package] version`，版本唯一来源） |
+| 发布产物 | `dist/随影ShadeBar_v1.5.4.exe`；GitHub Release 已发布（2026-11-27） |
+| **HEAD** | `a393df7`，在已发布的 `v1.5.4` tag **之后还有 12 个提交**，全部是本次调查（诊断/修复/探针/证据），**未升版、未发布** |
+| `target\release\shadebar-app.exe` | 已重新编译（17:52，含只读探针，**默认关闭**），与 dist 版不同 |
 | 门禁 | 5/5（体积 / 无 VC++ 运行时 / 版本资源 / 清单 PerMonitorV2+asInvoker / 图标） |
-| git tag | `v1.5.4` → 本次发布提交；历史：`v1.5.3`、`v1.5.2` → `0b99b65`、`v1.5.1` → `018d135` |
-| GitHub Release | **v1.5.4 已发布**（2026-11-27）：https://github.com/Yi-One1/ShadeBar/releases/tag/v1.5.4 |
 
-`dist/` **永远保留历史版本 exe**（用户要求，便于回滚）；exe 不进仓库，只走 Releases。
+`dist/` 永远保留历史版本 exe（用户要求，便于回滚）；exe 不进仓库，只走 Releases。
+
+> **版本未升**：真问题未解决，不该发版。用户明确要求严格 SemVer 2.0.0：
+> 修 bug = PATCH，新功能 = MINOR，升版判定要写进提交信息。
 
 ---
 
 ## 2. 已完成事项
 
-### 2.1 v1.5.4（2026-11-27，已发布）
+### 2.1 2026-11-27 本次调查（重点，全部有证据）
 
-| 内容 | 验证 |
+| 事项 | 结论 / 提交 |
 |---|---|
-| **托盘「显示隐藏的图标」箭头不着色**：`SystemTray.ChevronIconView` 在 XAML 诊断树里**没有任何子元素**，字形由 WinComp 内部绘制；旧规则按子 `TextBlock`/`FontIcon` 匹配永远命中不到。现把控件本身归入 `InnerTextBlock` 通道，直接写 `Foreground` | 重启 explorer 后日志 `[Tray+] chevron Foreground ok idx=876`、`[Apply] … tray=6`；截图箭头像素 ≈ `#F2F2F2` |
-| 托盘元素计数 5 → 6；C8 进树后必须能解析 `Foreground` | `check_payload_sync.py` C1–C8 全 PASS |
+| **锁定真根因** | 冷开机会话里 **IVTS 增量 Add 事件通道不通**：注入瞬间 300+ Add 全量发放（只有 QQ，ind=1），之后开记事本/浏览器新增 Add=0、`[Tree]/[Apply] ind` 恒为 1；warm 会话（重启 explorer）Add 正常（ind 6→7）。证据 `evidence/coldboot-20261127/after/payload.log` |
+| **测试污染修复** | `cargo test` 的 app.rs 测试曾启动真实配色服务/写真实注册表，污染用户机器。三层修复：`6bd7223`（autostart 测试隔离）、`1dd539e`（测试不启动真实服务 + 载荷忽略陈旧 shutdown）、`c776316`（日志加 PID/时间戳、注释对齐、不变量固化、真值表测试） |
+| **QA 独立评审** | 严过关评审结论"有条件通过"，指出冷开机未闭环、证据被轮转、根因时序不自洽——**后续证明 QA 是对的**，此前"已定位根因"的判断被推翻 |
+| **接口论证** | 高见远查微软官方文档：点名的 `GetElementFromHandle/GetRootElement/Walker` 等在原生 xamlom.h 里不存在；首选 `IXamlDiagnostics::HitTest`（主动 pull，不重订阅）。文档 `evidence/coldboot-20261127/IVTS-feasibility.md` |
+| **HitTest 探针（已证伪）** | `9432e20` 只读探针 + `f573833` 七坐标/缓冲区/线程判别。冷开机 3 轮实测：7 种坐标 + 预分配缓冲区 + 同线程 + Advise hr=0 全部排除，HitTest 恒 `E_INVALIDARG` 且与矩形无关 → **接口在此环境不可用，方案否决** |
+| **证据归档** | `a393df7`：三轮冷开机/探针的 before/after 原始日志 + FINDINGS + 接口论证 + 总览 `evidence/INVESTIGATION-STATUS.md` |
 
-> 注意：**不能用 `Type` 子串匹配 `TextBlock`** —— 会把 `SystemTray.AdaptiveTextBlock`
-> 误收进来，实测托盘计数从 5 膨胀到 30（Underlay/AccentOverlay 也被染色）。
+**工程状态**：全量测试 235 项通过；载荷静态 CRT 编译通过（无 VCRUNTIME/MSVCP）；
+4 个分析脚本（`check_chevron_diag.py`/`check_indicator_coldboot.py`/`check_shutdown_logic.py`/`check_hittest_probe.py`）均带自测。
+探针代码**只读、默认关闭**（哨兵文件 `%LOCALAPPDATA%\ShadeBar\probe.trigger` 触发），不影响正常用户，用户决定**保留**。
 
-### 2.2 v1.5.3（2026-11-27，已发布）
+### 2.2 已发布版本历史
 
-- **一部分指示条永远不亮**：宿主每次启动都重复注入，第二次订阅拿到失效连接。
-  宿主注入前读载荷活跃计数（`reserved[6]`），存活则跳过注入。
-
-### 2.3 v1.5.2（2026-11-26，已发布）
-
-- **冷启动整条链路失效**：第二次 `Advise` 必返 `E_UNEXPECTED`，先退订会拆掉唯一有效
-  订阅。彻底删除 `ReplayTree` 与全部触发点；只订阅一次，依赖 `Add/Remove` 增量。
-
-### 2.4 v1.5.1 / v1.5.0（历史，已发布）
-
-- v1.5.1 `9e4ea24`：冷启动指示条预热 + 重放方案，**已被 v1.5.2 判定为错误方向并移除**。
-- v1.5.0：亮/暗端预览语义修正；配色与判定粒度解耦；指示条状态改 250 ms 轮询
-  `ActualWidth`（延迟 2 s → 0.14–0.48 s）；可见设置 30 → 28 项。
+- **v1.5.4**（2026-11-27）：当时记录为"修托盘箭头不着色"。**注意：用户后来澄清箭头一直是白的，
+  这是误报**——相关 chevron 修复 `c61c660` 已由 `1e3aa45` 回滚。v1.5.4 其余发布内容仍有效。
+- **v1.5.3**：一部分指示条永远不亮——宿主重复注入拿到失效连接；注入前读载荷活跃计数（`reserved[6]`）存活则跳过。
+- **v1.5.2**：冷启动整条链路失效——第二次 `Advise` 必返 `E_UNEXPECTED`；删除 `ReplayTree`，只订阅一次。
+- **v1.5.1**：冷启动指示条预热+重放方案，已被 v1.5.2 判定错误并移除。
+- **v1.5.0**：亮/暗端预览语义修正；配色与判定粒度解耦；指示条状态改 250ms 轮询 `ActualWidth`。
 
 ---
 
 ## 3. 关键决策（含理由，别重新发明）
 
+### 3.1 本次调查新增
+
 | 决策 | 结论 | 理由 |
 |---|---|---|
-| 分区配色粒度 | **8 色 = 4 内容 × 2 背景态** + 独立不透明度 | 用户拍板；4 项天然分属三区 |
-| 统一 / 分区关系 | **解耦**：判定粒度只决定明暗判断方式，配色始终用 8 色矩阵 | 用户拍板 |
-| S-14 / S-15 | 仅保留配置兼容，不参与取色，UI 收起 | 解耦后无消费方；删编号会破坏旧配置 |
-| 亮端 / 暗端语义 | **亮端 = 浅色文字 → 深色任务栏**，预览与引擎一致 | 需求 S-14/S-15 定义 |
-| 指示条状态检测 | UI 线程每 250 ms（空闲 1 s）轮询 `ActualWidth` | `OnElementStateChanged` 对指示条不触发 |
-| 正常指示条透明度 | S-60（默认 45%），两种模式都生效 | 保留系统半透明手感且可调 |
+| **真问题根因** | 冷开机后 IVTS 增量 Add 事件不通（**不是** shutdown、**不是**箭头、**不是**日志截断） | 多轮冷开机证据；修复版加载后 shutdown=0 仍灰 |
+| **错误方向回滚** | chevron（箭头）修复已回滚 | 用户澄清箭头一直是白的，问题是新开程序指示条 |
+| **shutdown 修复保留** | `6bd7223`/`1dd539e`/`c776316` 保留 | 是独立真 bug（测试污染注册表/IPC），虽非本问题根因 |
+| **HitTest 否决** | 不再尝试此接口 | 7 坐标+缓冲区+线程+Advise 四假设全排除，恒 `E_INVALIDARG` |
+| **探针代码保留** | `9432e20`/`f573833` 保留 | 只读、默认关闭、有回归测试，是取证工具 |
+| **不升版** | 仍 v1.5.4 | 真问题未解决，不该发版 |
+| **暂停** | 按用户要求暂停 | 已重启 4 次/3 轮探针，继续盲试对用户不公平 |
+
+### 3.2 历史产品决策
+
+| 决策 | 结论 | 理由 |
+|---|---|---|
+| 分区配色粒度 | 8 色 = 4 内容 × 2 背景态 + 独立不透明度 | 用户拍板 |
+| 统一/分区关系 | 解耦：判定粒度只决定明暗判断，配色始终用 8 色矩阵 | 用户拍板 |
+| S-14/S-15 | 仅保留配置兼容，不参与取色，UI 收起 | 解耦后无消费方 |
+| 亮端/暗端语义 | 亮端 = 浅色文字 → 深色任务栏 | 需求定义 |
+| 指示条状态检测 | UI 线程 250ms（空闲 1s）轮询 `ActualWidth` | `OnElementStateChanged` 对指示条不触发 |
+| 正常指示条透明度 | S-60（默认 45%），两种模式都生效 | 保留系统半透明手感 |
 | 单击/双击共存 | 双击非「无操作」时单击挂起 `GetDoubleClickTime` | legacy 托盘先送单击 |
-| S-22 语义 | **任务栏高度百分比，上下对称内缩** | 引擎本来就这么算 |
+| S-22 语义 | 任务栏高度百分比，上下对称内缩 | 引擎本来就这么算 |
 | 指示条两态 | 颜色可不同，写入路径不同 | 选中态 `Fill` 被 VisualState 压住，必须改画刷 `Color` |
 | 正常态一致性 | 所有正常态共用一个画刷 | 换色同一刻生效 |
 | 托盘字号定位 | 只认 `AdaptiveTextBlock` 的 `Base` 层 `InnerTextBlock` | 其余两层透明/强调覆盖 |
-| **托盘箭头定位** | **`SystemTray.ChevronIconView` 本身写 `Foreground`** | 它无任何 XAML 子元素，无法通过子节点染色 |
-| 元素树更新 | **只订阅一次** + `Add/Remove` 增量；**禁止重放、禁止重复注入** | 第二次 Advise 必返 `E_UNEXPECTED`；重复注入会拿到失效连接 |
-| 托盘补挂 | 响应 `TaskbarCreated`，先 MODIFY 探测再 ADD | 无条件 `NIM_ADD` 会撞 uID 返回 `E_FAIL` |
+| ~~托盘箭头定位~~ | ~~ChevronIconView 写 Foreground~~ **已回滚（误报）** | 箭头一直是白的 |
+| 元素树更新 | 只订阅一次 + `Add/Remove` 增量；**禁止重放、禁止重复注入** | 第二次 Advise 必返 `E_UNEXPECTED` |
+| 托盘补挂 | 响应 `TaskbarCreated`，先 MODIFY 探测再 ADD | 无条件 `NIM_ADD` 会撞 uID |
 | 开机自启 | HKCU Run，不注册 schtasks | 零 UAC |
-| 设置布局 | 四页签 + 任务栏直控预览；配色卡始终 4×2 矩阵 | 用户选定方案 1 |
-| 版本 | 严格 SemVer 2.0.0：修 bug = PATCH，新功能 = MINOR | 用户长期规则 |
+| 设置布局 | 四页签 + 任务栏直控预览；配色卡 4×2 矩阵 | 用户选定 |
+| 版本 | 严格 SemVer 2.0.0 | 用户长期规则 |
 | 验收方式 | 一律 `1. 一键启动预览.bat`，不覆盖 dist | 用户明确要求 |
 | 打包产物 | 新 exe 只新增，不删旧 exe | 便于回滚与对比 |
 
@@ -95,20 +112,28 @@
 
 ## 4. 未完成的待办
 
-### 4.1 用户回归验证（v1.5.4）
+### 4.1 当前真问题（第一优先，用户选了暂停）
 
-- [ ] 用 `dist/随影ShadeBar_v1.5.4.exe` 作为开机自启，**冷开机**确认时间/日期、
-      托盘字形、**托盘箭头**、正常/选中指示条全部按设置着色。
-- [ ] 中途重启软件（不重启 explorer），确认颜色不丢。
+- [ ] **冷开机后新开程序指示条灰色**——未解决。修复后需真机冷开机验证，
+      "证明修好了"必须有冷开机后新开程序染色的证据（QA 硬条件）。
+- **剩余可选路径**（架构师论证 §6，按代价递增；推荐先评估第 1 条）：
+  1. **宿主检测 explorer 启动后重新注入新 DLL 实例**——非同实例重 Advise，根因是增量通道不通，
+     换实例重建订阅最直接；需评估 v1.5.2 的 DLL 常驻/`E_UNEXPECTED` 约束。
+  2. **GetCollectionElements 有限重扫**——枚举已知容器当前子元素，不依赖增量事件；
+     风险是句柄时效（铁律：句柄只当次有效），需先验证。
+  3. **换 WinComp/DWM 染色层**——v2 重构，代价大。
+  4. **产品层接受限制**——冷开机后提示用户重启 explorer（当前 workaround）。
+- **取证注意**：冷开机验证前先归档旧日志（日志有 262144 字节轮转，证据会被冲掉）。
 
 ### 4.2 长期缺口（用户没催，不要主动扩范围）
 
 - 悬停高亮块（S-32 / S-34~S-37）：生产载荷尚未实现。
 - 多显示器（副屏任务栏元素契约未用探针确认）。
-- 崩溃恢复（`RegisterApplicationRestart` 仅出现在注释里，未接线）。
-- 日志轮转（7 天轮转未实现，当前按天切分）。
-- 载荷副本累积：`%LOCALAPPDATA%\ShadeBar\ShadeBarTap_v<ver>_<指纹>.dll` 无清理机制（有意设计）。
-- 自启项跟随"最后运行的那个 exe"：从 `target\` 启动过就会指回 `target\`。
+- 崩溃恢复（`RegisterApplicationRestart` 仅在注释里，未接线）。
+- 日志 7 天轮转未实现（**实测为单文件追加 + 262144 字节轮转，不是"按天切分"**）。
+- 载荷副本累积：`%LOCALAPPDATA%\ShadeBar\ShadeBarTap_v<ver>_<指纹>.dll` 无清理（有意设计）。
+- 自启项跟随"最后运行的那个 exe"：从 `target\` 启动过就指回 `target\`；
+  **本次已修测试污染路径**（`6bd7223`），但产品行为本身未改。
 
 ---
 
@@ -116,22 +141,25 @@
 
 | 症状 | 真因 | 处置 |
 |---|---|---|
-| 新版本没修好旧问题 | explorer 同时驻留多版载荷，旧副本在生效 | 注入测试收尾必须清场；日志格式与源码对不上 = 跑的不是这份代码 |
-| **开机后指示条不着色** | 注入早于任务栏 XAML 建完；首拍 `ind=0` 立即重放，`Advise` 返回 `E_UNEXPECTED`，订阅永久失效 | v1.5.1 方案已废弃；v1.5.2 起只订阅一次 |
-| 指示条选中/正常切换色滞后 ~2 s | `OnElementStateChanged` 对指示条不触发 | UI 线程 250 ms 轮询 `ActualWidth` 置脏置急 |
+| 新版本没修好旧问题 | explorer 同时驻留多版载荷，旧副本在生效 | 清场；日志格式与源码对不上 = 跑的不是这份代码 |
+| **冷开机新开程序指示条灰（本次真问题）** | 冷开机后 IVTS 增量 Add 事件不通，新窗口不进树 | **未解决**；见 §4.1 剩余路径 |
+| 开机后指示条不着色（旧） | 首拍重放 + `Advise` 返 `E_UNEXPECTED` | v1.5.2 起只订阅一次 |
+| 一部分指示条永远不亮（旧） | 宿主重复注入拿到失效连接 | v1.5.3 注入前探测存活 |
+| 指示条选中/正常切换色滞后 ~2s | `OnElementStateChanged` 对指示条不触发 | UI 线程 250ms 轮询 `ActualWidth` |
 | 托盘图标"改了没变" | 按 `AdaptiveTextBlock` 匹配，只有 `Base` 的 `InnerTextBlock` 可见 | 按父级名收 `Base` 层子 TextBlock |
-| **托盘箭头"改了没变"** | `ChevronIconView` 无 XAML 子元素；子串匹配还会误收 `AdaptiveTextBlock` | v1.5.4：精确匹配类型，直接写控件 `Foreground` |
+| 托盘箭头"改了没变"（**误报**） | 用户澄清箭头一直是白的，问题在别处 | 相关修复已回滚，勿再查箭头 |
 | 指示条两态颜色无法区分 | 载荷选中态误用 `indicatorNormalColor` | 改读 `indicatorSelectedColor` |
-| "改了颜色却没变化" | 纯黑纯白策略下，白色目标与系统默认同色 | 先用红/绿等辨识色复现 |
-| 滑条只在某种模式能拖 | 命中检测写在 `per_region()` 分支内 | 命中检测覆盖所有显示该控件的模式 |
-| 取色浮层最右列点不中 | 浮层按锚点向右展开，超出窗口被裁 | x 夹紧在窗口内 |
-| 语言表键值重复 | 追加脚本跑两次；`required_keys` 只查存在不查唯一 | 改语言表后检查重复键 |
-| 软件在跑、托盘没图标 | 不响应 `TaskbarCreated`；`added` 失败不清零 | 广播补挂 + 失败归零 |
-| 重复 `NIM_ADD` 返回 `E_FAIL` | 图标已存在时撞同一 uID | 先 `NIM_MODIFY` 探测 |
-| **开机后全部元素不着色** | 第二次 `Advise` 返回 `E_UNEXPECTED`；先退订会拆掉唯一订阅 | v1.5.2：彻底移除重放，只订阅一次 |
-| **一部分指示条永远不亮** | 宿主每次启动都重复注入；第二次订阅是失效连接 | v1.5.3：注入前探测载荷存活（`reserved[6]`） |
+| "改了颜色却没变化" | 纯黑纯白策略下白色目标与系统默认同色 | 先用红/绿辨识色复现 |
 | 以为写入成功就生效 | `SetProperty` 返回 `S_OK` 只代表写进去 | 写完回读画刷 `Color` |
-| `build.ps1` 报 ps1 encoding guard | 脚本要求纯 ASCII，混入中文注释 | 注释只用 ASCII；需中文正则的脚本存 UTF-8 带 BOM |
+| **跑完 `cargo test` 机器着色全失效** | 测试启动真实服务/写真实注册表与 IPC，污染用户机 | `6bd7223`/`1dd539e`/`c776316` 测试隔离 |
+| **日志证据消失** | `payload.log` 262144 字节轮转 | 取证前先归档旧日志 |
+| **HitTest 恒 E_INVALIDARG** | 接口在此 Win11 诊断会话下不可用 | 已否决，勿再试 |
+| 滑条只在某种模式能拖 | 命中检测写在 `per_region()` 分支内 | 命中检测覆盖所有模式 |
+| 取色浮层最右列点不中 | 浮层向右展开超出窗口被裁 | x 夹紧在窗口内 |
+| 语言表键值重复 | 追加脚本跑两次；只查存在不查唯一 | 改后检查重复键 |
+| 软件在跑、托盘没图标 | 不响应 `TaskbarCreated`；`added` 失败不清零 | 广播补挂 + 失败归零 |
+| 重复 `NIM_ADD` 返回 `E_FAIL` | 图标已存在撞同一 uID | 先 `NIM_MODIFY` 探测 |
+| `build.ps1` 报 ps1 encoding guard | 脚本要求纯 ASCII，混入中文注释 | 注释只用 ASCII；需中文正则存 UTF-8 BOM |
 | 界面能看见但点不中 | 绘制/命中两套坐标 | 统一坐标语义 + 纯 frame 函数 + 变异测试 |
 | 还原留色 | 应用逐层染、还原只改一层 | 还原与应用对称 |
 
@@ -150,6 +178,11 @@ cd "<repo>"
 cargo build --release
 cargo test --release
 powershell -ExecutionPolicy Bypass -File build.ps1
+
+# 本次新增分析脚本（均带 --self-test）
+python tools/check_payload_sync.py
+python tools/check_hittest_probe.py --self-test
+python tools/check_shutdown_logic.py --self-test
 ```
 
 `payload/build/`、`dist/verify/`、`dist/compare/` 是构建中间物，不进仓库。
@@ -157,27 +190,29 @@ powershell -ExecutionPolicy Bypass -File build.ps1
 ### 6.2 本机硬限制（踩过）
 - 工具调用起的 GUI 进程会被回收：启动与断言必须写在同一命令里。
 - PowerShell `Add-Type` 在工具调用内被拦；截图/断言用 Python + `ctypes` + Pillow。
-- 截图必须先征得用户同意，同意有时限。
+- **截图必须先征得用户同意，同意有时限**（用户长期规则）。
 - 工具链：VS `D:\APP\VS2026`（MSVC 14.52.37025）、Windows SDK 10.0.26100.0。
 - 本机**没有 `gh` CLI**：Release 走 GitHub REST API（环境有 `GH_TOKEN`）；`git push` 走 SSH。
-- dist 版进程名是 `随影ShadeBar_v<ver>`，`target` 版是 `shadebar-app`；单实例互斥会让后者
-  启动即退出——测新代码前先按 PID 停旧实例。
+- dist 版进程名 `随影ShadeBar_v<ver>`，`target` 版是 `shadebar-app`；单实例互斥会让后者启动即退出——测新代码前先按 PID 停旧实例。
+- **Bash 里不能调 PowerShell**（安全策略拦截），要用 PowerShell 工具；Win+R 运行框不支持 `type` 等 cmd 内置命令。
 
 ### 6.3 数据与路径
 - 配置：`%LOCALAPPDATA%\ShadeBar\config.json`（**49 项编号**；缺失尾部按默认补）
-- 日志：`%LOCALAPPDATA%\ShadeBar\payload.log`（载荷，带时间戳）、`shadebar.log`（宿主）
+- 日志：`%LOCALAPPDATA%\ShadeBar\payload.log`（载荷）、`shadebar.log`（宿主，带 `[pid 时间]` 前缀）；
+  **payload.log 有 262144 字节轮转，取证前先归档**
 - 载荷副本：`%LOCALAPPDATA%\ShadeBar\ShadeBarTap_v<ver>_<指纹>.dll`
+- 探针触发：`%LOCALAPPDATA%\ShadeBar\probe.trigger`（空文件，宿主消费后删除；默认关闭）
 - 采样分区：时钟 93–99%、托盘 84–93%、图标区 0–84%
 
 ### 6.4 关键参数（改代码前必看）
-- IPC 结构 `ShadeBarIpc` 80 字节；`reserved[0]` 元素掩码（TIME/DATE/TRAY/INDICATOR），
-  `reserved[1]` 代际，`reserved[6]` 载荷活跃计数。
-- 队列位序：`SettingKey as usize`，**新增项只能追加在末尾**（`SETTING_COUNT` 当前 49）。
+- IPC `ShadeBarIpc` **80 字节**；`reserved[0]` 元素掩码、`reserved[1]` 代际、
+  `reserved[2]` 探针触发（新增）、`reserved[6]` 载荷活跃计数。
+- 队列位序 `SettingKey as usize`，新增项只能追加末尾（`SETTING_COUNT`=49）。
 - 分项色：S-52/53 正常条、S-54/55 选中条、S-56/57 托盘、S-58/59 时间日期
-  （成对为「背景偏暗 / 偏亮」），S-60 正常条不透明度（0–100，默认 45）。
+  （成对「背景偏暗/偏亮」），S-60 正常条不透明度（0–100，默认 45）。
 - 载荷文件名带内容指纹，避免 explorer 复用旧模块。
 - 采样必须用屏幕 DC，不能用窗口 DC。
-- 体积：单 exe 约 672 KB；不得引入新 crate（windows 锁 `=0.58.0`）。
+- 体积单 exe 约 672 KB；不得引入新 crate（windows 锁 `=0.58.0`）。
 
 ---
 
@@ -190,21 +225,36 @@ powershell -ExecutionPolicy Bypass -File build.ps1
 - 版本号严格 SemVer 2.0.0；修 bug 是 PATCH，新功能是 MINOR。
 - 每组必须真机验收，他说「没问题」才继续；汇报要带任务清单与进度。
 - 不要替他做"这个不重要"的判断；发现问题先说清根因，再给方案。
+- **不要用"应该没问题"交差**——必须有证据；用户会追根因，判断错误要如实承认并纠正。
 
 ---
 
-## 8. 新对话冒烟验证（3 分钟）
+## 8. 本次调查证据索引
+
+| 文件 | 内容 |
+|---|---|
+| `evidence/INVESTIGATION-STATUS.md` | **总览**：真根因、已排除方向、剩余路径（新对话必读） |
+| `evidence/coldboot-20261127/FINDINGS.md` | 冷开机根因首证（Add 停在 201、ind 恒为 1） |
+| `evidence/coldboot-20261127/IVTS-feasibility.md` | 架构师接口论证（含官方来源 URL、兜底方案） |
+| `evidence/coldboot-20261127/{before,after}/` | 首轮冷开机前后日志 |
+| `evidence/probe-coldboot-20261127/` | 第一轮 HitTest 探针（E_INVALIDARG 初现） |
+| `evidence/probe2-coldboot-20261127/` | 第二轮七坐标探针（四假设全排除） |
+
+---
+
+## 9. 新对话冒烟验证（3 分钟）
 
 ```bash
-# 1) 清场
+# 1) 清场（停旧实例）
 powershell -c "Get-Process *ShadeBar*,shadebar-app -ErrorAction SilentlyContinue | Stop-Process -Force"
 
-# 2) 构建 + 启动（启动与断言同一命令）
+# 2) 构建 + 测试与载荷回归
 cargo build --release
-
-# 3) 测试与载荷回归
-cargo test --release
+cargo test --release                       # 应 235 项全绿
 python tools/check_payload_sync.py
+python tools/check_hittest_probe.py --self-test
+python tools/check_shutdown_logic.py --self-test
 
-# 4) 看五处：时间/日期、托盘字形、托盘箭头、正常/选中指示条是否按设置着色
+# 3) 看五处：时间/日期、托盘字形、托盘箭头、正常/选中指示条是否按设置着色
+# 4) 真问题复现步骤：冷开机 → 开记事本/浏览器 → 看新窗口指示条是否灰色
 ```
