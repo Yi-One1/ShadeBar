@@ -171,6 +171,12 @@ static volatile LONG g_clearOnAdd = 0;   // 首次订阅的第一个 Add 到来�
 static std::map<InstanceHandle, bool> g_indSelState;
 static volatile LONG g_urgent = 0;       // 1 = 绕过 250 ms 限流，立即应用
 static int g_addLogBudget = 200;         // Add 事件诊断日志预算（防刷屏）
+// 冷开机取证：Add 事件全局计数（不受日志预算限制）。200 条日志不代表只有 200 个
+// Add——必须区分"新窗口的 Add 根本没来"和"来了但被日志预算截断没打出来"。
+static volatile LONG g_addTotal = 0;
+static volatile LONG g_addIndTotal = 0;  // 其中 name=RunningIndicator 的个数
+// 关键事件每 N 个打一行摘要，既能看总量又能看新元素是否持续到达。
+static volatile LONG g_addTicker = 0;
 static int g_trayExtraLogBudget = 60;    // 托盘扩展元素（箭头）命中日志预算
 static int g_indFailBudget = 30;         // 指示条写入失败日志预算
 
@@ -272,10 +278,23 @@ public:
             g_nameMap[e.handle] = N;
 
 
-            if (g_addLogBudget > 0) {
-                --g_addLogBudget;
-                LogW(L"[Add] name=\"%s\" type=\"%s\" parent=0x%llX",
-                     N.c_str(), T.c_str(), (unsigned long long)relation.Parent);
+            // 取证：先无条件计数，再决定是否打日志。RunningIndicator 是本次要查的
+            // 目标元素，每次都打（不受 200 条预算限制）；其余走原预算 + 定期摘要。
+            const long addN = InterlockedIncrement(&g_addTotal);
+            const bool isInd = (N == L"RunningIndicator");
+            if (isInd) InterlockedIncrement(&g_addIndTotal);
+            if (isInd || g_addLogBudget > 0) {
+                if (!isInd) --g_addLogBudget;
+                LogW(L"[Add] name=\"%s\" type=\"%s\" parent=0x%llX%s",
+                     N.c_str(), T.c_str(), (unsigned long long)relation.Parent,
+                     isInd ? L" <<IND>>" : L"");
+            }
+            const long tick = InterlockedIncrement(&g_addTicker);
+            if ((tick % 100) == 0) {
+                size_t inTreeInd = 0;
+                for (const auto& it : g_tree) if (it.name == L"RunningIndicator") ++inTreeInd;
+                LogW(L"[Diag] ADD total=%ld ind=%ld(inTree=%zu)",
+                     addN, (long)g_addIndTotal, inTreeInd);
             }
 
             bool want = (N == L"TimeInnerTextBlock" || N == L"DateInnerTextBlock" ||
