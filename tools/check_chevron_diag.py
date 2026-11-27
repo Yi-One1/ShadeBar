@@ -31,7 +31,8 @@ import os
 import re
 import sys
 
-START_RE = re.compile(r"==== ShadeBar 载荷启动 build=(?P<build>\S+) pid=(?P<pid>\d+) ====")
+# build 是完整时间戳（形如 "Nov 27 2026 15:09:16"），中间有空格，不能用 \S+
+START_RE = re.compile(r"==== ShadeBar 载荷启动 build=(?P<build>.+?) pid=(?P<pid>\d+) ====")
 ADD_RE = re.compile(r"\[Diag\] chevron ADD #(?P<n>\d+) h=0x(?P<h>[0-9A-Fa-f]+)")
 REMOVE_RE = re.compile(r"\[Diag\] chevron REMOVE #(?P<n>\d+) h=0x(?P<h>[0-9A-Fa-f]+)")
 RB_RE = re.compile(
