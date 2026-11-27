@@ -17,6 +17,7 @@
 #define SHADEBAR_PAYLOAD_BUILD __DATE__ " " __TIME__
 #include <windows.h>
 #include <xamlom.h>
+#include <UIAutomationClient.h>
 #include <windows.foundation.h>
 #include <windows.ui.core.h>
 #include <stdio.h>
@@ -1019,6 +1020,151 @@ static void PollIndicatorState() {
     }
 }
 
+// ---------------------------------------------------------------- HitTest 只读探针
+//
+// 只回答四个问题：HitTest 能否调用（P1）、RECT 用哪种坐标（P2）、
+// 返回的句柄能否当场读出 Name/Type（P3）、新窗口出现后指示条数量是否增加（P4）。
+// 这一段是取证工具：只读，不改任何属性、不碰 g_tree、不改订阅状态机。
+// 触发源是 IPC reserved[2]，宿主检测到哨兵文件时写非 0，载荷读取后立即清零。
+
+// 读元素自身的 Name / Type。属性链第 0 个 source 就是元素本身，其 Name /
+// TargetType 与 Add 事件里的 VisualElement.Name / Type 同源。
+static void ProbeReadIdentity(InstanceHandle h, std::wstring* name, std::wstring* type) {
+    name->clear();
+    type->clear();
+    IVisualTreeService* svc = VtsBase();
+    if (!svc || !h) return;
+
+    unsigned int sc = 0, pc = 0;
+    PropertyChainSource* src = nullptr;
+    PropertyChainValue* pr = nullptr;
+    if (FAILED(svc->GetPropertyValuesChain(h, &sc, &src, &pc, &pr))) return;
+    if (sc > 0) {
+        if (src[0].Name) *name = src[0].Name;
+        if (src[0].TargetType) *type = src[0].TargetType;
+    }
+    if (name->empty()) {
+        for (unsigned int i = 0; i < pc; ++i) {
+            if (pr[i].PropertyName && wcscmp(pr[i].PropertyName, L"Name") == 0 && pr[i].Value) {
+                *name = pr[i].Value;
+                break;
+            }
+        }
+    }
+    for (unsigned int i = 0; i < pc; ++i) {
+        SysFreeString(pr[i].Type); SysFreeString(pr[i].DeclaringType);
+        SysFreeString(pr[i].ValueType); SysFreeString(pr[i].ItemType);
+        SysFreeString(pr[i].Value); SysFreeString(pr[i].PropertyName);
+    }
+    for (unsigned int i = 0; i < sc; ++i) {
+        SysFreeString(src[i].TargetType); SysFreeString(src[i].Name);
+    }
+    if (pr) CoTaskMemFree(pr);
+    if (src) CoTaskMemFree(src);
+}
+
+// 对照组：UIA 能否看到 Name=RunningIndicator 的后代。只查询、失败只记日志。
+static void ProbeUiaCount(HWND tray) {
+    IUIAutomation* ui = nullptr;
+    HRESULT hr = CoCreateInstance(CLSID_CUIAutomation, nullptr, CLSCTX_INPROC_SERVER,
+                                  __uuidof(IUIAutomation), (void**)&ui);
+    if (FAILED(hr) || !ui) {
+        LogW(L"[Probe] UIA hr=0x%08X count=-1", (unsigned)hr);
+        return;
+    }
+    IUIAutomationElement* root = nullptr;
+    hr = ui->ElementFromHandle((UIA_HWND)tray, &root);
+    int found = -1;
+    if (SUCCEEDED(hr) && root) {
+        VARIANT v;
+        VariantInit(&v);
+        V_VT(&v) = VT_BSTR;
+        V_BSTR(&v) = SysAllocString(L"RunningIndicator");
+        IUIAutomationCondition* cond = nullptr;
+        hr = ui->CreatePropertyCondition(UIA_NamePropertyId, v, &cond);
+        if (SUCCEEDED(hr) && cond) {
+            IUIAutomationElementArray* arr = nullptr;
+            hr = root->FindAll(TreeScope_Descendants, cond, &arr);
+            if (SUCCEEDED(hr) && arr) {
+                int n = 0;
+                if (SUCCEEDED(arr->get_Length(&n))) found = n;
+                arr->Release();
+            }
+            cond->Release();
+        }
+        VariantClear(&v);
+        root->Release();
+    }
+    LogW(L"[Probe] UIA hr=0x%08X count=%d", (unsigned)hr, found);
+    ui->Release();
+}
+
+static void UiProbeProc() {
+    // 与 UiPollProc 一样不 SetEvent：主循环不等探针结束，避免打乱 apply 同步。
+    const HWND tray = FindWindowW(L"Shell_TrayWnd", nullptr);
+    LogW(L"[Probe] ==== BEGIN tid=%lu hwnd=0x%p ====", GetCurrentThreadId(), (void*)tray);
+    if (!g_diag) {
+        LogW(L"[Probe] P1 hr=0x80004005 count=0 (no diagnostics)");
+        LogW(L"[Probe] ==== END ====");
+        return;
+    }
+
+    RECT wr{};
+    if (!tray || !GetWindowRect(tray, &wr)) wr = { 0, 0, 0, 0 };
+    RECT cr{};
+    if (tray && GetClientRect(tray, &cr)) {
+        POINT tl{ cr.left, cr.top }, br{ cr.right, cr.bottom };
+        ClientToScreen(tray, &tl);
+        ClientToScreen(tray, &br);
+        cr = { tl.x, tl.y, br.x, br.y };
+    }
+    RECT icons = wr;
+    if (wr.right > wr.left) {
+        icons.right = wr.left + (wr.right - wr.left) / 2;  // 图标区在左半段
+        icons.top += 2;
+        icons.bottom -= 2;
+    }
+    const RECT rects[3] = { wr, cr, icons };
+    const wchar_t* labels[3] = { L"window", L"client", L"icons" };
+
+    // 同一个指示条会被多块矩形命中；用句柄去重，SUMMARY 才等于真实指示条数。
+    std::map<InstanceHandle, bool> seenInd;
+    for (int ri = 0; ri < 3; ++ri) {
+        unsigned int count = 0;
+        InstanceHandle* handles = nullptr;
+        const HRESULT hr = g_diag->HitTest(rects[ri], &count, &handles);
+        const RECT& r = rects[ri];
+        LogW(L"[Probe] P1 rect=%d hr=0x%08X count=%u", ri, (unsigned)hr, count);
+        LogW(L"[Probe] P2 rect=%d label=%s RECT=(%ld,%ld,%ld,%ld) count=%u",
+             ri, labels[ri], r.left, r.top, r.right, r.bottom, count);
+        if (FAILED(hr) || !handles) continue;
+
+        unsigned int readOk = 0, hitLogged = 0;
+        for (unsigned int i = 0; i < count; ++i) {
+            // 必须在同一调用栈内立刻读：句柄只当次有效（铁律 6）。
+            std::wstring name, type;
+            ProbeReadIdentity(handles[i], &name, &type);
+            if (!name.empty() || !type.empty()) ++readOk;
+            const bool isInd = (name == L"RunningIndicator");
+            const bool isRect = (type == L"Windows.UI.Xaml.Shapes.Rectangle");
+            if (isInd && !seenInd.count(handles[i])) seenInd[handles[i]] = true;
+            if ((isInd || isRect) && hitLogged < 20) {
+                LogW(L"[Probe] HIT h=0x%llX name=%s type=%s",
+                     (unsigned long long)handles[i],
+                     name.empty() ? L"-" : name.c_str(),
+                     type.empty() ? L"-" : type.c_str());
+                ++hitLogged;
+            }
+        }
+        LogW(L"[Probe] P3 rect=%d scanned=%u readOk=%u hitLogged=%u", ri, count, readOk, hitLogged);
+        CoTaskMemFree(handles);
+    }
+    LogW(L"[Probe] SUMMARY indCount=%zu", seenInd.size());
+    if (tray) ProbeUiaCount(tray);
+    else LogW(L"[Probe] UIA hr=0x80004005 count=-1");
+    LogW(L"[Probe] ==== END ====");
+}
+
 static void UiPollProc() {
     // 不 SetEvent：主循环不等轮询结束（等下一拍应用即可）。共用 g_uiDoneEvent
     // 会让"轮询先完成"提前唤醒应用等待，反而打乱 apply 的同步。
@@ -1051,7 +1197,8 @@ static void UiRestoreProc() {
 
 /// UI 线程上要执行的动作。原来只有 apply/restore 两态，退位退订是第三态；
 /// 用 bool 已经表达不清，改枚举。poll 只读状态、发现变化才让主循环应用。
-enum UiOp { UiApply = 0, UiRestore = 1, UiUnadvise = 2, UiPoll = 3 };
+/// probe 是冷开机取证的只读探针，默认不触发。
+enum UiOp { UiApply = 0, UiRestore = 1, UiUnadvise = 2, UiPoll = 3, UiProbe = 4 };
 
 class DispatchedHandler final : public ABI::Windows::UI::Core::IDispatchedHandler {
 public:
@@ -1079,6 +1226,7 @@ public:
         case UiRestore:  UiRestoreProc();  break;
         case UiUnadvise: UiUnadviseProc(); break;
         case UiPoll:     UiPollProc();     break;
+        case UiProbe:    UiProbeProc();    break;
         case UiApply:
         default:         UiApplyProc();    break;
         }
@@ -1279,6 +1427,13 @@ static DWORD WINAPI Worker(LPVOID) {
 
         const LONG seq = g_ipc->seq;
         const bool enabled = g_ipc->enabled != 0;
+
+        // HitTest 只读探针：宿主在 reserved[2] 写非 0 触发一次，读取即清零，
+        // 防止宿主漏清时每拍重复探测。默认恒 0，正常着色路径完全不受影响。
+        const LONG probeReq = InterlockedExchange((volatile LONG*)&g_ipc->reserved[2], 0);
+        if (probeReq) {
+            LogW(L"[Probe] TRIGGER posted hr=0x%08X", (unsigned)PostToUi(UiProbe));
+        }
 
         if (enabled) {
             // 状态事件（悬停/选中切换）可能很密，全量应用会打满 UI 线程。

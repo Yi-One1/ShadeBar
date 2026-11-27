@@ -64,7 +64,7 @@ echo "=== 编译 ShadeBarTap.dll ==="
       ../ShadeBarTap.cpp \
       -Fe:ShadeBarTap.dll \
       -link -DLL -DEF:../ShadeBarTap.def -RELEASE \
-      ole32.lib oleaut32.lib uuid.lib user32.lib
+      ole32.lib oleaut32.lib uuid.lib user32.lib uiautomationcore.lib
 rc=$?
 if [ $rc -ne 0 ]; then echo "[x] 编译失败 rc=$rc"; exit 2; fi
 

@@ -96,6 +96,9 @@ const IPC_VERSION: u32 = 1;
 const _STATUS_READY: i32 = 1;
 
 /// 共享内存布局。**字段顺序/类型必须与 `payload/ShadeBarIpc.h` 逐字节一致**。
+///
+/// `reserved` 槽位契约：`[0]` 元素掩码、`[1]` 载荷代际、`[2]` HitTest 探针触发位、
+/// `[6]` 载荷活跃计数，`[3..5]` 保留。新增用途只能占空闲槽位，不得改 80 字节布局。
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Default)]
 pub struct ShadeBarIpc {
@@ -167,6 +170,13 @@ pub fn ensure_payload_dll() -> Option<std::path::PathBuf> {
 // ---------------------------------------------------------------------------
 // 颜色计划
 // ---------------------------------------------------------------------------
+
+/// HitTest 只读探针触发位在 IPC `reserved` 中的下标（与 `ShadeBarIpc.h` 一致）。
+/// 默认恒为 0；只在冷开机取证时由哨兵文件驱动一次，不参与任何染色路径。
+pub const PROBE_TRIGGER_INDEX: usize = 2;
+
+/// 探针哨兵文件名：用户创建 `%LOCALAPPDATA%\ShadeBar\probe.trigger` 即触发一次。
+pub const PROBE_TRIGGER_FILE: &str = "probe.trigger";
 
 /// 元素掩码位。写进 IPC 的 `reserved[0]`，载荷据此决定改哪些元素；
 /// **未置位的元素会被还原成系统原色**，从而让设置里的开关即时生效。
@@ -461,6 +471,9 @@ impl Ipc {
                 ));
                 (*p).shutdown = 0;
                 (*p).enabled = 0;
+                // 探针触发位也不能跨会话继承：上次没被载荷消费掉的触发
+                // 若留到本次会话，用户一开机就会看到一次来历不明的探测日志。
+                (*p).reserved[PROBE_TRIGGER_INDEX] = 0;
             }
         }
         Ok(this)
@@ -529,6 +542,27 @@ impl Ipc {
         }
     }
 
+    /// 触发一次载荷侧 HitTest 只读探针（`reserved[2]=1` + `seq+1`）。
+    ///
+    /// 载荷读取该位后立即清零；探针只读，不改颜色、不碰订阅状态机。
+    /// 与 `app::start_recolor` 同理：单测绝不产生真实 IPC 副作用。
+    pub fn request_probe(&mut self) {
+        #[cfg(test)]
+        {
+            let _ = self;
+            return;
+        }
+        #[cfg(not(test))]
+        {
+            // SAFETY: 视图有效；写入为单字宽字段，载荷侧以 InterlockedExchange 读取。
+            unsafe {
+                let p = self.view;
+                (*p).reserved[PROBE_TRIGGER_INDEX] = 1;
+                (*p).seq = (*p).seq.wrapping_add(1);
+            }
+        }
+    }
+
     /// 仅还原（不退出载荷）。
     pub fn restore(&mut self) {
         // SAFETY: 同上。
@@ -547,6 +581,36 @@ impl Drop for Ipc {
         unsafe {
             raw::UnmapViewOfFile(self.view.cast::<c_void>());
             raw::CloseHandle(self.map);
+        }
+    }
+}
+
+/// 哨兵文件路径。单测返回 `None`：绝不读写用户机器上的真实 `probe.trigger`。
+fn probe_trigger_path() -> Option<std::path::PathBuf> {
+    #[cfg(test)]
+    {
+        let _ = PROBE_TRIGGER_FILE;
+        return None;
+    }
+    #[cfg(not(test))]
+    {
+        let base = std::env::var_os("LOCALAPPDATA")?;
+        Some(std::path::PathBuf::from(base).join("ShadeBar").join(PROBE_TRIGGER_FILE))
+    }
+}
+
+/// 检测并取走探针哨兵。只有成功删除才返回 `true`，保证一次创建恰好触发一次，
+/// 删除失败（权限/占用）时不触发，避免每拍重复探测把日志刷爆。
+fn take_probe_trigger() -> bool {
+    let Some(path) = probe_trigger_path() else { return false };
+    if !path.is_file() {
+        return false;
+    }
+    match std::fs::remove_file(&path) {
+        Ok(()) => true,
+        Err(e) => {
+            crate::config::note(&format!("probe trigger: cannot remove sentinel: {e}"));
+            false
         }
     }
 }
@@ -1110,6 +1174,14 @@ fn run_loop(
             }
         }
 
+        // 1.5) HitTest 只读探针（冷开机取证）：用户创建
+        //      %LOCALAPPDATA%\ShadeBar\probe.trigger 即触发一次，取走哨兵后下发。
+        //      要求总开关开启且载荷已确认存活，否则不消费哨兵（留给下次机会）。
+        if cfg.enabled && injected_pid != 0 && take_probe_trigger() {
+            ipc.request_probe();
+            crate::config::note("hittest probe: sentinel detected, request_probe sent");
+        }
+
         // 2) 采样 + 判定（S-11 关闭时不再采样，沿用上次判定色）
         let t_sample = std::time::Instant::now();
         let luma = if cfg.follow { sampler.sample(&cfg.region) } else { RegionLuma::default() };
@@ -1229,6 +1301,19 @@ mod tests {
         // 与 C 结构体保持 80 字节
         assert_eq!(std::mem::size_of::<ShadeBarIpc>(), 80);
         assert_eq!(std::mem::align_of::<ShadeBarIpc>(), 4);
+    }
+
+    /// 探针触发位只能用空闲槽位 reserved[2]：改位会同时破坏载荷与宿主的契约。
+    #[test]
+    fn probe_trigger_uses_free_reserved_slot() {
+        assert_eq!(PROBE_TRIGGER_INDEX, 2);
+        assert_eq!(PROBE_TRIGGER_FILE, "probe.trigger");
+        // 与 C 侧注释里的占用槽位逐项核对，防止以后有人把探针挪到已用槽位。
+        let occupied = [0usize, 1, 6]; // 元素掩码 / 代际 / 活跃计数
+        assert!(!occupied.contains(&PROBE_TRIGGER_INDEX));
+        // 单测下哨兵路径必须为空：不得读用户的 LOCALAPPDATA。
+        assert!(probe_trigger_path().is_none());
+        assert!(!take_probe_trigger());
     }
 
     #[test]

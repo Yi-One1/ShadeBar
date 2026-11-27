@@ -39,7 +39,11 @@ struct ShadeBarIpc {
     unsigned int indicatorSelectedColor; /* 48 */
     /* reserved[0] = 元素掩码：bit0 时间 / bit1 日期 / bit2 托盘字形 / bit3 指示条。
      * 未置位的元素会被写回系统原色（不是清空），从而让设置开关即时生效。
-     * 其余保留，保持 80 字节对齐。 */
+     * reserved[1] = 载荷代际（后注入者 +1，旧副本退位）。
+     * reserved[2] = HitTest 只读探针触发位：宿主写非 0 触发一次，载荷读取后立即清零。
+     *              默认恒为 0；只用于冷开机取证，不参与染色。
+     * reserved[6] = 载荷活跃计数（主循环每轮 +1，宿主注入前探测）。
+     * reserved[3..5] 保留，保持 80 字节对齐。 */
     unsigned int reserved[7];        /* 52..79 */
 };
 #pragma pack(pop)
