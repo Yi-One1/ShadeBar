@@ -15,7 +15,9 @@
   NOT_IN_TREE        会话内没有 chevron ADD —— Add 事件没到，元素没进树（假设 A）
   REMOVED            chevron 进过树但之后被 REMOVE 且未再 ADD
   WRITE_MISMATCH     回读颜色与目标色不一致 —— 写进了但被覆盖/WinComp 不读（假设 B）
-  WRITE_OK           ADD 存在且回读颜色一致（诊断通过；若视觉仍不对，问题在屏幕采样之外）
+  WRITE_OK           ADD 存在且旧版 RB 回读颜色一致（v1.5.4 诊断版）
+  FIX_OK             v1.5.5+ 修复版：改画刷对象 Color 后回读颜色一致（修复生效判据）
+  FIX_FAILED         v1.5.5+ 修复版：改画刷后回读仍不符（修复未生效，需继续查）
 
 用法：
   python tools/check_chevron_diag.py
@@ -39,6 +41,11 @@ RB_RE = re.compile(
     r"\[Diag\] chevron RB want=(?P<want>[0-9A-Fa-f]{8}) got=(?P<got>[0-9A-Fa-f]{8}) "
     r"rb=(?P<rb>[01]) adds=(?P<adds>\d+) rems=(?P<rems>\d+)"
 )
+# v1.5.5 修复后的写后回读日志：改画刷对象 Color 之后读回的实际颜色
+FIX_RE = re.compile(
+    r"\[Diag\] chevron FIX want=(?P<want>[0-9A-Fa-f]{8}) got=(?P<got>[0-9A-Fa-f]{8}) "
+    r"brush=(?P<brush>[01]) rb=(?P<rb>[01])"
+)
 
 
 def default_log() -> str:
@@ -56,7 +63,7 @@ def analyze(lines: list[str]) -> dict:
         m = START_RE.search(line)
         if m:
             cur = {"build": m.group("build"), "pid": m.group("pid"),
-                   "adds": [], "removes": [], "rb": []}
+                   "adds": [], "removes": [], "rb": [], "fix": []}
             sessions.append(cur)
             continue
         if cur is None:
@@ -79,6 +86,15 @@ def analyze(lines: list[str]) -> dict:
                 "rems": int(m.group("rems")),
             })
             continue
+        m = FIX_RE.search(line)
+        if m:
+            cur["fix"].append({
+                "want": m.group("want").upper(),
+                "got": m.group("got").upper(),
+                "brush": int(m.group("brush")),
+                "rb": int(m.group("rb")),
+            })
+            continue
 
     if not sessions:
         return {"root_cause": "NO_SESSION", "sessions": 0,
@@ -87,7 +103,7 @@ def analyze(lines: list[str]) -> dict:
     s = sessions[-1]
     base = {"sessions": len(sessions), "build": s["build"], "pid": s["pid"],
             "add_count": len(s["adds"]), "remove_count": len(s["removes"]),
-            "rb_count": len(s["rb"])}
+            "rb_count": len(s["rb"]), "fix_count": len(s["fix"])}
 
     if not s["adds"]:
         return {**base, "root_cause": "NOT_IN_TREE",
@@ -96,6 +112,18 @@ def analyze(lines: list[str]) -> dict:
     if s["removes"] and len(s["removes"]) >= len(s["adds"]):
         return {**base, "root_cause": "REMOVED",
                 "detail": "chevron 进树后被 REMOVE 且未再 ADD：句柄失效"}
+
+    # 修复版（v1.5.5+）以 chevron FIX 回读为准：改画刷对象 Color 后读回必须 == 目标色。
+    if s["fix"]:
+        fix_good = [r for r in s["fix"] if r["rb"] == 1 and r["want"] == r["got"]]
+        if fix_good:
+            return {**base, "root_cause": "FIX_OK",
+                    "detail": f"修复生效：改画刷后回读颜色一致（{len(fix_good)}/{len(s['fix'])} 拍）",
+                    "sample": fix_good[0]}
+        sample = s["fix"][0]
+        return {**base, "root_cause": "FIX_FAILED",
+                "detail": f"修复未生效：改画刷后回读仍不符 want={sample['want']} got={sample['got']}",
+                "sample": sample}
 
     good = [r for r in s["rb"] if r["rb"] == 1 and r["want"] == r["got"]]
     bad = [r for r in s["rb"] if r["rb"] == 1 and r["want"] != r["got"]]
@@ -142,6 +170,22 @@ SELF_FIXTURES: list[tuple[str, list[str], str]] = [
         "[Diag] chevron ADD #1 h=0xABC parent=0xDEF",
         "[Diag] chevron RB want=FFFFFFFF got=FFFFFFFF rb=1 adds=1 rems=0",
     ], "WRITE_OK"),
+    ("修复生效", [
+        "==== ShadeBar 载荷启动 build=NEW pid=3 ====",
+        "[Diag] chevron ADD #1 h=0xABC parent=0xDEF",
+        "[Diag] chevron FIX want=FFFFFFFF got=FFFFFFFF brush=1 rb=1",
+    ], "FIX_OK"),
+    ("修复未生效", [
+        "==== ShadeBar 载荷启动 build=NEW pid=3 ====",
+        "[Diag] chevron ADD #1 h=0xABC parent=0xDEF",
+        "[Diag] chevron FIX want=FFFFFFFF got=00000000 brush=1 rb=1",
+    ], "FIX_FAILED"),
+    ("FIX 优先于 RB", [
+        "==== ShadeBar 载荷启动 build=NEW pid=3 ====",
+        "[Diag] chevron ADD #1 h=0xABC parent=0xDEF",
+        "[Diag] chevron RB want=FFFFFFFF got=00000000 rb=1 adds=1 rems=0",
+        "[Diag] chevron FIX want=FFFFFFFF got=FFFFFFFF brush=1 rb=1",
+    ], "FIX_OK"),
 ]
 
 

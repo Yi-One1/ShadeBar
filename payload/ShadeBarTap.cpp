@@ -509,6 +509,11 @@ struct RestoreColors {
     unsigned indSelected = 0;
     // 选中态那条 Fill 指向的画刷对象（退出时即使已无图标处于选中态，也要把它改回来）
     InstanceHandle indSelectedBrush = 0;
+    // 托盘"显示隐藏的图标"箭头的原色。它是 WinComp 绘制的 ChevronIconView，
+    // 与普通托盘字形（真 TextBlock）不同：写 Foreground 属性槽会被系统换成透明，
+    // 必须改画刷对象自身 Color 才生效（与选中态指示条同构）。原色必须单独缓存，
+    // 否则会污染托盘字形共用的 g_restore.tray。
+    unsigned chevron = 0;
 };
 static RestoreColors g_restore;
 // 我们最后一次写进指示条的色值，供退出时按内容识别"哪些画刷是我们染的"。
@@ -784,12 +789,46 @@ static void ApplyColors() {
                 if (SetColorProp(e.handle, L"Foreground", g_restore.date)) ++nUndo;
             }
         } else if (e.name == L"InnerTextBlock") {
+            // 托盘箭头（ChevronIconView）虽然被归入 InnerTextBlock 通道，但它是
+            // WinComp 内部绘制的控件，不是真正的 TextBlock。v1.5.4 只写 Foreground
+            // 属性槽，回读证实被系统换成 00000000（全透明）——写进去了但不生效。
+            // 修复：改它当前指向的画刷对象自身的 Color（与选中态指示条同构），
+            // 并在写后回读校验；普通托盘字形仍走原来的 SetColorProp 路径。
+            const bool isChevron = (e.handle == g_chevronHandle);
             if (mask & kMaskTray) {
-                if (g_restore.tray == 0) { unsigned a = 0; if (ReadBrushColor(e.handle, L"Foreground", &a)) g_restore.tray = a; }
-                const bool wroteTray = SetColorProp(e.handle, L"Foreground", cmd.trayGlyphColor);
-                if (wroteTray) ++nTray;
-            } else if ((g_activeMask & kMaskTray) && g_restore.tray != 0) {
-                if (SetColorProp(e.handle, L"Foreground", g_restore.tray)) ++nUndo;
+                if (isChevron) {
+                    if (g_restore.chevron == 0) {
+                        unsigned a = 0;
+                        if (ReadBrushColor(e.handle, L"Foreground", &a) && a != 0) g_restore.chevron = a;
+                    }
+                    // 主路径：改画刷对象 Color（穿透 WinComp 对属性槽的覆盖）。
+                    bool wroteBrush = SetBrushColorOfProp(e.handle, L"Foreground", cmd.trayGlyphColor);
+                    unsigned now = 0;
+                    bool rb = ReadBrushColor(e.handle, L"Foreground", &now);
+                    // 兜底：画刷对象取不到或回读仍不符，逐层染 Foreground 的所有画刷。
+                    if (!wroteBrush || !rb || now != cmd.trayGlyphColor) {
+                        SetAllBrushColorsOfProp(e.handle, L"Foreground", cmd.trayGlyphColor);
+                        rb = ReadBrushColor(e.handle, L"Foreground", &now);
+                    }
+                    if (rb && now == cmd.trayGlyphColor) ++nTray;
+                    static volatile LONG chevFixSeq = 0;
+                    const long fs = InterlockedIncrement(&chevFixSeq);
+                    if (fs <= 6 || (fs % 30) == 0) {
+                        LogW(L"[Diag] chevron FIX want=%08X got=%08X brush=%d rb=%d",
+                             cmd.trayGlyphColor, now, wroteBrush ? 1 : 0, rb ? 1 : 0);
+                    }
+                } else {
+                    if (g_restore.tray == 0) { unsigned a = 0; if (ReadBrushColor(e.handle, L"Foreground", &a)) g_restore.tray = a; }
+                    const bool wroteTray = SetColorProp(e.handle, L"Foreground", cmd.trayGlyphColor);
+                    if (wroteTray) ++nTray;
+                }
+            } else if ((g_activeMask & kMaskTray)) {
+                if (isChevron) {
+                    if (g_restore.chevron &&
+                        SetBrushColorOfProp(e.handle, L"Foreground", g_restore.chevron)) ++nUndo;
+                } else if (g_restore.tray) {
+                    if (SetColorProp(e.handle, L"Foreground", g_restore.tray)) ++nUndo;
+                }
             }
         } else if (e.name == L"RunningIndicator") {
             // Width 实测多为 "Auto"，真实宽度在 ActualWidth：
@@ -915,8 +954,13 @@ static void RestoreAll() {
             if (orig) { if (SetColorProp(e.handle, L"Foreground", orig)) ++n; }
             else if (ClearColorProp(e.handle, L"Foreground")) ++n;
         } else if (e.name == L"InnerTextBlock") {
-            if (g_restore.tray) { if (SetColorProp(e.handle, L"Foreground", g_restore.tray)) ++n; }
-            else if (ClearColorProp(e.handle, L"Foreground")) ++n;
+            if (e.handle == g_chevronHandle) {
+                // 箭头的 Foreground 属性槽写了会被系统换掉，还原必须改画刷对象 Color。
+                if (g_restore.chevron &&
+                    SetBrushColorOfProp(e.handle, L"Foreground", g_restore.chevron)) ++n;
+            } else if (g_restore.tray) {
+                if (SetColorProp(e.handle, L"Foreground", g_restore.tray)) ++n;
+            } else if (ClearColorProp(e.handle, L"Foreground")) ++n;
         } else if (e.name == L"RunningIndicator") {
             double w = 0.0;
             // 与 ApplyColors 保持同一判据：`Width` 实测是 "Auto"，只有 `ActualWidth` 可用。
