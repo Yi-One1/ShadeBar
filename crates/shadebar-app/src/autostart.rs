@@ -58,6 +58,16 @@ fn exe_path() -> Option<std::path::PathBuf> {
 /// # Errors
 /// 注册表写入/删除失败时返回错误描述（调用方只记日志，不弹窗打断用户）。
 pub fn apply(enabled: bool) -> Result<(), String> {
+    // 单测绝不写真实注册表：测试二进制的 current_exe() 是 deps 下的测试程序，
+    // 一旦写进去，开机就会启动测试 exe（不跑 main）→ 用户机器_color 全失效。
+    // 2026-11-27 实测踩坑：cargo test 把 HKCU\Run\ShadeBar 写成了测试二进制。
+    #[cfg(test)]
+    {
+        let _ = enabled;
+        return Ok(());
+    }
+    #[cfg(not(test))]
+    {
     let sub = wide(RUN_KEY);
     let name = wide(VALUE_NAME);
     if enabled {
@@ -91,6 +101,7 @@ pub fn apply(enabled: bool) -> Result<(), String> {
             Err(format!("RegDeleteKeyValueW 失败 rc={rc}"))
         }
     }
+    } // #[cfg(not(test))] 块结束
 }
 
 /// 读取注册表当前登记的启动命令（`None` 表示没有启动项）。
@@ -154,5 +165,17 @@ mod tests {
         let exe = exe_path().expect("测试进程总有 exe 路径");
         let cmd = format!("\"{}\"", exe.display());
         assert!(cmd.starts_with('"') && cmd.ends_with('"'));
+    }
+
+    /// 回归：测试进程调用 apply 绝不能污染真实 HKCU\Run。
+    /// 2026-11-27 曾因 toggle_autostart 测试走到真实 apply，
+    /// 把自启项写成 deps 下的测试二进制 → 冷开机宿主不启动、着色全失效。
+    #[test]
+    fn apply_is_noop_under_test_build() {
+        let before = current_command();
+        assert!(apply(true).is_ok());
+        assert_eq!(current_command(), before, "测试构建不得写真实注册表");
+        assert!(apply(false).is_ok());
+        assert_eq!(current_command(), before, "测试构建不得删真实注册表");
     }
 }
