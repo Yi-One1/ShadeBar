@@ -109,6 +109,11 @@ static std::map<InstanceHandle, std::wstring> g_nameMap;
 // 只能直接给控件本身写 Foreground，保留最近一次句柄用于属性诊断。
 static InstanceHandle g_chevronHandle = 0;
 static volatile LONG  g_chevronDumped = 0;
+// v1.5.5 取证：chevron 的完整生命周期事件（不受诊断预算限制，事件本身极少）。
+// 冷开机箭头不着色的根因未明：既可能是 Add 事件没到（没进树），也可能是
+// 写进了 Foreground 但 WinComp 内部绘制不读它。下面两个计数 + 回读日志用于区分。
+static volatile LONG  g_chevronAdds = 0;
+static volatile LONG  g_chevronRemoves = 0;
 static CRITICAL_SECTION      g_treeCs;
 static INIT_ONCE             g_treeOnce = INIT_ONCE_STATIC_INIT;
 
@@ -287,6 +292,10 @@ public:
                 want = true;
                 e.name = L"InnerTextBlock";
                 g_chevronHandle = element.Handle;
+                const long adds = InterlockedIncrement(&g_chevronAdds);
+                LogW(L"[Diag] chevron ADD #%ld h=0x%llX parent=0x%llX",
+                     adds, (unsigned long long)element.Handle,
+                     (unsigned long long)relation.Parent);
                 if (g_trayExtraLogBudget > 0) {
                     --g_trayExtraLogBudget;
                     LogW(L"[Tray+] chevron handle=0x%llX parent=0x%llX",
@@ -306,7 +315,12 @@ public:
         } else {
             g_typeMap.erase(element.Handle);
             g_nameMap.erase(element.Handle);
-            if (element.Handle == g_chevronHandle) g_chevronHandle = 0;
+            if (element.Handle == g_chevronHandle) {
+                const long rems = InterlockedIncrement(&g_chevronRemoves);
+                LogW(L"[Diag] chevron REMOVE #%ld h=0x%llX",
+                     rems, (unsigned long long)element.Handle);
+                g_chevronHandle = 0;
+            }
             for (auto it = g_tree.begin(); it != g_tree.end(); ++it) {
                 if (it->handle == element.Handle) { g_tree.erase(it); break; }
             }
@@ -717,6 +731,20 @@ static void ApplyColors() {
         const bool hasFg = IndexFromChain(g_chevronHandle, L"Foreground", &idx);
         LogW(L"[Tray+] chevron Foreground %s idx=%u",
              hasFg ? L"ok" : L"MISSING", hasFg ? idx : 0u);
+    }
+    // v1.5.5 取证：每拍回读 chevron 的 Foreground 实际颜色，与目标色对比。
+    // 旧日志只证明"属性槽存在"（idx=876），无法区分"真染上"与"写了 WinComp 不读"。
+    // 节流：前 10 拍每拍打，其后每 30 拍一次（约 60 s），避免刷屏。
+    if (g_chevronHandle && cmd.trayGlyphColor != 0) {
+        static volatile LONG diagSeq = 0;
+        const long s = InterlockedIncrement(&diagSeq);
+        if (s <= 10 || (s % 30) == 0) {
+            unsigned now = 0;
+            const bool rb = ReadBrushColor(g_chevronHandle, L"Foreground", &now);
+            LogW(L"[Diag] chevron RB want=%08X got=%08X rb=%d adds=%ld rems=%ld",
+                 cmd.trayGlyphColor, now, rb ? 1 : 0,
+                 (long)g_chevronAdds, (long)g_chevronRemoves);
+        }
     }
     int nTime = 0, nDate = 0, nTray = 0, nInd = 0, nUndo = 0, nShared = 0;
 
