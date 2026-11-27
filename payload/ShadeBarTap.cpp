@@ -20,6 +20,7 @@
 #include <UIAutomationClient.h>
 #include <windows.foundation.h>
 #include <windows.ui.core.h>
+#include <tlhelp32.h>
 #include <stdio.h>
 #include <vector>
 #include <string>
@@ -152,6 +153,24 @@ static bool UserActiveRecently() {
     if (!GetLastInputInfo(&li)) return true;
     return (GetTickCount() - li.dwTime) < 15000;
 }
+// 进程是否在运行（按 exe 名，忽略大小写）。
+// 用于感知 TranslucentTB 的**每次启动**：它的 ExplorerTAP 一旦在随影之后连接，
+// 就会独占 XAML 增量事件流，必须重新建立连接夺回。
+static bool ProcessRunning(const wchar_t* exeName) {
+    HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+    if (snap == INVALID_HANDLE_VALUE) return false;
+    PROCESSENTRY32W pe{};
+    pe.dwSize = sizeof(pe);
+    bool found = false;
+    if (Process32FirstW(snap, &pe)) {
+        do {
+            if (_wcsicmp(pe.szExeFile, exeName) == 0) { found = true; break; }
+        } while (Process32NextW(snap, &pe));
+    }
+    CloseHandle(snap);
+    return found;
+}
+
 /* 代际令牌：同一 explorer 里可能同时驻留多个版本的载荷（升级、重复注入）。
  * 它们共享同一块 IPC，谁都能写 —— 旧副本会用旧逻辑持续覆盖新副本的结果，
  * 现象就是"改了没反应"。约定：最后注入的实例把 reserved[1] 递增并记为自己的
@@ -1632,35 +1651,49 @@ static DWORD WINAPI Worker(LPVOID) {
             }
         }
 
-        // 自动夺回：首连成功后 10 s 自动重连一次；若检测到 TranslucentTB 的
-        // ExplorerTAP.dll 在首连之后才注入 explorer，则提前到 +2 s（晚点连接的工具
-        // 会反过来抢走事件流）。两者都只触发一次，避免反复重建快照；
-        // 手动哨兵 reconnect.req 仍保留为兜底。
+        // 自动夺回：以下信号都会安排一次重连（取最早时间，自动串行）：
+        //   1) 首连后 10 s 兜底一次；
+        //   2) TranslucentTB **每次**进程启动（可重复：用户可能开机很久后才打开 TTB）；
+        //   3) ExplorerTAP.dll 在本次连接之后才注入 explorer（+2 s）。
+        // 2)/3) 不能做一次性锁死——否则像"先开随影、几分钟后再开 TTB"会把事件流
+        // 永远让给 TTB（实测踩坑）。手动哨兵 reconnect.req 仍保留为兜底。
         {
+            static bool firstScheduled = false;
             static bool tapSeen = false;
-            static bool autoScheduled = false;
-            static bool autoDone = false;
+            static bool ttbSeen = false;
             static ULONGLONG autoAt = 0;
+            static ULONGLONG lastAuto = 0;
             const ULONGLONG now = GetTickCount64();
-            if (!autoDone && !autoScheduled) {
-                autoScheduled = true;
-                autoAt = now + 10000;
-                LogW(L"[Reconnect] 已安排首连后 10 s 自动重连");
+            auto schedule = [&](ULONGLONG when, const wchar_t* why) {
+                if (!autoAt || when < autoAt) autoAt = when;
+                LogW(L"[Reconnect] 已安排自动重连：%s", why);
+            };
+
+            if (!firstScheduled) {
+                firstScheduled = true;
+                schedule(now + 10000, L"首连后 10 s 兜底");
             }
-            if (!autoDone && !tapSeen && GetModuleHandleW(L"ExplorerTAP.dll")) {
+            const bool ttbRunning = ProcessRunning(L"TranslucentTB.exe");
+            if (ttbRunning && !ttbSeen) {
+                ttbSeen = true;
+                schedule(now + 8000, L"TranslucentTB 启动");
+            } else if (!ttbRunning) {
+                ttbSeen = false;   // 允许下次启动重新触发
+            }
+            if (!tapSeen && GetModuleHandleW(L"ExplorerTAP.dll")) {
                 tapSeen = true;
-                const ULONGLONG t = now + 2000;
-                if (!autoScheduled || t < autoAt) {
-                    autoScheduled = true;
-                    autoAt = t;
-                    LogW(L"[Reconnect] 检测到 ExplorerTAP，2 s 后自动重连");
-                }
+                schedule(now + 2000, L"ExplorerTAP 模块加载");
             }
-            if (autoScheduled && now >= autoAt) {
-                autoScheduled = false;
-                autoDone = true;
-                LogW(L"[Reconnect] 自动触发（首连后定时 / TTB 加载）");
-                TriggerReconnect();
+            // 两次自动重连至少间隔 10 s，避免进程/模块两个信号叠加时连开两条连接。
+            if (autoAt && now >= autoAt) {
+                if (lastAuto && now - lastAuto < 10000) {
+                    autoAt = now + 2000;
+                } else {
+                    autoAt = 0;
+                    lastAuto = now;
+                    LogW(L"[Reconnect] 自动触发");
+                    TriggerReconnect();
+                }
             }
         }
 

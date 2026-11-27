@@ -14,8 +14,9 @@
   R7 丢弃句柄时必须同时重置共享画刷 / 箭头 / 选中态画刷缓存
   R8 哨兵 reconnect.req 必须"检测 → 删除 → 触发重连"
   R9 "清树"标志必须在 Advise 之前置位（快照在 Advise 内同步投递），且失败要回滚
-  R10 自动重连：首连后 10 s 一次，且检测到 ExplorerTAP 新加载时提前到 +2 s，只触发一次
+  R10 自动重连：首连后 10 s 兜底 + ExplorerTAP 新加载时 +2 s
   R11 重连串行化：自动触发与手动哨兵不得并发开两条连接
+  R12 每次 TranslucentTB 启动都要重新触发（不能一次性锁死，否则晚开 TTB 会再次抢走）
 
 用法：
   python tools/check_reconnect_logic.py            # 检查真实源码
@@ -131,16 +132,26 @@ def r9_clear_before_advise(text: str) -> bool:
 
 def r10_auto_trigger(text: str) -> bool:
     return all(k in text for k in (
-        "autoAt = now + 10000",
+        "schedule(now + 10000",
         'GetModuleHandleW(L"ExplorerTAP.dll")',
+        "schedule(now + 2000",
         "[Reconnect] 自动触发",
-        "autoDone = true",
+        "firstScheduled = true",
     ))
 
 
 def r11_reconnect_serialized(text: str) -> bool:
     return ("InterlockedExchange(&g_reconnecting, 1)" in text
             and "InterlockedExchange(&g_reconnecting, 0)" in text)
+
+
+def r12_ttb_process_trigger(text: str) -> bool:
+    """TTB 可能在随影首连很久之后才启动；进程启动检测必须可重复触发。"""
+    return all(k in text for k in (
+        'ProcessRunning(L"TranslucentTB.exe")',
+        'schedule(now + 8000, L"TranslucentTB 启动")',
+        "ttbSeen = false",
+    ))
 
 
 # (编号, 名称, 判定函数, 反例改写（用于 --self-test 证明断言真的会失败）)
@@ -165,9 +176,11 @@ CHECKS: list[tuple[str, str, Callable[[str], bool], tuple[str, str]]] = [
     ("R9", "清树先于 Advise 且失败回滚", r9_clear_before_advise,
      ("prevClear = InterlockedExchange(&g_clearOnAdd, 1)", "prevClear = 0")),
     ("R10", "首连后定时+TTB 检测自动重连", r10_auto_trigger,
-     ("autoAt = now + 10000", "autoAt = now")),
+     ("now + 10000", "now")),
     ("R11", "重连串行化", r11_reconnect_serialized,
      ("InterlockedExchange(&g_reconnecting, 1)", "")),
+    ("R12", "TTB 每次启动都重新夺回", r12_ttb_process_trigger,
+     ('ProcessRunning(L"TranslucentTB.exe")', "false")),
 ]
 
 
