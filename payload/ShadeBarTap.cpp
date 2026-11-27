@@ -127,6 +127,12 @@ static BOOL CALLBACK TreeInit_(PINIT_ONCE, PVOID, PVOID*) {
 
 static ShadeBarIpc* g_ipc = nullptr;
 
+// SetSite 连接序号：冷开机后其他工具可能后连接并抢走增量 Add 事件流，
+// 随影需要建立"新连接"夺回席位。序号只用于日志与取证。
+static volatile LONG g_connNo = 0;
+// %LOCALAPPDATA%\ShadeBar：哨兵文件目录（Worker 启动时填充）。
+static wchar_t g_localDir[MAX_PATH] = L"";
+
 // 微秒级计时：GetTickCount64 分辨率约 15.6 ms，重放明明很快也会显示 0/16。
 static ULONGLONG NowUs() {
     static LARGE_INTEGER freq{};
@@ -153,21 +159,20 @@ static unsigned g_generation = 0;
 // RunningIndicator 的 Fill 一旦被 ClearProperty 会变全透明（v1.1 生产事故）。
 static volatile LONG g_touched = 0;
 
-/* 元素来源（订阅一次，不再重放）
+/* 元素来源（订阅 + 新连接重连）
  *
  * XAML 诊断接口提供两条途径：订阅时的**一次全量投递**，以及之后的 Add/Remove
  * 增量事件；没有"遍历整棵树"的接口。
  *
  * v1.3.1 曾用 Unadvise + Advise 重放来补新窗口的元素，但 v1.5.2 实测：
- * 第一次 Advise 成功后，之后任何一次 Advise（无论先退订、还是换新回调对象）
- * 都会返回 E_UNEXPECTED，频繁重放还会把整个诊断连接弄坏，连时间/日期都不再着色。
- * 而保持初始订阅时，新打开的应用窗口**确实会送来 Add 事件**
- * （打开记事本后 ind 5→6，期间没有任何重放）。
+ * 同一条连接退订后再 Advise 会 E_UNEXPECTED，频繁重放还会弄坏整条诊断链路，
+ * 连时间/日期都不再着色。所以**绝不重订同一连接**，只依赖 Add/Remove 增量。
  *
- * 因此现在只建立一次订阅，完全依赖 Add/Remove 增量；不重放、不重建会话。
- * 冷启动最坏只是"稍晚收到元素"，不会再让整条链路失效。
+ * 唯一的例外是 v1.5.5 的"新连接重连"：冷开机时后连接的工具会独占实时事件流，
+ * 先连接者只剩连接瞬间的快照。此时由哨兵触发一次全新的
+ * InitializeXamlDiagnosticsEx 会话（必须新线程），把事件流夺回来。
  */
-static volatile LONG g_clearOnAdd = 0;   // 首次订阅的第一个 Add 到来时清空旧树
+static volatile LONG g_clearOnAdd = 0;   // 新连接首个 Add 到来时清空旧树
 // 指示条选中态缓存（UI 线程独占）。实测 OnElementStateChanged 对指示条的
 // "选中 ↔ 正常"切换**根本不触发**，g_dirty 没机会置位，只能等宿主下一条指令
 // （约 2 s）才改色。这里由 UI 线程定时只读 ActualWidth，发现变化就置脏。
@@ -185,6 +190,7 @@ static int g_indFailBudget = 30;         // 指示条写入失败日志预算
 
 // 定义在下方（共享画刷一节）；重放/还原后必须丢弃句柄，这里先声明。
 static void ResetSharedBrush();
+static void ResetTreeHandles();
 static bool SetBrushColorDirect(InstanceHandle brushH, unsigned argb);
 
 static std::wstring GuidToStr(REFIID r) {
@@ -203,8 +209,8 @@ static IVisualTreeService* VtsBase() {
 
 class TapObject;
 
-// 当前订阅使用的回调对象。重放时会换成一个新的对象（先订阅成功再拆旧的），
-// 因此不能只由 IClassFactory 持有。
+// 当前订阅使用的回调对象。XAML 每次新连接都会通过 IClassFactory 取到它并调用
+// SetSite，因此不能只由工厂持有。
 static TapObject* g_tap = nullptr;
 
 class TapObject final : public IObjectWithSite, public IVisualTreeServiceCallback2 {
@@ -230,30 +236,76 @@ public:
     HRESULT STDMETHODCALLTYPE SetSite(IUnknown* site) override {
         if (!site) return S_OK;
         g_setSiteTid = GetCurrentThreadId();
-        LogW(L"[Tap] SetSite tid=%lu", g_setSiteTid);
+        const long conn = InterlockedIncrement(&g_connNo);
+        LogW(L"[Tap] SetSite #%ld tid=%lu", conn, g_setSiteTid);
 
         IXamlDiagnostics* d = nullptr;
-        if (SUCCEEDED(site->QueryInterface(__uuidof(IXamlDiagnostics), (void**)&d))) g_diag = d;
+        if (FAILED(site->QueryInterface(__uuidof(IXamlDiagnostics), (void**)&d))) d = nullptr;
 
         IVisualTreeService3* v3 = nullptr;
-        if (SUCCEEDED(site->QueryInterface(__uuidof(IVisualTreeService3), (void**)&v3))) g_vts3 = v3;
+        if (FAILED(site->QueryInterface(__uuidof(IVisualTreeService3), (void**)&v3))) v3 = nullptr;
 
         IVisualTreeService2* v2 = nullptr;
-        if (SUCCEEDED(site->QueryInterface(__uuidof(IVisualTreeService2), (void**)&v2))) g_vts2 = v2;
+        if (FAILED(site->QueryInterface(__uuidof(IVisualTreeService2), (void**)&v2))) v2 = nullptr;
 
-        if (!g_vts3 && !g_vts2) {
+        if (!v3 && !v2) {
             LogW(L"[Tap] FATAL: site 无 IVisualTreeService");
-        } else if (!g_advised) {
-            HRESULT hr = g_vts3 ? g_vts3->AdviseVisualTreeChange(this)
-                                : g_vts2->AdviseVisualTreeChange(this);
-            LogW(L"[Tap] Advise hr=0x%08X", (unsigned)hr);
-            if (SUCCEEDED(hr)) {
-                InterlockedExchange(&g_advised, 1);
-                if (g_advisedEvent) SetEvent(g_advisedEvent);
-            } else {
-                LogW(L"[Tap] 订阅失败，本进程放弃改色");
-            }
+            if (d) d->Release();
+            return S_OK;
         }
+
+        // 同一个 site 重复回调：已订阅就沿用，未订阅（上次 Advise 失败）才重试。
+        // COM 允许对同一对象多次 SetSite，此时不应重复 Advise（会 E_UNEXPECTED）。
+        if (d == g_diag && v3 == g_vts3 && v2 == g_vts2) {
+            if (!g_advised) {
+                HRESULT hr = v3 ? v3->AdviseVisualTreeChange(this)
+                                : v2->AdviseVisualTreeChange(this);
+                LogW(L"[Tap] Advise hr=0x%08X", (unsigned)hr);
+                if (SUCCEEDED(hr)) {
+                    InterlockedExchange(&g_advised, 1);
+                    if (g_advisedEvent) SetEvent(g_advisedEvent);
+                } else {
+                    LogW(L"[Tap] 订阅失败，本进程放弃改色");
+                }
+            } else {
+                LogW(L"[Tap] 同一 site 重复 SetSite，沿用现有订阅");
+            }
+            if (d) d->Release();
+            if (v3) v3->Release();
+            if (v2) v2->Release();
+            return S_OK;
+        }
+
+        // 新连接：冷开机时"最后连接"的工具会独占实时 Add 事件流，先连接者只剩
+        // 连接瞬间的快照。随影靠主动建立新连接夺回席位（不改旧连接的订阅状态）。
+        //
+        // 顺序很重要：先在**新服务**上订阅成功，再提交全局指针。失败则完全沿用旧连接，
+        // 避免"新连接不可用、旧连接又被丢弃"的双输。
+        // 旧连接不 Unadvise：v1.5.2 实测退订/重订会损坏诊断连接；旧接口引用也不再
+        // Release（XAML 侧仍持有，且可能还有在途回调），每次重连泄漏一次可接受。
+        // 关键顺序：全量快照是在 AdviseVisualTreeChange 内**同步**投递的，
+        // 因此"清树"标志必须在 Advise 之前置位，否则快照会把旧树填满、
+        // 然后把标志留给下一个无关 Add，把整棵任务栏树误清掉（实测踩坑）。
+        // 订阅失败时恢复原值，避免旧连接被误清。
+        const LONG prevClear = InterlockedExchange(&g_clearOnAdd, 1);
+        HRESULT hr = v3 ? v3->AdviseVisualTreeChange(this)
+                        : v2->AdviseVisualTreeChange(this);
+        LogW(L"[Tap] Advise hr=0x%08X", (unsigned)hr);
+        if (FAILED(hr)) {
+            InterlockedExchange(&g_clearOnAdd, prevClear);
+            LogW(L"[Tap] 新连接 #%ld 订阅失败，保留旧连接", conn);
+            if (d) d->Release();
+            if (v3) v3->Release();
+            if (v2) v2->Release();
+            return S_OK;
+        }
+
+        g_diag = d; g_vts3 = v3; g_vts2 = v2;
+        InterlockedExchange(&g_advised, 1);
+        // g_dirty 保证快照重建后的一拍重新着色。
+        InterlockedExchange(&g_dirty, 1);
+        if (g_advisedEvent) SetEvent(g_advisedEvent);
+        LogW(L"[Tap] 新连接 #%ld 已接管（旧连接保持订阅不动）", conn);
         return S_OK;
     }
     HRESULT STDMETHODCALLTYPE GetSite(REFIID, void** ppv) override {
@@ -266,9 +318,11 @@ public:
         InitOnceExecuteOnce(&g_treeOnce, TreeInit_, nullptr, nullptr);
         EnterCriticalSection(&g_treeCs);
         if (type == Add) {
-            // 重放开始：第一个 Add 到达时清掉旧树，之后重新累积。
+            // 新连接/重放开始：第一个 Add 到达时清掉旧树与失效句柄，之后重新累积。
             if (InterlockedExchange(&g_clearOnAdd, 0)) {
                 g_tree.clear(); g_typeMap.clear(); g_nameMap.clear();
+                ResetTreeHandles();
+                LogW(L"[Tap] 全量快照重建开始（新连接首个 Add）");
             }
 
             VisEntry e;
@@ -538,6 +592,16 @@ static RestoreColors g_restore;
 static unsigned g_appliedIndColor = 0;
 // 选中态那份（正常/选中现在可以是不同颜色，兜底识别要同时认两种）。
 static unsigned g_appliedIndSelectedColor = 0;
+
+/// 丢弃所有"句柄型"缓存。元素/画刷句柄只在建立连接的那套诊断会话里有效，
+/// 新连接重建快照后旧句柄全部作废，继续使用只会静默写失败。
+static void ResetTreeHandles() {
+    ResetSharedBrush();
+    g_chevronHandle = 0;
+    g_restore.indSelectedBrush = 0;
+    g_indSelState.clear();
+    InterlockedExchange(&g_chevronDumped, 0);
+}
 
 static bool SetColorProp(InstanceHandle h, const wchar_t* propName, unsigned argb) {
     IVisualTreeService* svc = VtsBase();
@@ -1318,6 +1382,28 @@ static HRESULT PostToUi(UiOp op) {
 
 // ---------------------------------------------------------------- 会话初始化
 
+typedef HRESULT(WINAPI* PFN_InitXamlDiag)(LPCWSTR, DWORD, LPCWSTR, LPCWSTR, CLSID, LPCWSTR);
+
+struct InitAttemptCtx {
+    PFN_InitXamlDiag fn;
+    wchar_t name[64];
+    DWORD pid;
+    const wchar_t* tapDll;
+    CLSID clsid;
+    HRESULT hr;
+};
+
+// 每次 InitializeXamlDiagnosticsEx 尝试都必须在新线程里：XAML 诊断的初始化
+// 绑定线程，失败过的线程再试（哪怕换连接名）也只会继续失败。
+// 这一点来自 TranslucentTB 2026.2 的 ExplorerTAP 实现（每次尝试 std::thread + 新连接名）。
+static DWORD WINAPI InitAttemptThread(LPVOID param) {
+    InitAttemptCtx* c = static_cast<InitAttemptCtx*>(param);
+    // 外部调用形态：必须显式指定 XAML 诊断 DLL。TTB 是从 explorer 内自己的 TAP 里调，
+    // 才用 nullptr；实测本进程传 nullptr 会全部 E_NOTFOUND。
+    c->hr = c->fn(c->name, c->pid, L"Windows.UI.Xaml.dll", c->tapDll, c->clsid, L"");
+    return 0;
+}
+
 static bool InitTap() {
     // 注意：这里运行在 worker 线程，**不能**调 AdviseVisualTreeChange
     // （非 XAML UI 线程一律返回 E_UNEXPECTED）。订阅只在 SetSite（XAML 线程）里建立一次。
@@ -1325,8 +1411,7 @@ static bool InitTap() {
     if (!xaml) xaml = LoadLibraryW(L"Windows.UI.Xaml.dll");
     if (!xaml) { LogW(L"[Init] 无 Windows.UI.Xaml.dll"); return false; }
 
-    typedef HRESULT(WINAPI* PFN_Init)(LPCWSTR, DWORD, LPCWSTR, LPCWSTR, CLSID, LPCWSTR);
-    PFN_Init init = (PFN_Init)GetProcAddress(xaml, "InitializeXamlDiagnosticsEx");
+    PFN_InitXamlDiag init = (PFN_InitXamlDiag)GetProcAddress(xaml, "InitializeXamlDiagnosticsEx");
     if (!init) { LogW(L"[Init] 无 InitializeXamlDiagnosticsEx"); return false; }
 
     wchar_t self[MAX_PATH] = L"";
@@ -1338,22 +1423,61 @@ static bool InitTap() {
     CLSID clsid;
     memcpy(&clsid, &kGuid, sizeof(GUID));
 
-    for (int i = 1; i <= 200; ++i) {
-        wchar_t endpoint[64];
-        swprintf_s(endpoint, L"VisualDiagConnection%d", i);
-        HRESULT hr = init(endpoint, GetCurrentProcessId(), L"Windows.UI.Xaml.dll", self, clsid, L"");
-        if (SUCCEEDED(hr)) {
-            LogW(L"[Init] 席位 %s ok", endpoint);
+    // 每次 InitTap 都从 1 号连接名重新扫到 60（与 TTB 的 Install 一致）：
+    // XAML 未就绪时的失败必须在下一轮重新从 1 号试，否则会永远错过可用槽位。
+    // 每次尝试都换新线程 + 500 ms 间隔。
+    if (g_advisedEvent) ResetEvent(g_advisedEvent);
+    const DWORD pid = GetCurrentProcessId();
+    HRESULT lastHr = E_FAIL;
+    bool connected = false;
+    for (int slot = 1; slot <= 60; ++slot) {
+        InitAttemptCtx ctx{};
+        ctx.fn = init;
+        ctx.pid = pid;
+        ctx.tapDll = self;
+        ctx.clsid = clsid;
+        ctx.hr = E_FAIL;
+        swprintf_s(ctx.name, L"VisualDiagConnection%d", slot);
+
+        HANDLE th = CreateThread(nullptr, 0, InitAttemptThread, &ctx, 0, nullptr);
+        if (!th) { LogW(L"[Init] 建线程失败 err=%lu", GetLastError()); return false; }
+        WaitForSingleObject(th, INFINITE);   // ctx 在栈上，必须等线程真正结束
+        CloseHandle(th);
+        lastHr = ctx.hr;
+        if (SUCCEEDED(lastHr)) {
+            LogW(L"[Init] 席位 %s ok", ctx.name);
+            connected = true;
             break;
         }
-        if (hr == E_ACCESSDENIED) { LogW(L"[Init] 席位被拒 (E_ACCESSDENIED)"); return false; }
-        if (i == 200) { LogW(L"[Init] 200 个端点均失败"); return false; }
+        if (slot == 1 || slot == 60) {
+            LogW(L"[Init] 端点 %s hr=0x%08X", ctx.name, (unsigned)lastHr);
+        }
+        if (lastHr == E_ACCESSDENIED) { LogW(L"[Init] 席位被拒 (E_ACCESSDENIED)"); return false; }
+        Sleep(500);
     }
+    if (!connected) { LogW(L"[Init] 60 次尝试均失败"); return false; }
 
     if (g_advisedEvent) WaitForSingleObject(g_advisedEvent, 5000);
     if (!g_advised) { LogW(L"[Init] 未订阅成功"); return false; }
     LogW(L"[Init] 就绪 diag=%p vts3=%p", (void*)g_diag, (void*)g_vts3);
     return true;
+}
+
+// ---------------------------------------------------------------- 重连夺回席位
+
+/// 重连必须在新线程里做：XAML 诊断的初始化每线程只能成功一次，
+/// 在已完成初始化的线程上再次 InitTap 不会产生新的 SetSite。
+static DWORD WINAPI ReconnectThread(LPVOID) {
+    LogW(L"[Reconnect] 新线程 tid=%lu 发起诊断连接", GetCurrentThreadId());
+    const bool ok = InitTap();
+    LogW(L"[Reconnect] 结束 ok=%d advised=%ld", (int)ok, (long)g_advised);
+    return 0;
+}
+
+static void TriggerReconnect() {
+    HANDLE th = CreateThread(nullptr, 0, ReconnectThread, nullptr, 0, nullptr);
+    if (th) CloseHandle(th);
+    else LogW(L"[Reconnect] CreateThread 失败 err=%lu", GetLastError());
 }
 
 // ---------------------------------------------------------------- 陈旧 shutdown 判定
@@ -1380,6 +1504,7 @@ static DWORD WINAPI Worker(LPVOID) {
         wcscat_s(dir, L"\\ShadeBar");
         CreateDirectoryW(dir, nullptr);
         swprintf_s(g_logPath, L"%s\\payload.log", dir);
+        wcscpy_s(g_localDir, dir);
     }
 
     LogW(L"==== ShadeBar 载荷启动 build=" L"" SHADEBAR_PAYLOAD_BUILD L" pid=%lu ====", GetCurrentProcessId());
@@ -1476,6 +1601,24 @@ static DWORD WINAPI Worker(LPVOID) {
                 Sleep(initAttempts >= 60 ? 10000 : 2000);
             }
             continue;
+        }
+
+        // 手动哨兵：创建 %LOCALAPPDATA%\ShadeBar\reconnect.req 即触发一次"新连接夺回席位"。
+        // 冷开机时后启动的工具会让随影丢掉增量 Add 事件，重连可把事件流抢回来。
+        // 默认不自动触发（本组只提供手动开关），每秒轮询一次。
+        {
+            static ULONGLONG lastReconnectPoll = 0;
+            const ULONGLONG rcNow = GetTickCount64();
+            if (g_localDir[0] && rcNow - lastReconnectPoll >= 1000) {
+                lastReconnectPoll = rcNow;
+                wchar_t req[MAX_PATH];
+                swprintf_s(req, L"%s\\reconnect.req", g_localDir);
+                if (GetFileAttributesW(req) != INVALID_FILE_ATTRIBUTES) {
+                    DeleteFileW(req);
+                    LogW(L"[Reconnect] 收到哨兵 reconnect.req，发起新连接");
+                    TriggerReconnect();
+                }
+            }
         }
 
         const LONG seq = g_ipc->seq;

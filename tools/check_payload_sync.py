@@ -12,6 +12,7 @@
   C6 掩码要求时间/日期/托盘时，必须真的写到对应元素
   C7 不发起自动重放（v1.5.2 起只订阅一次；出现 [Replay] 说明跑的是旧载荷）
   C8 托盘"显示隐藏的图标"箭头（ChevronIconView）若出现在树里，必须能解析出 Foreground
+  C9 触发重连（哨兵）后，必须收到全量快照并重新写着色（否则重连只换连接不改色）
 
 用法：
   python tools/check_payload_sync.py
@@ -33,6 +34,9 @@ APPLY_RE = re.compile(
 )
 REPLAY_RE = re.compile(r"\[Replay\] #(?P<n>\d+) reason=(?P<reason>\S+) hr=0x(?P<hr>[0-9A-Fa-f]+) tree=(?P<tree>\d+)(?: (?:ms=(?P<ms>\d+)|us=(?P<us>\d+)))?")
 ADVISE_RE = re.compile(r"\[Tap\] Advise hr=0x(?P<hr>[0-9A-Fa-f]+)")
+# 重连成功（Advise 成功后才打这一行）与随后的全量快照重建标记
+RECONNECT_RE = re.compile(r"\[Tap\] 新连接 #(?P<n>\d+) 已接管")
+REBUILD_MARK = "[Tap] 全量快照重建开始"
 # 托盘"显示隐藏的图标"箭头：它没有 XAML 子元素，只能给控件本身写 Foreground
 CHEVRON_RE = re.compile(r"\[Tray\+\] chevron handle=0x(?P<h>[0-9A-Fa-f]+)")
 CHEVRON_FG_RE = re.compile(r"\[Tray\+\] chevron Foreground (?P<res>ok|MISSING)")
@@ -88,6 +92,11 @@ def main() -> int:
     chevron_seen = 0
     chevron_fg_ok = 0
     chevron_fg_missing = 0
+    # C9：最近一次重连之后的行为（重连本身成功不代表重新着色）
+    reconnect_n = 0
+    applies_after_reconnect: list[dict] = []
+    rebuild_after_reconnect = False
+    pending_rebuild = False   # 快照重建日志在"已接管"之前（Advise 内同步投递）
 
     with open(args.log, encoding="utf-8", errors="replace") as fh:
         for line in fh:
@@ -102,6 +111,10 @@ def main() -> int:
                 chevron_seen = 0
                 chevron_fg_ok = 0
                 chevron_fg_missing = 0
+                reconnect_n = 0
+                applies_after_reconnect = []
+                rebuild_after_reconnect = False
+                pending_rebuild = False
                 continue
             m = APPLY_RE.search(line)
             if m:
@@ -109,6 +122,8 @@ def main() -> int:
                      ("seq", "mask", "time", "date", "tray", "ind", "undo")}
                 applies.append(d)
                 apply_seq.append((apply_seq[-1][0] + 1 if apply_seq else 1, d["ind"]))
+                if reconnect_n:
+                    applies_after_reconnect.append(d)
                 if d["ind"] > 0:
                     last_block = {"seq": d["seq"], "ind": d["ind"], "brushes": set(block_brushes)}
                 block_brushes = set()
@@ -131,6 +146,18 @@ def main() -> int:
                 last_advise = int(m.group("hr"), 16)
                 if last_advise == 0:
                     advise_mark = apply_seq[-1][0] if apply_seq else 0
+                continue
+            if REBUILD_MARK in line:
+                pending_rebuild = True
+                continue
+            m = RECONNECT_RE.search(line)
+            if m:
+                n = int(m.group("n"))
+                if n >= 2:   # #1 是每个载荷实例的首次连接，不算重连
+                    reconnect_n = n
+                    applies_after_reconnect = []
+                    rebuild_after_reconnect = pending_rebuild
+                pending_rebuild = False
                 continue
             if CHEVRON_RE.search(line):
                 chevron_seen += 1
@@ -209,6 +236,19 @@ def main() -> int:
                         chevron_fg_ok > 0 and chevron_fg_missing == 0,
                         f"发现箭头 {chevron_seen} 次，Foreground ok {chevron_fg_ok} 次，"
                         f"MISSING {chevron_fg_missing} 次"))
+
+    # C9：重连（新连接夺回实时事件流）成功还不够，必须收到全量快照并重新着色。
+    # 只换连接不重建快照，表现仍是"新开程序指示条灰色"，只是日志看起来像修好了。
+    if reconnect_n == 0:
+        results.append(("C9 重连后重新着色", True,
+                        "本次会话未触发重连（哨兵 reconnect.req 未使用）"))
+    else:
+        wrote = [a for a in applies_after_reconnect
+                 if a["time"] + a["date"] + a["tray"] + a["ind"] > 0]
+        results.append(("C9 重连后重新着色",
+                        rebuild_after_reconnect and bool(wrote),
+                        f"重连 #{reconnect_n}：快照重建={'是' if rebuild_after_reconnect else '否'}，"
+                        f"之后 {len(applies_after_reconnect)} 拍中 {len(wrote)} 拍写着色"))
 
     def pct(vals: list[float], q: float) -> float:
         if not vals:
